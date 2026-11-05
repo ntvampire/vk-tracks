@@ -1,6 +1,9 @@
 package com.vktracks.player.ui
 
+import android.Manifest
 import android.content.Intent
+import android.content.pm.PackageManager
+import android.os.Build
 import android.os.Bundle
 import android.widget.Toast
 import androidx.activity.ComponentActivity
@@ -20,6 +23,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.unit.dp
+import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import com.vktracks.player.BuildConfig
 import com.vktracks.player.data.model.AppUpdateInfo
@@ -49,6 +53,18 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+
+        // Запрос разрешения на показ уведомлений для Android 13+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            if (ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
+                ActivityCompat.requestPermissions(this, arrayOf(Manifest.permission.POST_NOTIFICATIONS), 101)
+            }
+        }
+
+        // Связываем действие кнопки Like из уведомления со шторки и экрана блокировки
+        PlaybackService.onToggleLikeListener = { track ->
+            viewModel.toggleTrackLike(track)
+        }
 
         // Запуск сервиса воспроизведения
         val serviceIntent = Intent(this, PlaybackService::class.java)
@@ -98,6 +114,10 @@ fun MainAppScreen(viewModel: MainViewModel) {
 
     val availableUpdate by viewModel.availableUpdate.collectAsState()
     val updateProgress by viewModel.updateProgress.collectAsState()
+
+    LaunchedEffect(likedTrackIds) {
+        PlaybackService.updateLikedTrackIds(likedTrackIds)
+    }
 
     // Обработка кнопки назад (сворачивание плеера, настроек и открытого плейлиста)
     BackHandler(enabled = showFullPlayer || showSettings || selectedPlaylist != null) {
@@ -220,7 +240,42 @@ fun MainAppScreen(viewModel: MainViewModel) {
             }
         }
 
-        // Полноэкранный плеер в стиле Apple Music
+        // Экран плейлиста в стиле Apple Music
+        AnimatedVisibility(
+            visible = selectedPlaylist != null,
+            enter = slideInVertically(initialOffsetY = { it }),
+            exit = slideOutVertically(targetOffsetY = { it })
+        ) {
+            selectedPlaylist?.let { playlist ->
+                PlaylistDetailSheet(
+                    playlist = playlist,
+                    tracks = selectedPlaylistTracks,
+                    isLoading = isLoadingPlaylistTracks,
+                    isFollowed = false,
+                    likedTrackIds = likedTrackIds,
+                    currentTrack = currentTrack,
+                    isPlaying = isPlaying,
+                    onTrackClick = { track, list -> viewModel.playTrack(track, list) },
+                    onPlayAllClick = { list -> if (list.isNotEmpty()) viewModel.playTrack(list.first(), list) },
+                    onShuffleClick = { list ->
+                        if (list.isNotEmpty()) {
+                            val shuffled = list.shuffled()
+                            viewModel.playTrack(shuffled.first(), shuffled)
+                        }
+                    },
+                    onDownloadAllClick = { list -> viewModel.downloadAllInPlaylist(list, playlist.title) },
+                    onDownloadTrackClick = { viewModel.downloadTrack(it, playlist.title) },
+                    onToggleFollow = { viewModel.togglePlaylistFollow(it) },
+                    onToggleLike = { viewModel.toggleTrackLike(it) },
+                    onMiniPlayerPlayPause = { viewModel.togglePlayPause() },
+                    onMiniPlayerNext = { viewModel.playNext() },
+                    onMiniPlayerClick = { showFullPlayer = true },
+                    onDismiss = { viewModel.closePlaylist() }
+                )
+            }
+        }
+
+        // Полноэкранный плеер в стиле Apple Music (поверх всех экранов и плейлистов)
         AnimatedVisibility(
             visible = showFullPlayer,
             enter = slideInVertically(initialOffsetY = { it }),
@@ -248,35 +303,6 @@ fun MainAppScreen(viewModel: MainViewModel) {
                 onToggleRepeat = { viewModel.toggleRepeat() },
                 onDownloadClick = { currentTrack?.let { viewModel.downloadTrack(it) } },
                 onDismiss = { showFullPlayer = false }
-            )
-        }
-
-        // Модальный экран плейлиста в стиле Apple Music
-        selectedPlaylist?.let { playlist ->
-            PlaylistDetailSheet(
-                playlist = playlist,
-                tracks = selectedPlaylistTracks,
-                isLoading = isLoadingPlaylistTracks,
-                isFollowed = false,
-                likedTrackIds = likedTrackIds,
-                currentTrack = currentTrack,
-                isPlaying = isPlaying,
-                onTrackClick = { track, list -> viewModel.playTrack(track, list) },
-                onPlayAllClick = { list -> if (list.isNotEmpty()) viewModel.playTrack(list.first(), list) },
-                onShuffleClick = { list ->
-                    if (list.isNotEmpty()) {
-                        val shuffled = list.shuffled()
-                        viewModel.playTrack(shuffled.first(), shuffled)
-                    }
-                },
-                onDownloadAllClick = { list -> viewModel.downloadAllInPlaylist(list, playlist.title) },
-                onDownloadTrackClick = { viewModel.downloadTrack(it, playlist.title) },
-                onToggleFollow = { viewModel.togglePlaylistFollow(it) },
-                onToggleLike = { viewModel.toggleTrackLike(it) },
-                onMiniPlayerPlayPause = { viewModel.togglePlayPause() },
-                onMiniPlayerNext = { viewModel.playNext() },
-                onMiniPlayerClick = { showFullPlayer = true },
-                onDismiss = { viewModel.closePlaylist() }
             )
         }
 

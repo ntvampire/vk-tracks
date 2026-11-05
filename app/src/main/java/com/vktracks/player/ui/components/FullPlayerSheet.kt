@@ -1,6 +1,7 @@
 package com.vktracks.player.ui.components
 
 import android.content.Context
+import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -66,6 +67,8 @@ fun FullPlayerSheet(
         modifier = modifier.fillMaxSize(),
         color = MaterialTheme.colorScheme.background
     ) {
+        BackHandler(onBack = onDismiss)
+
         Column(
             modifier = Modifier
                 .fillMaxSize()

@@ -10,6 +10,9 @@ import com.vktracks.player.data.model.Playlist
 import com.vktracks.player.data.model.SearchResult
 import com.vktracks.player.data.model.Track
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.withContext
 import okhttp3.FormBody
 import okhttp3.OkHttpClient
@@ -207,11 +210,30 @@ class VkApiClient(
             }
         }
 
+        // 3. Если плейлисты не найдены через каталог, ищем через audio.searchPlaylists
+        if (playlists.isEmpty()) {
+            try {
+                playlists = searchPlaylists(q, 20)
+            } catch (e: Exception) {
+                Log.w("VkApiClient", "audio.searchPlaylists failed for '$q'", e)
+            }
+        }
+
         SearchResult(tracks = tracks, playlists = playlists, artists = artists)
     }
 
     suspend fun searchAudios(query: String, offset: Int = 0, count: Int = 50): List<Track> = withContext(Dispatchers.IO) {
         searchCatalog(query).tracks
+    }
+
+    suspend fun searchPlaylists(query: String, count: Int = 20): List<Playlist> = withContext(Dispatchers.IO) {
+        val params = mapOf(
+            "q" to query,
+            "count" to count.toString(),
+            "extended" to "1"
+        )
+        val json = callVkApi("audio.searchPlaylists", params) ?: return@withContext emptyList()
+        parsePlaylists(json)
     }
 
     suspend fun getCatalogExplore(): Pair<List<Track>, List<CatalogBlock>> = withContext(Dispatchers.IO) {
@@ -246,25 +268,39 @@ class VkApiClient(
             chart = getChartTracks(50)
         }
 
-        // Если в каталоге мало блоков или пусто, загружаем подборки сообществ VK Музыки
-        if (blocks.isEmpty()) {
-            val editorialPlaylists = getCuratedPlaylists(50)
-            if (editorialPlaylists.isNotEmpty()) {
-                val chunks = editorialPlaylists.chunked(12)
-                val titles = listOf(
-                    "Подборки редакции VK",
-                    "Новые релизы и альбомы",
-                    "Популярные плейлисты",
-                    "Жанры и настроение"
-                )
-                chunks.forEachIndexed { idx, list ->
-                    val title = titles.getOrElse(idx) { "Плейлисты VK Музыки" }
-                    blocks.add(CatalogBlock(
-                        id = "curated_fallback_$idx",
-                        title = title,
-                        playlists = list
-                    ))
+        // 2. Тематические подборки VK: жанры, настроение, подборки редакции, новинки, спорт, авто
+        if (blocks.size < 4) {
+            val curatedCategories = listOf(
+                "🔥 Новые релизы" to "Новинки",
+                "🎧 Подборки редакции VK" to "Подборка редакции",
+                "⚡ Популярные плейлисты" to "Популярное",
+                "🚗 В дорогу и авто" to "В дорогу",
+                "💪 Для тренировок и спорта" to "Тренировка",
+                "🎸 Рок и альтернатива" to "Рок",
+                "🎤 Рэп и хип-хоп" to "Хип-хоп",
+                "☕ Спокойствие и релакс" to "Релакс",
+                "🎉 Танцевальная музыка" to "Танцевальная"
+            )
+
+            try {
+                coroutineScope {
+                    val deferreds = curatedCategories.map { (catTitle, query) ->
+                        async {
+                            val playlists = searchPlaylists(query, 16)
+                            if (playlists.isNotEmpty()) {
+                                CatalogBlock(
+                                    id = "curated_${query.hashCode()}",
+                                    title = catTitle,
+                                    playlists = playlists
+                                )
+                            } else null
+                        }
+                    }
+                    val fetched = deferreds.awaitAll().filterNotNull()
+                    blocks.addAll(fetched)
                 }
+            } catch (e: Exception) {
+                Log.w("VkApiClient", "Failed to fetch curated playlists for explore", e)
             }
         }
 
@@ -272,13 +308,7 @@ class VkApiClient(
     }
 
     suspend fun getCuratedPlaylists(count: Int = 30): List<Playlist> = withContext(Dispatchers.IO) {
-        // Резервный источник: официальные подборки сообщества VK Музыка (owner_id = -4790019)
-        val params = mapOf(
-            "owner_id" to "-4790019",
-            "count" to count.toString()
-        )
-        val json = callVkApi("audio.getPlaylists", params) ?: return@withContext emptyList()
-        parsePlaylists(json)
+        searchPlaylists("Подборка редакции", count)
     }
 
     suspend fun getChartTracks(count: Int = 50): List<Track> = withContext(Dispatchers.IO) {

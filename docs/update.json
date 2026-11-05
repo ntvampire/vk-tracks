@@ -1,6 +1,6 @@
 ﻿{
-  "versionCode": 9,
-  "versionName": "1.0.8",
-  "downloadUrl": "https://github.com/ntvampire/vk-tracks/releases/download/v1.0.8/VK-Tracks-1.0.8.apk",
-  "changelog": "Восстановление воспроизведения (исправление заголовков VK Music, защита очереди ExoPlayer), мгновенное открытие плейлистов с кэшированием (устранение блокирующих запросов обложек), тематические разделы и подборки кураторов на вкладке Обзор"
+  "versionCode": 10,
+  "versionName": "1.0.9",
+  "downloadUrl": "https://github.com/ntvampire/vk-tracks/releases/download/v1.0.9/VK-Tracks-1.0.9.apk",
+  "changelog": "Унификация навигации мини-плеера и полного плеера во всех экранах и плейлистах, тематические подборки и жанры VK на вкладке Обзор, карточка плеера в шторке и на экране блокировки с обложкой и кнопкой лайка"
 }

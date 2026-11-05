@@ -1,5 +1,10 @@
 # VK Tracks
 
+[![Latest Release](https://img.shields.io/github/v/release/ntvampire/vk-tracks?color=FA2D48&label=Release)](https://github.com/ntvampire/vk-tracks/releases/latest)
+[![Status](https://img.shields.io/badge/Status-Active-brightgreen.svg)](https://github.com/ntvampire/vk-tracks/releases/latest)
+[![Platform](https://img.shields.io/badge/Platform-Android-blue.svg)](https://developer.android.com)
+[![Min SDK](https://img.shields.io/badge/API-26%2B%20(Android%208.0%2B)-orange.svg)](https://developer.android.com)
+
 Минималистичный мобильный плеер для Android с интеграцией VK Музыки, оформленный в эстетике Apple Music.
 
 ## Возможности
@@ -13,17 +18,3 @@
 * **Автообновление:** Проверка новых версий из GitHub репозитория по ссылке `https://ntvampire.github.io/vk-tracks/update.json`.
 * **Фоновый звук:** Нативный AndroidX Media3 (ExoPlayer + MediaSession), управление со шторки и экрана блокировки.
 * **Эквалайзер:** Вызов системного эквалайзера устройства.
-
-## Сборка и запуск
-Требования: JDK 17, Android SDK (API 34).
-
-```powershell
-# Сборка debug версии
-.\gradlew.bat assembleDebug
-
-# Сборка release версии
-.\gradlew.bat assembleRelease
-
-# Публикация нового релиза в GitHub и обновление страницы автообновления
-.\publish_release.ps1 -Version "1.0.0" -Changelog "Первый стабильный релиз"
-```

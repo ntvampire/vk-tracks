@@ -1,0 +1,52 @@
+package com.vktracks.player.data.model
+
+data class Track(
+    val id: Long,
+    val ownerId: Long,
+    val title: String,
+    val artist: String,
+    val duration: Int, // seconds
+    val streamUrl: String,
+    val coverUrl: String? = null,
+    val albumTitle: String? = null,
+    val isExplicit: Boolean = false,
+    val lyricsId: Long? = null,
+    val accessKey: String? = null,
+    val isLiked: Boolean = false,
+    val localFilePath: String? = null
+) {
+    val fullId: String get() = "${ownerId}_${id}"
+    val isLocal: Boolean get() = !localFilePath.isNullOrEmpty()
+}
+
+data class Playlist(
+    val id: Long,
+    val ownerId: Long,
+    val title: String,
+    val description: String? = null,
+    val coverUrl: String? = null,
+    val count: Int = 0,
+    val accessKey: String? = null
+) {
+    val fullId: String get() = "${ownerId}_${id}"
+}
+
+data class LyricLine(
+    val beginMs: Long,
+    val endMs: Long,
+    val text: String
+)
+
+data class Lyrics(
+    val plainText: List<String> = emptyList(),
+    val lines: List<LyricLine> = emptyList()
+) {
+    val isSynchronized: Boolean get() = lines.isNotEmpty()
+}
+
+data class AppUpdateInfo(
+    val versionCode: Int,
+    val versionName: String,
+    val downloadUrl: String,
+    val changelog: String
+)

@@ -19,6 +19,17 @@ class CoverArtResolver(
         .readTimeout(8, TimeUnit.SECONDS)
         .build()
 
+    suspend fun getCachedCover(rawArtist: String, rawTitle: String): String? {
+        val cleanArtist = sanitizeArtist(rawArtist)
+        val cleanTitle = sanitizeTitle(rawTitle)
+        val cacheKey = "$cleanArtist - $cleanTitle".lowercase()
+        return try {
+            coverCacheDao.getCover(cacheKey)
+        } catch (_: Exception) {
+            null
+        }
+    }
+
     suspend fun resolveCover(rawArtist: String, rawTitle: String): String? = withContext(Dispatchers.IO) {
         val cleanArtist = sanitizeArtist(rawArtist)
         val cleanTitle = sanitizeTitle(rawTitle)

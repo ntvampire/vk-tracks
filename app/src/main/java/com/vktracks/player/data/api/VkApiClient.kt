@@ -3,6 +3,7 @@ package com.vktracks.player.data.api
 import android.util.Log
 import com.vktracks.player.data.cover.CoverArtResolver
 import com.vktracks.player.data.model.Artist
+import com.vktracks.player.data.model.CatalogBlock
 import com.vktracks.player.data.model.LyricLine
 import com.vktracks.player.data.model.Lyrics
 import com.vktracks.player.data.model.Playlist
@@ -27,13 +28,13 @@ class VkApiClient(
         .readTimeout(20, TimeUnit.SECONDS)
         .build()
 
-    // Официальные профили User-Agent (VK Android и VK Музыка)
-    private val vkAndroidUserAgent = "VKAndroidApp/8.14-16238 (Android 14; SDK 34; arm64-v8a; ru)"
+    // Официальные профили User-Agent (VK Музыка и VK Android)
     private val vkMusicUserAgent = "VKMusic/1.1.0 (Android 14; SDK 34; arm64-v8a; ru)"
+    private val vkAndroidUserAgent = "VKAndroidApp/8.14-16238 (Android 14; SDK 34; arm64-v8a; ru)"
     private val apiVersion = "5.131"
 
     @Volatile
-    private var preferredUserAgent = vkAndroidUserAgent
+    private var preferredUserAgent = vkMusicUserAgent
 
     suspend fun getUserProfile(): Pair<String, String>? = withContext(Dispatchers.IO) {
         val json = callVkApi("users.get", mapOf("fields" to "photo_100")) ?: return@withContext null
@@ -127,8 +128,32 @@ class VkApiClient(
         if (!accessKey.isNullOrEmpty()) {
             params["access_key"] = accessKey
         }
-        val json = callVkApi("audio.get", params) ?: return@withContext emptyList()
-        parseTracksList(json)
+        val json = callVkApi("audio.get", params)
+        if (json != null && !json.has("error")) {
+            val tracks = parseTracksList(json)
+            if (tracks.isNotEmpty()) return@withContext tracks
+        }
+
+        // Резервный вызов для официальных/редакционных плейлистов VK
+        val pParams = mutableMapOf(
+            "playlist_id" to playlistId.toString(),
+            "owner_id" to ownerId.toString(),
+            "need_audios" to "1",
+            "count" to "150"
+        )
+        if (!accessKey.isNullOrEmpty()) {
+            pParams["access_key"] = accessKey
+        }
+        val pJson = callVkApi("audio.getPlaylistById", pParams)
+        if (pJson != null && !pJson.has("error")) {
+            val pResp = pJson.optJSONObject("response")
+            val audios = pResp?.optJSONArray("audios") ?: pResp?.optJSONArray("items")
+            if (audios != null) {
+                return@withContext parseTracksArray(audios)
+            }
+        }
+
+        emptyList()
     }
 
     suspend fun searchCatalog(query: String): SearchResult = withContext(Dispatchers.IO) {
@@ -189,22 +214,65 @@ class VkApiClient(
         searchCatalog(query).tracks
     }
 
-    suspend fun getCuratedPlaylists(count: Int = 30): List<Playlist> = withContext(Dispatchers.IO) {
-        // 1. Официальный раздел Explore (Обзор / Рекомендации) каталога VK Музыки
+    suspend fun getCatalogExplore(): Pair<List<Track>, List<CatalogBlock>> = withContext(Dispatchers.IO) {
+        val blocks = mutableListOf<CatalogBlock>()
+        var chart = listOf<Track>()
+
+        // 1. Официальный раздел Explore (Обзор) каталога VK Музыки
         try {
             val json = callVkApi("catalog.getAudio", mapOf(
                 "url" to "https://vk.com/audios?section=explore",
                 "need_blocks" to "1"
             ))
             if (json != null && !json.has("error")) {
-                val playlists = parsePlaylists(json)
-                if (playlists.isNotEmpty()) return@withContext playlists
+                val parsed = parseCatalogBlocks(json)
+                if (parsed.isNotEmpty()) {
+                    for (block in parsed) {
+                        if (chart.isEmpty() && block.tracks.isNotEmpty() &&
+                            (block.title.contains("Чарт", ignoreCase = true) || block.title.contains("Топ", ignoreCase = true))) {
+                            chart = block.tracks
+                        } else if (block.playlists.isNotEmpty()) {
+                            blocks.add(block)
+                        }
+                    }
+                }
             }
         } catch (e: Exception) {
             Log.w("VkApiClient", "catalog.getAudio explore failed", e)
         }
 
-        // 2. Резервный источник: официальные подборки сообщества VK Музыка (owner_id = -4790019)
+        // Если чарт не найден в explore, загружаем через audio.getPopular
+        if (chart.isEmpty()) {
+            chart = getChartTracks(50)
+        }
+
+        // Если в каталоге мало блоков или пусто, загружаем подборки сообществ VK Музыки
+        if (blocks.isEmpty()) {
+            val editorialPlaylists = getCuratedPlaylists(50)
+            if (editorialPlaylists.isNotEmpty()) {
+                val chunks = editorialPlaylists.chunked(12)
+                val titles = listOf(
+                    "Подборки редакции VK",
+                    "Новые релизы и альбомы",
+                    "Популярные плейлисты",
+                    "Жанры и настроение"
+                )
+                chunks.forEachIndexed { idx, list ->
+                    val title = titles.getOrElse(idx) { "Плейлисты VK Музыки" }
+                    blocks.add(CatalogBlock(
+                        id = "curated_fallback_$idx",
+                        title = title,
+                        playlists = list
+                    ))
+                }
+            }
+        }
+
+        Pair(chart, blocks)
+    }
+
+    suspend fun getCuratedPlaylists(count: Int = 30): List<Playlist> = withContext(Dispatchers.IO) {
+        // Резервный источник: официальные подборки сообщества VK Музыка (owner_id = -4790019)
         val params = mapOf(
             "owner_id" to "-4790019",
             "count" to count.toString()
@@ -300,8 +368,10 @@ class VkApiClient(
             "${track.ownerId}_${track.id}"
         }
         val json = callVkApi("audio.getById", mapOf("audios" to audiosParam)) ?: return@withContext null
-        val response = json.optJSONArray("response") ?: return@withContext null
-        val item = response.optJSONObject(0) ?: return@withContext null
+        val responseArray = json.optJSONArray("response")
+        val item = responseArray?.optJSONObject(0)
+            ?: json.optJSONObject("response")?.optJSONArray("items")?.optJSONObject(0)
+            ?: return@withContext null
         val url = item.optString("url")
         if (url.isNotEmpty()) url else null
     }
@@ -425,9 +495,13 @@ class VkApiClient(
             .header("User-Agent", ua)
             .post(formBuilder.build())
 
-        if (ua == vkAndroidUserAgent) {
+        if (ua.contains("VKMusic")) {
             requestBuilder.header("X-App-Id", "6767438")
             requestBuilder.header("X-Client-Version", "10683")
+            requestBuilder.header("X-VK-Android-Client", "new")
+        } else if (ua.contains("VKAndroidApp")) {
+            requestBuilder.header("X-App-Id", "2274003")
+            requestBuilder.header("X-VK-Android-Client", "new")
         }
 
         return try {
@@ -498,9 +572,9 @@ class VkApiClient(
                 ?: thumb?.optString("photo_1200")
         }
 
-        // Если в VK обложки нет, подключаем умный CoverArtResolver
+        // Если в VK обложки нет, смотрим только локальный кэш Room (без блокирующих сетевых запросов)
         if (coverUrl.isNullOrEmpty()) {
-            coverUrl = coverArtResolver.resolveCover(artist, title)
+            coverUrl = coverArtResolver.getCachedCover(artist, title)
         }
 
         return Track(
@@ -555,6 +629,86 @@ class VkApiClient(
             )
         }
         return list
+    }
+
+    private suspend fun parseCatalogBlocks(json: JSONObject): List<CatalogBlock> {
+        val result = mutableListOf<CatalogBlock>()
+        val resp = json.optJSONObject("response") ?: return emptyList()
+
+        val rawBlocks = mutableListOf<JSONObject>()
+
+        // Вариант 1: response.catalog.sections[i].blocks
+        val catalog = resp.optJSONObject("catalog")
+        if (catalog != null) {
+            val sections = catalog.optJSONArray("sections")
+            if (sections != null) {
+                for (s in 0 until sections.length()) {
+                    val sec = sections.optJSONObject(s) ?: continue
+                    val bl = sec.optJSONArray("blocks")
+                    if (bl != null) {
+                        for (b in 0 until bl.length()) {
+                            bl.optJSONObject(b)?.let { rawBlocks.add(it) }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Вариант 2: response.section.blocks
+        val section = resp.optJSONObject("section")
+        if (section != null) {
+            val bl = section.optJSONArray("blocks")
+            if (bl != null) {
+                for (b in 0 until bl.length()) {
+                    bl.optJSONObject(b)?.let { rawBlocks.add(it) }
+                }
+            }
+        }
+
+        // Вариант 3: response.blocks
+        val directBlocks = resp.optJSONArray("blocks")
+        if (directBlocks != null) {
+            for (b in 0 until directBlocks.length()) {
+                directBlocks.optJSONObject(b)?.let { rawBlocks.add(it) }
+            }
+        }
+
+        for (blockJson in rawBlocks) {
+            val id = blockJson.optString("id", "")
+            val layout = blockJson.optJSONObject("layout")
+            val title = layout?.optString("title")?.takeIf { it.isNotBlank() }
+                ?: blockJson.optString("title").takeIf { it.isNotBlank() }
+                ?: continue
+
+            val subtitle = layout?.optString("subtitle")?.takeIf { it.isNotBlank() }
+                ?: blockJson.optString("subtitle").takeIf { it.isNotBlank() }
+
+            val dataType = blockJson.optString("data_type", "").lowercase()
+
+            // Парсим плейлисты блока
+            val playlistsJson = blockJson.optJSONArray("playlists")
+                ?: if (dataType.contains("playlist")) blockJson.optJSONArray("items") else null
+            val playlists = if (playlistsJson != null) parsePlaylistsArray(playlistsJson) else emptyList()
+
+            // Парсим треки блока
+            val audiosJson = blockJson.optJSONArray("audios")
+                ?: if (dataType.contains("audio") || dataType.contains("track")) blockJson.optJSONArray("items") else null
+            val tracks = if (audiosJson != null) parseTracksArray(audiosJson) else emptyList()
+
+            if (playlists.isNotEmpty() || tracks.isNotEmpty()) {
+                result.add(
+                    CatalogBlock(
+                        id = id.ifEmpty { "block_${result.size}" },
+                        title = title,
+                        subtitle = subtitle,
+                        playlists = playlists,
+                        tracks = tracks
+                    )
+                )
+            }
+        }
+
+        return result
     }
 
     private fun parsePlaylists(json: JSONObject): List<Playlist> {

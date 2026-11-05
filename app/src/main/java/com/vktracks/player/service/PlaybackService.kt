@@ -80,6 +80,10 @@ class PlaybackService : MediaSessionService() {
                     _durationMs.value = player.duration.coerceAtLeast(0)
                 }
             }
+
+            override fun onPlayerError(error: androidx.media3.common.PlaybackException) {
+                android.util.Log.e("PlaybackService", "ExoPlayer error: ${error.errorCodeName} (${error.errorCode}) - ${error.message}", error)
+            }
         })
 
         instance = this
@@ -104,11 +108,17 @@ class PlaybackService : MediaSessionService() {
         if (tracks.isEmpty()) return
         currentQueue = tracks
 
+        val validTrack = tracks.getOrNull(startIndex) ?: return
+        if (validTrack.streamUrl.isEmpty() && !validTrack.isLocal) {
+            android.util.Log.e("PlaybackService", "Cannot play track without stream URL: ${validTrack.fullId}")
+            return
+        }
+
         val mediaItems = tracks.map { track ->
-            val uri = if (track.isLocal && !track.localFilePath.isNullOrEmpty()) {
-                Uri.parse(track.localFilePath)
-            } else {
-                Uri.parse(track.streamUrl)
+            val uri = when {
+                track.isLocal && !track.localFilePath.isNullOrEmpty() -> Uri.parse(track.localFilePath)
+                track.streamUrl.isNotEmpty() -> Uri.parse(track.streamUrl)
+                else -> Uri.parse(validTrack.streamUrl) // Защита: не передавать Uri.EMPTY в ExoPlayer
             }
 
             val metadata = MediaMetadata.Builder()
@@ -128,7 +138,7 @@ class PlaybackService : MediaSessionService() {
         player.setMediaItems(mediaItems, startIndex, 0L)
         player.prepare()
         player.play()
-        _currentTrack.value = tracks.getOrNull(startIndex)
+        _currentTrack.value = validTrack
     }
 
     fun togglePlayPause() {

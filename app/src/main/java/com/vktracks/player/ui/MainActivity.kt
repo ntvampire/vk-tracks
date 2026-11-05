@@ -84,7 +84,7 @@ fun MainAppScreen(viewModel: MainViewModel) {
     val downloadedTracks by viewModel.downloadedTracks.collectAsState()
     val recommendations by viewModel.recommendations.collectAsState()
     val playlists by viewModel.playlists.collectAsState()
-    val curatedPlaylists by viewModel.curatedPlaylists.collectAsState()
+    val catalogBlocks by viewModel.catalogBlocks.collectAsState()
     val chartTracks by viewModel.chartTracks.collectAsState()
     val searchResults by viewModel.searchResults.collectAsState()
     val searchPlaylists by viewModel.searchPlaylists.collectAsState()
@@ -171,8 +171,7 @@ fun MainAppScreen(viewModel: MainViewModel) {
                     }
                     MainTab.BROWSE -> {
                         BrowseScreen(
-                            curatedPlaylists = curatedPlaylists,
-                            userPlaylists = playlists,
+                            catalogBlocks = catalogBlocks,
                             chartTracks = chartTracks,
                             currentTrack = currentTrack,
                             isPlaying = isPlaying,

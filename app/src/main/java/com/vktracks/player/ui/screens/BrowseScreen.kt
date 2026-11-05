@@ -27,14 +27,14 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
+import com.vktracks.player.data.model.CatalogBlock
 import com.vktracks.player.data.model.Playlist
 import com.vktracks.player.data.model.Track
 import com.vktracks.player.ui.theme.AppleRed
 
 @Composable
 fun BrowseScreen(
-    curatedPlaylists: List<Playlist>,
-    userPlaylists: List<Playlist>,
+    catalogBlocks: List<CatalogBlock>,
     chartTracks: List<Track>,
     currentTrack: Track?,
     isPlaying: Boolean,
@@ -61,63 +61,19 @@ fun BrowseScreen(
             )
         }
 
-        // 1. Официальные подборки и чарты от редакции VK Музыки
-        if (curatedPlaylists.isNotEmpty()) {
-            item {
-                Text(
-                    text = "Подборки и чарты VK",
-                    fontSize = 20.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.onBackground,
-                    modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp)
-                )
-                LazyRow(
-                    contentPadding = PaddingValues(horizontal = 16.dp),
-                    horizontalArrangement = Arrangement.spacedBy(16.dp)
-                ) {
-                    items(curatedPlaylists) { playlist ->
-                        CuratedPlaylistCard(playlist = playlist, onClick = { onPlaylistClick(playlist) })
-                    }
-                }
-                Spacer(modifier = Modifier.height(20.dp))
-            }
-        }
-
-        // 2. Мои плейлисты / Подборки пользователя
-        if (userPlaylists.isNotEmpty()) {
-            item {
-                Text(
-                    text = "Популярные плейлисты",
-                    fontSize = 20.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.onBackground,
-                    modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp)
-                )
-                LazyRow(
-                    contentPadding = PaddingValues(horizontal = 16.dp),
-                    horizontalArrangement = Arrangement.spacedBy(14.dp)
-                ) {
-                    items(userPlaylists) { playlist ->
-                        PlaylistCard(playlist = playlist, onClick = { onPlaylistClick(playlist) })
-                    }
-                }
-                Spacer(modifier = Modifier.height(20.dp))
-            }
-        }
-
-        // 3. Главный чарт ВКонтакте и новинки
+        // 1. Главный чарт ВКонтакте
         if (chartTracks.isNotEmpty()) {
             item {
                 Text(
                     text = "Чарт ВКонтакте",
-                    fontSize = 20.sp,
+                    fontSize = 22.sp,
                     fontWeight = FontWeight.Bold,
                     color = MaterialTheme.colorScheme.onBackground,
                     modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp)
                 )
             }
 
-            itemsIndexed(chartTracks) { index, track ->
+            itemsIndexed(chartTracks.take(25)) { index, track ->
                 val isCurrent = currentTrack?.fullId == track.fullId
                 Row(
                     modifier = Modifier
@@ -204,6 +160,42 @@ fun BrowseScreen(
                             tint = if (track.isLocal) AppleRed else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
                             modifier = Modifier.size(20.dp)
                         )
+                    }
+                }
+            }
+
+            item {
+                Spacer(modifier = Modifier.height(20.dp))
+            }
+        }
+
+        // 2. Тематические разделы, подборки кураторов и жанры каталога VK Музыки
+        items(catalogBlocks) { block ->
+            if (block.playlists.isNotEmpty()) {
+                Column(modifier = Modifier.padding(bottom = 24.dp)) {
+                    Text(
+                        text = block.title,
+                        fontSize = 22.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onBackground,
+                        modifier = Modifier.padding(horizontal = 20.dp, vertical = 4.dp)
+                    )
+                    if (!block.subtitle.isNullOrBlank()) {
+                        Text(
+                            text = block.subtitle,
+                            fontSize = 13.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(horizontal = 20.dp, vertical = 2.dp)
+                        )
+                    }
+                    Spacer(modifier = Modifier.height(10.dp))
+                    LazyRow(
+                        contentPadding = PaddingValues(horizontal = 16.dp),
+                        horizontalArrangement = Arrangement.spacedBy(16.dp)
+                    ) {
+                        items(block.playlists) { playlist ->
+                            CuratedPlaylistCard(playlist = playlist, onClick = { onPlaylistClick(playlist) })
+                        }
                     }
                 }
             }

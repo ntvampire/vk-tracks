@@ -62,3 +62,11 @@ data class SearchResult(
     val playlists: List<Playlist> = emptyList(),
     val artists: List<Artist> = emptyList()
 )
+
+data class CatalogBlock(
+    val id: String,
+    val title: String,
+    val subtitle: String? = null,
+    val playlists: List<Playlist> = emptyList(),
+    val tracks: List<Track> = emptyList()
+)

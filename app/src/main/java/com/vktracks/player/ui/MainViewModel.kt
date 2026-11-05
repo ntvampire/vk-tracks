@@ -12,6 +12,7 @@ import com.vktracks.player.data.local.AppDatabase
 import com.vktracks.player.data.local.TrackEntity
 import com.vktracks.player.data.model.AppUpdateInfo
 import com.vktracks.player.data.model.Artist
+import com.vktracks.player.data.model.CatalogBlock
 import com.vktracks.player.data.model.Lyrics
 import com.vktracks.player.data.model.Playlist
 import com.vktracks.player.data.model.SearchResult
@@ -23,6 +24,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
+import java.util.concurrent.ConcurrentHashMap
 
 class MainViewModel(application: Application) : AndroidViewModel(application) {
 
@@ -63,11 +65,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     val isSearching: StateFlow<Boolean> = _isSearching.asStateFlow()
     private var searchJob: Job? = null
 
-    private val _curatedPlaylists = MutableStateFlow<List<Playlist>>(emptyList())
-    val curatedPlaylists: StateFlow<List<Playlist>> = _curatedPlaylists.asStateFlow()
+    private val _catalogBlocks = MutableStateFlow<List<CatalogBlock>>(emptyList())
+    val catalogBlocks: StateFlow<List<CatalogBlock>> = _catalogBlocks.asStateFlow()
 
     private val _chartTracks = MutableStateFlow<List<Track>>(emptyList())
     val chartTracks: StateFlow<List<Track>> = _chartTracks.asStateFlow()
+
+    private val playlistTracksCache = ConcurrentHashMap<String, List<Track>>()
 
     private val _selectedPlaylist = MutableStateFlow<Playlist?>(null)
     val selectedPlaylist: StateFlow<Playlist?> = _selectedPlaylist.asStateFlow()
@@ -157,8 +161,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 _likedTrackIds.value = audios.map { it.fullId }.toSet()
                 _playlists.value = apiClient.getPlaylists(0, 50)
                 _recommendations.value = apiClient.getRecommendations(0, 50)
-                _curatedPlaylists.value = apiClient.getCuratedPlaylists(30)
-                _chartTracks.value = apiClient.getChartTracks(50)
+                val exploreData = apiClient.getCatalogExplore()
+                _chartTracks.value = exploreData.first
+                _catalogBlocks.value = exploreData.second
             } catch (_: Exception) {}
             _isLoading.value = false
         }
@@ -242,12 +247,25 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun openPlaylist(playlist: Playlist) {
         _selectedPlaylist.value = playlist
-        _selectedPlaylistTracks.value = emptyList()
-        viewModelScope.launch {
+        val cacheKey = "${playlist.ownerId}_${playlist.id}"
+        val cached = playlistTracksCache[cacheKey]
+        if (!cached.isNullOrEmpty()) {
+            _selectedPlaylistTracks.value = cached
+            _isLoadingPlaylistTracks.value = false
+        } else {
+            _selectedPlaylistTracks.value = emptyList()
             _isLoadingPlaylistTracks.value = true
+        }
+
+        viewModelScope.launch {
             try {
-                _selectedPlaylistTracks.value = apiClient.getPlaylistTracks(playlist.id, playlist.ownerId, playlist.accessKey)
-            } catch (_: Exception) {
+                val tracks = apiClient.getPlaylistTracks(playlist.id, playlist.ownerId, playlist.accessKey)
+                if (tracks.isNotEmpty()) {
+                    playlistTracksCache[cacheKey] = tracks
+                    _selectedPlaylistTracks.value = tracks
+                }
+            } catch (e: Exception) {
+                android.util.Log.e("MainViewModel", "Failed to load playlist tracks", e)
             } finally {
                 _isLoadingPlaylistTracks.value = false
             }
@@ -281,6 +299,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 if (!resolvedUrl.isNullOrEmpty()) {
                     currentTrackToPlay = currentTrackToPlay.copy(streamUrl = resolvedUrl)
                 }
+            }
+            if (currentTrackToPlay.streamUrl.isEmpty() && !currentTrackToPlay.isLocal) {
+                android.util.Log.w("MainViewModel", "Could not resolve streamUrl for ${currentTrackToPlay.fullId}")
+                return@launch
             }
             val updatedQueue = queue.map { if (it.fullId == currentTrackToPlay.fullId) currentTrackToPlay else it }
             val index = updatedQueue.indexOfFirst { it.fullId == currentTrackToPlay.fullId }.coerceAtLeast(0)

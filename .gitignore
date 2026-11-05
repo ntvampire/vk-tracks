@@ -9,3 +9,4 @@ build/
 .cxx
 scratch/
 decompiled_manifest/
+VKX_*/

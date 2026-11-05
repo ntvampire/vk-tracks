@@ -1,6 +1,6 @@
 ﻿{
-  "versionCode": 4,
-  "versionName": "1.0.3",
-  "downloadUrl": "https://github.com/ntvampire/vk-tracks/releases/download/v1.0.3/VK-Tracks-1.0.3.apk",
-  "changelog": "Официальная авторизация VK Музыка (без Kate Mobile), прямой вход по токену и устранение сбоя WebView"
+  "versionCode": 5,
+  "versionName": "1.0.4",
+  "downloadUrl": "https://github.com/ntvampire/vk-tracks/releases/download/v1.0.4/VK-Tracks-1.0.4.apk",
+  "changelog": "Fix service startup crash on Android 14, fix in-app updater permissions, auto-negotiate User-Agent for VK API audio methods, preserve track list without url"
 }

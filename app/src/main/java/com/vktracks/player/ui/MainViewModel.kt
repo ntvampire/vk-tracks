@@ -149,8 +149,18 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun playTrack(track: Track, queue: List<Track>) {
-        val index = queue.indexOfFirst { it.fullId == track.fullId }.coerceAtLeast(0)
-        PlaybackService.instance?.playQueue(queue, index)
+        viewModelScope.launch {
+            var currentTrackToPlay = track
+            if (currentTrackToPlay.streamUrl.isEmpty() && !currentTrackToPlay.isLocal) {
+                val resolvedUrl = apiClient.resolveTrackUrl(currentTrackToPlay)
+                if (!resolvedUrl.isNullOrEmpty()) {
+                    currentTrackToPlay = currentTrackToPlay.copy(streamUrl = resolvedUrl)
+                }
+            }
+            val updatedQueue = queue.map { if (it.fullId == currentTrackToPlay.fullId) currentTrackToPlay else it }
+            val index = updatedQueue.indexOfFirst { it.fullId == currentTrackToPlay.fullId }.coerceAtLeast(0)
+            PlaybackService.instance?.playQueue(updatedQueue, index)
+        }
     }
 
     fun togglePlayPause() {

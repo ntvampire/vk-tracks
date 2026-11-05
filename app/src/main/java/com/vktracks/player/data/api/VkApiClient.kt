@@ -1,5 +1,6 @@
 package com.vktracks.player.data.api
 
+import android.util.Log
 import com.vktracks.player.data.cover.CoverArtResolver
 import com.vktracks.player.data.model.LyricLine
 import com.vktracks.player.data.model.Lyrics
@@ -19,12 +20,17 @@ class VkApiClient(
     private val coverArtResolver: CoverArtResolver
 ) {
     private val client = OkHttpClient.Builder()
-        .connectTimeout(10, TimeUnit.SECONDS)
-        .readTimeout(15, TimeUnit.SECONDS)
+        .connectTimeout(12, TimeUnit.SECONDS)
+        .readTimeout(20, TimeUnit.SECONDS)
         .build()
 
-    private val userAgent = "KateMobileAndroid/108.1 lite-535 (Android 14; SDK 34; arm64-v8a; ru)"
+    // Профили User-Agent для совместимости с токенами VK Android / VK Музыки и Kate Mobile
+    private val vkAndroidUserAgent = "VKAndroidApp/8.14-16238 (Android 14; SDK 34; arm64-v8a; ru)"
+    private val kateUserAgent = "KateMobileAndroid/108.1 lite-535 (Android 14; SDK 34; arm64-v8a; ru)"
     private val apiVersion = "5.131"
+
+    @Volatile
+    private var preferredUserAgent = vkAndroidUserAgent
 
     suspend fun getUserProfile(): Pair<String, String>? = withContext(Dispatchers.IO) {
         val json = callVkApi("users.get", mapOf("fields" to "photo_100")) ?: return@withContext null
@@ -53,11 +59,11 @@ class VkApiClient(
             }
         }
 
-        // Валидируем токен через users.get
+        // Проверяем токен через users.get
         val url = "https://api.vk.com/method/users.get?v=$apiVersion&access_token=$token&fields=photo_100"
         val request = Request.Builder()
             .url(url)
-            .header("User-Agent", userAgent)
+            .header("User-Agent", preferredUserAgent)
             .build()
 
         try {
@@ -75,26 +81,35 @@ class VkApiClient(
                 authManager.saveAuthData(token, userId, "$firstName $lastName", photo)
                 return@withContext true
             }
-        } catch (_: Exception) {
+        } catch (e: Exception) {
+            Log.e("VkApiClient", "Token validation failed", e)
             return@withContext false
         }
         false
     }
 
     suspend fun getMyAudios(offset: Int = 0, count: Int = 50): List<Track> = withContext(Dispatchers.IO) {
-        val params = mapOf(
+        val userId = authManager.getUserId()
+        val params = mutableMapOf(
             "offset" to offset.toString(),
             "count" to count.toString()
         )
+        if (userId > 0) {
+            params["owner_id"] = userId.toString()
+        }
         val json = callVkApi("audio.get", params) ?: return@withContext emptyList()
         parseTracksList(json)
     }
 
     suspend fun getPlaylists(offset: Int = 0, count: Int = 30): List<Playlist> = withContext(Dispatchers.IO) {
-        val params = mapOf(
+        val userId = authManager.getUserId()
+        val params = mutableMapOf(
             "offset" to offset.toString(),
             "count" to count.toString()
         )
+        if (userId > 0) {
+            params["owner_id"] = userId.toString()
+        }
         val json = callVkApi("audio.getPlaylists", params) ?: return@withContext emptyList()
         parsePlaylists(json)
     }
@@ -125,10 +140,14 @@ class VkApiClient(
     }
 
     suspend fun getRecommendations(offset: Int = 0, count: Int = 40): List<Track> = withContext(Dispatchers.IO) {
-        val params = mapOf(
+        val userId = authManager.getUserId()
+        val params = mutableMapOf(
             "offset" to offset.toString(),
             "count" to count.toString()
         )
+        if (userId > 0) {
+            params["user_id"] = userId.toString()
+        }
         val json = callVkApi("audio.getRecommendations", params) ?: return@withContext emptyList()
         parseTracksList(json)
     }
@@ -137,17 +156,18 @@ class VkApiClient(
         val token = authManager.getAccessToken() ?: return@withContext emptyList()
         val userId = authManager.getUserId()
 
-        // 1. Попытка запроса в UMA (VK Mix / Boom радио)
+        // 1. Попытка запроса в UMA (VK Mix / Boom радио как в VKX)
         try {
             val path = "/radio/personal/"
             val crc = CRC32()
-            crc.update(userId.toString().toByteArray())
-            crc.update(path.toByteArray())
+            val userStr = if (userId > 0) userId.toString() else "anonymous"
+            crc.update(userStr.toByteArray(Charsets.UTF_8))
+            crc.update(path.toByteArray(Charsets.UTF_8))
             crc.update(48) // '0'
 
             val request = Request.Builder()
                 .url("https://api.moosic.io$path")
-                .header("User-Agent", userAgent)
+                .header("User-Agent", vkAndroidUserAgent)
                 .header("X-App-Id", "6767438")
                 .header("X-Client-Version", "10683")
                 .header("X-CRC", crc.value.toString())
@@ -163,10 +183,25 @@ class VkApiClient(
                     }
                 }
             }
-        } catch (_: Exception) {}
+        } catch (e: Exception) {
+            Log.w("VkApiClient", "UMA personal radio request failed, falling back to recommendations", e)
+        }
 
         // 2. Fallback на аудиорекомендации VK
         getRecommendations(0, 40)
+    }
+
+    suspend fun resolveTrackUrl(track: Track): String? = withContext(Dispatchers.IO) {
+        val audiosParam = if (!track.accessKey.isNullOrEmpty()) {
+            "${track.ownerId}_${track.id}_${track.accessKey}"
+        } else {
+            "${track.ownerId}_${track.id}"
+        }
+        val json = callVkApi("audio.getById", mapOf("audios" to audiosParam)) ?: return@withContext null
+        val response = json.optJSONArray("response") ?: return@withContext null
+        val item = response.optJSONObject(0) ?: return@withContext null
+        val url = item.optString("url")
+        if (url.isNotEmpty()) url else null
     }
 
     suspend fun getLyrics(audioId: Long, lyricsId: Long?): Lyrics? = withContext(Dispatchers.IO) {
@@ -209,6 +244,26 @@ class VkApiClient(
 
     private fun callVkApi(method: String, params: Map<String, String>): JSONObject? {
         val token = authManager.getAccessToken() ?: return null
+
+        // Попытка 1: С текущим preferred User-Agent
+        val result = executeMethodCall(method, params, token, preferredUserAgent)
+        if (result != null) {
+            val errCode = result.optJSONObject("error")?.optInt("error_code") ?: 0
+            if (errCode == 8 || errCode == 27) {
+                // Несоответствие User-Agent типу токена -> переключаем и пробуем второй профиль
+                val fallbackUa = if (preferredUserAgent == vkAndroidUserAgent) kateUserAgent else vkAndroidUserAgent
+                Log.w("VkApiClient", "VK API $method returned error $errCode with $preferredUserAgent, retrying with $fallbackUa")
+                val fallbackResult = executeMethodCall(method, params, token, fallbackUa)
+                if (fallbackResult != null && !fallbackResult.has("error")) {
+                    preferredUserAgent = fallbackUa
+                    return fallbackResult
+                }
+            }
+        }
+        return result
+    }
+
+    private fun executeMethodCall(method: String, params: Map<String, String>, token: String, ua: String): JSONObject? {
         val formBuilder = FormBody.Builder()
             .add("access_token", token)
             .add("v", apiVersion)
@@ -217,19 +272,32 @@ class VkApiClient(
             formBuilder.add(k, v)
         }
 
-        val request = Request.Builder()
+        val requestBuilder = Request.Builder()
             .url("https://api.vk.com/method/$method")
-            .header("User-Agent", userAgent)
+            .header("User-Agent", ua)
             .post(formBuilder.build())
-            .build()
+
+        if (ua == vkAndroidUserAgent) {
+            requestBuilder.header("X-App-Id", "6767438")
+            requestBuilder.header("X-Client-Version", "10683")
+        }
 
         return try {
-            client.newCall(request).execute().use { response ->
-                if (!response.isSuccessful) return null
+            client.newCall(requestBuilder.build()).execute().use { response ->
+                if (!response.isSuccessful) {
+                    Log.e("VkApiClient", "HTTP error ${response.code} for $method")
+                    return null
+                }
                 val body = response.body?.string() ?: return null
-                JSONObject(body)
+                val json = JSONObject(body)
+                if (json.has("error")) {
+                    val err = json.optJSONObject("error")
+                    Log.e("VkApiClient", "VK API error for $method: [${err?.optInt("error_code")}] ${err?.optString("error_msg")}")
+                }
+                json
             }
         } catch (e: Exception) {
+            Log.e("VkApiClient", "Network exception in callVkApi($method)", e)
             null
         }
     }
@@ -250,17 +318,17 @@ class VkApiClient(
     }
 
     private suspend fun parseTrackObject(item: JSONObject): Track? {
-        val url = item.optString("url")
-        if (url.isEmpty()) return null
-
         val id = item.optLong("id")
+        if (id == 0L) return null
+
         val ownerId = item.optLong("owner_id")
-        val artist = item.optString("artist")
-        val title = item.optString("title")
-        val duration = item.optInt("duration")
-        val isExplicit = item.optBoolean("is_explicit")
+        val artist = item.optString("artist", "Неизвестный исполнитель")
+        val title = item.optString("title", "Без названия")
+        val duration = item.optInt("duration", 0)
+        val isExplicit = item.optBoolean("is_explicit", false)
         val lyricsId = item.optLong("lyrics_id", 0).takeIf { it > 0 }
         val accessKey = item.optString("access_key").takeIf { it.isNotEmpty() }
+        val url = item.optString("url", "")
 
         // Обложка из альбома
         var coverUrl: String? = null

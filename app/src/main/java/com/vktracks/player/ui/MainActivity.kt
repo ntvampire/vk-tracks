@@ -48,7 +48,7 @@ class MainActivity : ComponentActivity() {
 
         // Запуск сервиса воспроизведения
         val serviceIntent = Intent(this, PlaybackService::class.java)
-        ContextCompat.startForegroundService(this, serviceIntent)
+        startService(serviceIntent)
 
         setContent {
             VKTracksTheme {

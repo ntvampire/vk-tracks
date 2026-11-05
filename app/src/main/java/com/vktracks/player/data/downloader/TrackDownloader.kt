@@ -32,15 +32,22 @@ class TrackDownloader(
         return _downloadProgress.getOrPut(fullId) { MutableStateFlow(-1) }.asStateFlow()
     }
 
-    suspend fun downloadTrack(track: Track): Result<File> = withContext(Dispatchers.IO) {
+    suspend fun downloadTrack(track: Track, subfolder: String? = null): Result<File> = withContext(Dispatchers.IO) {
         val flow = _downloadProgress.getOrPut(track.fullId) { MutableStateFlow(0) }
         flow.value = 0
 
         try {
-            val musicDir = getMusicDirectory()
+            val baseMusicDir = getMusicDirectory()
+            val targetDir = if (!subfolder.isNullOrBlank()) {
+                val safeSub = subfolder.replace(Regex("""[\\/:*?"<>|]"""), "_").trim()
+                File(baseMusicDir, safeSub).apply { if (!exists()) mkdirs() }
+            } else {
+                baseMusicDir
+            }
+
             val safeArtist = track.artist.replace(Regex("""[\\/:*?"<>|]"""), "_").trim()
             val safeTitle = track.title.replace(Regex("""[\\/:*?"<>|]"""), "_").trim()
-            val targetFile = File(musicDir, "$safeArtist - $safeTitle.mp3")
+            val targetFile = File(targetDir, "$safeArtist - $safeTitle.mp3")
 
             val tempFile = File(context.cacheDir, "temp_dl_${track.fullId}.tmp")
             if (tempFile.exists()) tempFile.delete()
@@ -171,10 +178,37 @@ class TrackDownloader(
         }
     }
 
-    private fun getMusicDirectory(): File {
+    fun getMusicDirectory(): File {
+        val prefs = context.getSharedPreferences("settings", Context.MODE_PRIVATE)
+        val customPath = prefs.getString("custom_download_path", null)
+        if (!customPath.isNullOrBlank()) {
+            val customDir = File(customPath)
+            if (customDir.exists() && customDir.canWrite()) {
+                return customDir
+            }
+        }
         val publicMusic = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_MUSIC)
-        val dir = File(publicMusic, "VK Tracks")
-        if (!dir.exists()) dir.mkdirs()
-        return if (dir.exists() && dir.canWrite()) dir else File(context.getExternalFilesDir(Environment.DIRECTORY_MUSIC), "VK Tracks").apply { mkdirs() }
+        val defaultDir = File(publicMusic, "VK Tracks")
+        if (!defaultDir.exists()) defaultDir.mkdirs()
+        return if (defaultDir.exists() && defaultDir.canWrite()) {
+            defaultDir
+        } else {
+            File(context.getExternalFilesDir(Environment.DIRECTORY_MUSIC), "VK Tracks").apply { mkdirs() }
+        }
+    }
+
+    fun setCustomDownloadPath(path: String?) {
+        val prefs = context.getSharedPreferences("settings", Context.MODE_PRIVATE)
+        prefs.edit().putString("custom_download_path", path).apply()
+    }
+
+    fun getDownloadPathDisplay(): String {
+        val prefs = context.getSharedPreferences("settings", Context.MODE_PRIVATE)
+        val customPath = prefs.getString("custom_download_path", null)
+        return if (!customPath.isNullOrBlank()) {
+            customPath
+        } else {
+            "Music/VK Tracks"
+        }
     }
 }

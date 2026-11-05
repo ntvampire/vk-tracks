@@ -1,6 +1,6 @@
 ﻿{
-  "versionCode": 7,
-  "versionName": "1.0.6",
-  "downloadUrl": "https://github.com/ntvampire/vk-tracks/releases/download/v1.0.6/VK-Tracks-1.0.6.apk",
-  "changelog": "Исправлен поиск музыки, добавлено открытие плейлистов и отображение их обложек, добавлены подборки и чарты на вкладке Обзор"
+  "versionCode": 8,
+  "versionName": "1.0.7",
+  "downloadUrl": "https://github.com/ntvampire/vk-tracks/releases/download/v1.0.7/VK-Tracks-1.0.7.apk",
+  "changelog": "Комплексный поиск VK (треки, артисты, плейлисты), сердечки и синхронизация с медиатекой VK, миниплеер в окне плейлиста, исправление подборок и чарта ВК, выбор папки загрузок и разделение по папкам, уведомление об обновлениях"
 }

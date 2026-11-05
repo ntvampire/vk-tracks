@@ -46,6 +46,8 @@ fun FullPlayerSheet(
     isShuffle: Boolean,
     repeatMode: Int,
     lyrics: Lyrics?,
+    isLiked: Boolean = false,
+    onLikeClick: () -> Unit = {},
     onPlayPauseClick: () -> Unit,
     onNextClick: () -> Unit,
     onPrevClick: () -> Unit,
@@ -154,46 +156,60 @@ fun FullPlayerSheet(
 
             Spacer(modifier = Modifier.height(16.dp))
 
-            // Название трека и артист
-            Column(
+            // Название трека, артист и кнопка сердечка (Apple Music style)
+            Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalAlignment = Alignment.Start
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(
-                        text = track.title,
-                        fontSize = 22.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.onBackground,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.weight(1f, fill = false)
-                    )
-                    if (track.isExplicit) {
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Box(
-                            modifier = Modifier
-                                .clip(RoundedCornerShape(4.dp))
-                                .background(Color.Gray.copy(alpha = 0.3f))
-                                .padding(horizontal = 5.dp, vertical = 2.dp)
-                        ) {
-                            Text(
-                                text = "E",
-                                fontSize = 11.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.7f)
-                            )
+                Column(modifier = Modifier.weight(1f)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            text = track.title,
+                            fontSize = 22.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onBackground,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                        if (track.isExplicit) {
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Box(
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(4.dp))
+                                    .background(Color.Gray.copy(alpha = 0.3f))
+                                    .padding(horizontal = 5.dp, vertical = 2.dp)
+                            ) {
+                                Text(
+                                    text = "E",
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.7f)
+                                )
+                            }
                         }
                     }
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        text = track.artist,
+                        fontSize = 17.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
                 }
-                Spacer(modifier = Modifier.height(4.dp))
-                Text(
-                    text = track.artist,
-                    fontSize = 17.sp,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
+
+                IconButton(
+                    onClick = onLikeClick,
+                    modifier = Modifier.size(44.dp)
+                ) {
+                    Icon(
+                        imageVector = if (isLiked) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
+                        contentDescription = if (isLiked) "В медиатеке" else "Добавить в медиатеку",
+                        tint = if (isLiked) AppleRed else MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.size(28.dp)
+                    )
+                }
             }
 
             Spacer(modifier = Modifier.height(20.dp))
@@ -304,7 +320,7 @@ fun FullPlayerSheet(
 
             Spacer(modifier = Modifier.height(24.dp))
 
-            // Нижняя панель действий (Эквалайзер, Скачивание)
+            // Нижняя панель действий (Текст песни, Скачивание)
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -312,13 +328,13 @@ fun FullPlayerSheet(
                 horizontalArrangement = Arrangement.SpaceEvenly,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                // Системный эквалайзер
-                IconButton(onClick = { PlaybackService.instance?.openSystemEqualizer(context) }) {
+                // Текст песни
+                IconButton(onClick = { isLyricsMode = !isLyricsMode }) {
                     Icon(
-                        imageVector = Icons.Default.GraphicEq,
-                        contentDescription = "Системный эквалайзер",
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.size(24.dp)
+                        imageVector = Icons.Default.FormatQuote,
+                        contentDescription = "Текст песни",
+                        tint = if (isLyricsMode) AppleRed else MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.size(26.dp)
                     )
                 }
 

@@ -40,9 +40,11 @@ fun LibraryScreen(
     playlists: List<Playlist>,
     currentTrack: Track?,
     isPlaying: Boolean,
+    likedTrackIds: Set<String> = emptySet(),
     onTrackClick: (Track, List<Track>) -> Unit,
     onPlaylistClick: (Playlist) -> Unit,
-    onDownloadClick: (Track) -> Unit,
+    onLikeClick: (Track) -> Unit = {},
+    onDownloadClick: (Track, String?) -> Unit,
     onLoginClick: () -> Unit,
     onSettingsClick: () -> Unit,
     isAuthorized: Boolean,
@@ -202,12 +204,15 @@ fun LibraryScreen(
                     }
                 } else {
                     items(currentList) { track ->
+                        val downloadSubfolder = if (selectedTab == LibraryTab.MY_TRACKS) "Favorites" else null
                         TrackItem(
                             track = track,
                             isPlaying = isPlaying,
                             isCurrent = currentTrack?.fullId == track.fullId,
                             onTrackClick = { onTrackClick(track, currentList) },
-                            onDownloadClick = { onDownloadClick(track) }
+                            isLiked = likedTrackIds.contains(track.fullId) || track.isLiked,
+                            onLikeClick = { onLikeClick(track) },
+                            onDownloadClick = { onDownloadClick(track, downloadSubfolder) }
                         )
                     }
                 }

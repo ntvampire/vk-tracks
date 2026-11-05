@@ -170,16 +170,23 @@ class PlaybackService : MediaSessionService() {
         _repeatMode.value = nextMode
     }
 
-    fun openSystemEqualizer(context: Context) {
-        try {
+    fun openSystemEqualizer(context: Context): Boolean {
+        return try {
             val intent = Intent(AudioEffect.ACTION_DISPLAY_AUDIO_EFFECT_CONTROL_PANEL).apply {
                 putExtra(AudioEffect.EXTRA_AUDIO_SESSION, player.audioSessionId)
                 putExtra(AudioEffect.EXTRA_PACKAGE_NAME, context.packageName)
                 putExtra(AudioEffect.EXTRA_CONTENT_TYPE, AudioEffect.CONTENT_TYPE_MUSIC)
                 flags = Intent.FLAG_ACTIVITY_NEW_TASK
             }
-            context.startActivity(intent)
-        } catch (_: Exception) {}
+            if (intent.resolveActivity(context.packageManager) != null) {
+                context.startActivity(intent)
+                true
+            } else {
+                false
+            }
+        } catch (_: Exception) {
+            false
+        }
     }
 
     private fun startProgressUpdates() {

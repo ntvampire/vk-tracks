@@ -50,3 +50,15 @@ data class AppUpdateInfo(
     val downloadUrl: String,
     val changelog: String
 )
+
+data class Artist(
+    val id: String,
+    val name: String,
+    val photoUrl: String? = null
+)
+
+data class SearchResult(
+    val tracks: List<Track> = emptyList(),
+    val playlists: List<Playlist> = emptyList(),
+    val artists: List<Artist> = emptyList()
+)

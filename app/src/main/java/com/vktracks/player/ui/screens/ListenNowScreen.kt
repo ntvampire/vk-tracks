@@ -33,8 +33,10 @@ fun ListenNowScreen(
     recommendations: List<Track>,
     currentTrack: Track?,
     isPlaying: Boolean,
+    likedTrackIds: Set<String> = emptySet(),
     onTrackClick: (Track, List<Track>) -> Unit,
     onRadioClick: () -> Unit,
+    onLikeClick: (Track) -> Unit = {},
     onDownloadClick: (Track) -> Unit,
     onSettingsClick: () -> Unit,
     modifier: Modifier = Modifier
@@ -170,6 +172,8 @@ fun ListenNowScreen(
                     isPlaying = isPlaying,
                     isCurrent = currentTrack?.fullId == track.fullId,
                     onTrackClick = { onTrackClick(track, recommendations) },
+                    isLiked = likedTrackIds.contains(track.fullId) || track.isLiked,
+                    onLikeClick = { onLikeClick(track) },
                     onDownloadClick = { onDownloadClick(track) }
                 )
             }

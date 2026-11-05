@@ -7,6 +7,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Download
+import androidx.compose.material.icons.filled.Favorite
+import androidx.compose.material.icons.filled.FavoriteBorder
 import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
@@ -29,6 +31,8 @@ fun TrackItem(
     isPlaying: Boolean,
     isCurrent: Boolean,
     onTrackClick: () -> Unit,
+    isLiked: Boolean = false,
+    onLikeClick: (() -> Unit)? = null,
     onDownloadClick: (() -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
@@ -104,6 +108,21 @@ fun TrackItem(
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
             )
+        }
+
+        // Кнопка добавления в медиатеку (сердечко)
+        if (onLikeClick != null) {
+            IconButton(
+                onClick = onLikeClick,
+                modifier = Modifier.size(36.dp)
+            ) {
+                Icon(
+                    imageVector = if (isLiked) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
+                    contentDescription = if (isLiked) "В медиатеке" else "Добавить в медиатеку",
+                    tint = if (isLiked) AppleRed else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
+                    modifier = Modifier.size(20.dp)
+                )
+            }
         }
 
         // Кнопка скачивания

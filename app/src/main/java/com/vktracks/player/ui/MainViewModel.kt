@@ -11,8 +11,10 @@ import com.vktracks.player.data.downloader.TrackDownloader
 import com.vktracks.player.data.local.AppDatabase
 import com.vktracks.player.data.local.TrackEntity
 import com.vktracks.player.data.model.AppUpdateInfo
+import com.vktracks.player.data.model.Artist
 import com.vktracks.player.data.model.Lyrics
 import com.vktracks.player.data.model.Playlist
+import com.vktracks.player.data.model.SearchResult
 import com.vktracks.player.data.model.Track
 import com.vktracks.player.data.updater.UpdateChecker
 import com.vktracks.player.service.PlaybackService
@@ -47,6 +49,15 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     private val _searchResults = MutableStateFlow<List<Track>>(emptyList())
     val searchResults: StateFlow<List<Track>> = _searchResults.asStateFlow()
+
+    private val _searchPlaylists = MutableStateFlow<List<Playlist>>(emptyList())
+    val searchPlaylists: StateFlow<List<Playlist>> = _searchPlaylists.asStateFlow()
+
+    private val _searchArtists = MutableStateFlow<List<Artist>>(emptyList())
+    val searchArtists: StateFlow<List<Artist>> = _searchArtists.asStateFlow()
+
+    private val _likedTrackIds = MutableStateFlow<Set<String>>(emptySet())
+    val likedTrackIds: StateFlow<Set<String>> = _likedTrackIds.asStateFlow()
 
     private val _isSearching = MutableStateFlow(false)
     val isSearching: StateFlow<Boolean> = _isSearching.asStateFlow()
@@ -141,7 +152,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             _isLoading.value = true
             try {
-                _myTracks.value = apiClient.getMyAudios(0, 100)
+                val audios = apiClient.getMyAudios(0, 100)
+                _myTracks.value = audios
+                _likedTrackIds.value = audios.map { it.fullId }.toSet()
                 _playlists.value = apiClient.getPlaylists(0, 50)
                 _recommendations.value = apiClient.getRecommendations(0, 50)
                 _curatedPlaylists.value = apiClient.getCuratedPlaylists(30)
@@ -164,6 +177,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val q = query.trim()
         if (q.isBlank()) {
             _searchResults.value = emptyList()
+            _searchPlaylists.value = emptyList()
+            _searchArtists.value = emptyList()
             _isSearching.value = false
             return
         }
@@ -171,10 +186,56 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             _isSearching.value = true
             delay(350)
             try {
-                _searchResults.value = apiClient.searchAudios(q)
+                val res = apiClient.searchCatalog(q)
+                _searchResults.value = res.tracks
+                _searchPlaylists.value = res.playlists
+                _searchArtists.value = res.artists
             } catch (_: Exception) {
             } finally {
                 _isSearching.value = false
+            }
+        }
+    }
+
+    fun toggleTrackLike(track: Track) {
+        viewModelScope.launch {
+            val isCurrentlyLiked = _likedTrackIds.value.contains(track.fullId) || track.isLiked
+            if (isCurrentlyLiked) {
+                val success = apiClient.deleteAudio(track.id, track.ownerId)
+                if (success) {
+                    _likedTrackIds.value = _likedTrackIds.value - track.fullId
+                    _myTracks.value = _myTracks.value.filter { it.fullId != track.fullId }
+                    try {
+                        database.trackDao().updateLike(track.fullId, false)
+                    } catch (_: Exception) {}
+                }
+            } else {
+                val newId = apiClient.addAudio(track.id, track.ownerId)
+                if (newId != null) {
+                    _likedTrackIds.value = _likedTrackIds.value + track.fullId
+                    val liked = track.copy(isLiked = true)
+                    _myTracks.value = listOf(liked) + _myTracks.value.filter { it.fullId != track.fullId }
+                    try {
+                        database.trackDao().updateLike(track.fullId, true)
+                    } catch (_: Exception) {}
+                }
+            }
+        }
+    }
+
+    fun togglePlaylistFollow(playlist: Playlist) {
+        viewModelScope.launch {
+            val isFollowed = _playlists.value.any { it.id == playlist.id && it.ownerId == playlist.ownerId }
+            if (isFollowed) {
+                val success = apiClient.deletePlaylist(playlist.id, playlist.ownerId)
+                if (success) {
+                    _playlists.value = _playlists.value.filterNot { it.id == playlist.id && it.ownerId == playlist.ownerId }
+                }
+            } else {
+                val success = apiClient.followPlaylist(playlist.id, playlist.ownerId, playlist.accessKey)
+                if (success) {
+                    _playlists.value = listOf(playlist) + _playlists.value.filterNot { it.id == playlist.id && it.ownerId == playlist.ownerId }
+                }
             }
         }
     }
@@ -198,10 +259,16 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         _selectedPlaylistTracks.value = emptyList()
     }
 
-    fun downloadAllInPlaylist(tracks: List<Track>) {
+    fun downloadTrack(track: Track, subfolder: String? = null) {
+        viewModelScope.launch {
+            downloader.downloadTrack(track, subfolder)
+        }
+    }
+
+    fun downloadAllInPlaylist(tracks: List<Track>, playlistTitle: String = "Playlist") {
         viewModelScope.launch {
             for (track in tracks) {
-                downloader.downloadTrack(track)
+                downloader.downloadTrack(track, playlistTitle)
             }
         }
     }
@@ -245,17 +312,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         PlaybackService.instance?.toggleRepeat()
     }
 
-    fun downloadTrack(track: Track) {
-        viewModelScope.launch {
-            downloader.downloadTrack(track)
-        }
-    }
-
-    fun checkForUpdates() {
+    fun checkForUpdates(isManual: Boolean = false, onNoUpdate: (() -> Unit)? = null) {
         viewModelScope.launch {
             val update = updateChecker.checkForUpdates()
             if (update != null) {
                 _availableUpdate.value = update
+            } else if (isManual) {
+                onNoUpdate?.invoke()
             }
         }
     }
@@ -276,7 +339,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private fun loadLyrics(track: Track) {
         viewModelScope.launch {
             _currentLyrics.value = null
-            val lyrics = apiClient.getLyrics(track.id, track.lyricsId)
+            val lyrics = apiClient.getLyrics(track)
             _currentLyrics.value = lyrics
         }
     }

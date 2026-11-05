@@ -50,6 +50,9 @@ interface TrackDao {
 
     @Query("UPDATE tracks SET isDownloaded = 0, localFilePath = NULL WHERE id = :id")
     suspend fun removeDownload(id: String)
+
+    @Query("UPDATE tracks SET isLiked = :isLiked WHERE id = :id")
+    suspend fun updateLike(id: String, isLiked: Boolean)
 }
 
 @Dao

@@ -2,6 +2,7 @@ package com.vktracks.player.ui
 
 import android.content.Intent
 import android.os.Bundle
+import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
@@ -16,9 +17,11 @@ import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
+import com.vktracks.player.BuildConfig
 import com.vktracks.player.data.model.AppUpdateInfo
 import com.vktracks.player.service.PlaybackService
 import com.vktracks.player.ui.components.AuthDialog
@@ -84,6 +87,9 @@ fun MainAppScreen(viewModel: MainViewModel) {
     val curatedPlaylists by viewModel.curatedPlaylists.collectAsState()
     val chartTracks by viewModel.chartTracks.collectAsState()
     val searchResults by viewModel.searchResults.collectAsState()
+    val searchPlaylists by viewModel.searchPlaylists.collectAsState()
+    val searchArtists by viewModel.searchArtists.collectAsState()
+    val likedTrackIds by viewModel.likedTrackIds.collectAsState()
     val isSearching by viewModel.isSearching.collectAsState()
 
     val selectedPlaylist by viewModel.selectedPlaylist.collectAsState()
@@ -149,6 +155,7 @@ fun MainAppScreen(viewModel: MainViewModel) {
                             recommendations = recommendations,
                             currentTrack = currentTrack,
                             isPlaying = isPlaying,
+                            likedTrackIds = likedTrackIds,
                             onTrackClick = { track, list -> viewModel.playTrack(track, list) },
                             onRadioClick = {
                                 if (radioTracks.isNotEmpty()) {
@@ -157,6 +164,7 @@ fun MainAppScreen(viewModel: MainViewModel) {
                                     viewModel.loadPersonalRadio()
                                 }
                             },
+                            onLikeClick = { viewModel.toggleTrackLike(it) },
                             onDownloadClick = { viewModel.downloadTrack(it) },
                             onSettingsClick = { showSettings = true }
                         )
@@ -168,8 +176,10 @@ fun MainAppScreen(viewModel: MainViewModel) {
                             chartTracks = chartTracks,
                             currentTrack = currentTrack,
                             isPlaying = isPlaying,
+                            likedTrackIds = likedTrackIds,
                             onTrackClick = { track, list -> viewModel.playTrack(track, list) },
                             onPlaylistClick = { playlist -> viewModel.openPlaylist(playlist) },
+                            onLikeClick = { viewModel.toggleTrackLike(it) },
                             onDownloadClick = { viewModel.downloadTrack(it) }
                         )
                     }
@@ -181,9 +191,11 @@ fun MainAppScreen(viewModel: MainViewModel) {
                             playlists = playlists,
                             currentTrack = currentTrack,
                             isPlaying = isPlaying,
+                            likedTrackIds = likedTrackIds,
                             onTrackClick = { track, list -> viewModel.playTrack(track, list) },
                             onPlaylistClick = { playlist -> viewModel.openPlaylist(playlist) },
-                            onDownloadClick = { viewModel.downloadTrack(it) },
+                            onLikeClick = { viewModel.toggleTrackLike(it) },
+                            onDownloadClick = { track, subfolder -> viewModel.downloadTrack(track, subfolder) },
                             onLoginClick = { showAuthDialog = true },
                             onSettingsClick = { showSettings = true },
                             isAuthorized = isAuthorized
@@ -192,11 +204,16 @@ fun MainAppScreen(viewModel: MainViewModel) {
                     MainTab.SEARCH -> {
                         SearchScreen(
                             searchResults = searchResults,
+                            searchPlaylists = searchPlaylists,
+                            searchArtists = searchArtists,
                             isSearching = isSearching,
                             currentTrack = currentTrack,
                             isPlaying = isPlaying,
+                            likedTrackIds = likedTrackIds,
                             onSearch = { viewModel.search(it) },
                             onTrackClick = { track, list -> viewModel.playTrack(track, list) },
+                            onPlaylistClick = { playlist -> viewModel.openPlaylist(playlist) },
+                            onLikeClick = { viewModel.toggleTrackLike(it) },
                             onDownloadClick = { viewModel.downloadTrack(it) }
                         )
                     }
@@ -210,6 +227,10 @@ fun MainAppScreen(viewModel: MainViewModel) {
             enter = slideInVertically(initialOffsetY = { it }),
             exit = slideOutVertically(targetOffsetY = { it })
         ) {
+            val isCurrentLiked = currentTrack?.let {
+                likedTrackIds.contains(it.fullId) || it.isLiked
+            } ?: false
+
             FullPlayerSheet(
                 track = currentTrack,
                 isPlaying = isPlaying,
@@ -218,6 +239,8 @@ fun MainAppScreen(viewModel: MainViewModel) {
                 isShuffle = isShuffle,
                 repeatMode = repeatMode,
                 lyrics = lyrics,
+                isLiked = isCurrentLiked,
+                onLikeClick = { currentTrack?.let { viewModel.toggleTrackLike(it) } },
                 onPlayPauseClick = { viewModel.togglePlayPause() },
                 onNextClick = { viewModel.playNext() },
                 onPrevClick = { viewModel.playPrevious() },
@@ -235,6 +258,8 @@ fun MainAppScreen(viewModel: MainViewModel) {
                 playlist = playlist,
                 tracks = selectedPlaylistTracks,
                 isLoading = isLoadingPlaylistTracks,
+                isFollowed = false,
+                likedTrackIds = likedTrackIds,
                 currentTrack = currentTrack,
                 isPlaying = isPlaying,
                 onTrackClick = { track, list -> viewModel.playTrack(track, list) },
@@ -245,8 +270,13 @@ fun MainAppScreen(viewModel: MainViewModel) {
                         viewModel.playTrack(shuffled.first(), shuffled)
                     }
                 },
-                onDownloadAllClick = { list -> viewModel.downloadAllInPlaylist(list) },
-                onDownloadTrackClick = { viewModel.downloadTrack(it) },
+                onDownloadAllClick = { list -> viewModel.downloadAllInPlaylist(list, playlist.title) },
+                onDownloadTrackClick = { viewModel.downloadTrack(it, playlist.title) },
+                onToggleFollow = { viewModel.togglePlaylistFollow(it) },
+                onToggleLike = { viewModel.toggleTrackLike(it) },
+                onMiniPlayerPlayPause = { viewModel.togglePlayPause() },
+                onMiniPlayerNext = { viewModel.playNext() },
+                onMiniPlayerClick = { showFullPlayer = true },
                 onDismiss = { viewModel.closePlaylist() }
             )
         }
@@ -265,14 +295,24 @@ fun MainAppScreen(viewModel: MainViewModel) {
         }
 
         // Экран настроек
+        val context = LocalContext.current
         if (showSettings) {
             SettingsScreen(
                 authManager = viewModel.authManager,
+                downloader = viewModel.downloader,
                 onLoginClick = {
                     showSettings = false
                     showAuthDialog = true
                 },
-                onCheckUpdateClick = { viewModel.checkForUpdates() },
+                onCheckUpdateClick = {
+                    viewModel.checkForUpdates(isManual = true) {
+                        Toast.makeText(
+                            context,
+                            "У вас установлена последняя версия (v${BuildConfig.VERSION_NAME})",
+                            Toast.LENGTH_SHORT
+                        ).show()
+                    }
+                },
                 onDismiss = { showSettings = false }
             )
         }

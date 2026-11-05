@@ -1,8 +1,10 @@
 package com.vktracks.player.ui.screens
 
 import android.content.Context
-import android.content.Intent
-import android.net.Uri
+import android.os.Environment
+import android.widget.Toast
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -26,13 +28,16 @@ import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import com.vktracks.player.BuildConfig
 import com.vktracks.player.data.api.VkAuthManager
+import com.vktracks.player.data.downloader.TrackDownloader
 import com.vktracks.player.service.PlaybackService
 import com.vktracks.player.ui.theme.AppleRed
+import java.io.File
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SettingsScreen(
     authManager: VkAuthManager,
+    downloader: TrackDownloader,
     onLoginClick: () -> Unit,
     onCheckUpdateClick: () -> Unit,
     onDismiss: () -> Unit,
@@ -43,6 +48,72 @@ fun SettingsScreen(
     val userName = authManager.getUserName() ?: if (isAuthorized) "Пользователь VK" else "Не авторизован"
     val userPhoto = authManager.getUserPhoto()
     val userId = authManager.getUserId()
+
+    var downloadPathDisplay by remember { mutableStateOf(downloader.getDownloadPathDisplay()) }
+    var showFolderDialog by remember { mutableStateOf(false) }
+
+    val folderPickerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocumentTree()
+    ) { uri ->
+        if (uri != null) {
+            val segment = uri.lastPathSegment ?: ""
+            val resolvedPath = if (segment.startsWith("primary:")) {
+                val relative = segment.substringAfter("primary:")
+                File(Environment.getExternalStorageDirectory(), relative).absolutePath
+            } else {
+                uri.path ?: ""
+            }
+            if (resolvedPath.isNotBlank()) {
+                val targetDir = File(resolvedPath)
+                if (!targetDir.exists()) targetDir.mkdirs()
+                downloader.setCustomDownloadPath(resolvedPath)
+                downloadPathDisplay = downloader.getDownloadPathDisplay()
+                Toast.makeText(context, "Папка сохранения изменена", Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+
+    if (showFolderDialog) {
+        AlertDialog(
+            onDismissRequest = { showFolderDialog = false },
+            title = { Text("Папка для сохранения") },
+            text = {
+                Column {
+                    Text("Текущий путь:", fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(downloadPathDisplay, fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Spacer(modifier = Modifier.height(12.dp))
+                    Text(
+                        "По умолчанию треки сохраняются в папку Music/VK Tracks устройства (избранное — в Favorites, плейлисты — в подпапки плейлистов).",
+                        fontSize = 12.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        showFolderDialog = false
+                        folderPickerLauncher.launch(null)
+                    }
+                ) {
+                    Text("Выбрать другую папку")
+                }
+            },
+            dismissButton = {
+                TextButton(
+                    onClick = {
+                        showFolderDialog = false
+                        downloader.setCustomDownloadPath(null)
+                        downloadPathDisplay = downloader.getDownloadPathDisplay()
+                        Toast.makeText(context, "Сброшено на Music/VK Tracks", Toast.LENGTH_SHORT).show()
+                    }
+                ) {
+                    Text("Сбросить по умолчанию")
+                }
+            }
+        )
+    }
 
     Scaffold(
         topBar = {
@@ -161,7 +232,16 @@ fun SettingsScreen(
                         icon = Icons.Default.GraphicEq,
                         title = "Системный эквалайзер",
                         subtitle = "Открыть системную панель эффектов устройства",
-                        onClick = { PlaybackService.instance?.openSystemEqualizer(context) }
+                        onClick = {
+                            val opened = PlaybackService.instance?.openSystemEqualizer(context) ?: false
+                            if (!opened) {
+                                Toast.makeText(
+                                    context,
+                                    "Системный эквалайзер недоступен на этом устройстве",
+                                    Toast.LENGTH_SHORT
+                                ).show()
+                            }
+                        }
                     )
                 }
             }
@@ -174,8 +254,8 @@ fun SettingsScreen(
                     SettingsItem(
                         icon = Icons.Default.Folder,
                         title = "Папка с сохраненными треками",
-                        subtitle = "Music/VK Tracks (с ID3v2 тегами и обложками)",
-                        onClick = {}
+                        subtitle = downloadPathDisplay,
+                        onClick = { showFolderDialog = true }
                     )
                 }
             }
@@ -190,26 +270,6 @@ fun SettingsScreen(
                         title = "Проверить обновления",
                         subtitle = "Версия v${BuildConfig.VERSION_NAME} (Сборка ${BuildConfig.VERSION_CODE})",
                         onClick = onCheckUpdateClick
-                    )
-                    HorizontalDivider(color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
-                    SettingsItem(
-                        icon = Icons.Default.Code,
-                        title = "Исходный код на GitHub",
-                        subtitle = "ntvampire/vk-tracks",
-                        onClick = {
-                            val intent = Intent(Intent.ACTION_VIEW, Uri.parse("https://github.com/ntvampire/vk-tracks"))
-                            context.startActivity(intent)
-                        }
-                    )
-                    HorizontalDivider(color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
-                    SettingsItem(
-                        icon = Icons.Default.Public,
-                        title = "Страница проекта",
-                        subtitle = "ntvampire.github.io/vk-tracks",
-                        onClick = {
-                            val intent = Intent(Intent.ACTION_VIEW, Uri.parse("https://ntvampire.github.io/vk-tracks/"))
-                            context.startActivity(intent)
-                        }
                     )
                 }
             }

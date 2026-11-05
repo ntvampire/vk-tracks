@@ -2,15 +2,18 @@ package com.vktracks.player.data.api
 
 import android.util.Log
 import com.vktracks.player.data.cover.CoverArtResolver
+import com.vktracks.player.data.model.Artist
 import com.vktracks.player.data.model.LyricLine
 import com.vktracks.player.data.model.Lyrics
 import com.vktracks.player.data.model.Playlist
+import com.vktracks.player.data.model.SearchResult
 import com.vktracks.player.data.model.Track
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.FormBody
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import org.json.JSONArray
 import org.json.JSONObject
 import java.util.concurrent.TimeUnit
 import java.util.zip.CRC32
@@ -128,36 +131,80 @@ class VkApiClient(
         parseTracksList(json)
     }
 
-    suspend fun searchAudios(query: String, offset: Int = 0, count: Int = 50): List<Track> = withContext(Dispatchers.IO) {
-        val userId = authManager.getUserId()
-        val params = mutableMapOf(
-            "q" to query,
-            "auto_complete" to "1",
-            "sort" to "2",
-            "filter" to "all",
-            "offset" to offset.toString(),
-            "count" to count.toString()
-        )
-        if (userId > 0) {
-            params["owner_id"] = userId.toString()
+    suspend fun searchCatalog(query: String): SearchResult = withContext(Dispatchers.IO) {
+        val q = query.trim()
+        if (q.isEmpty()) return@withContext SearchResult()
+
+        var tracks = emptyList<Track>()
+        var playlists = emptyList<Playlist>()
+        var artists = emptyList<Artist>()
+
+        // 1. Полноценный каталог поиска ВК (catalog.getAudioSearch из официального VK Music API)
+        try {
+            val json = callVkApi("catalog.getAudioSearch", mapOf(
+                "query" to q,
+                "need_blocks" to "1"
+            ))
+            if (json != null && !json.has("error")) {
+                val resp = json.optJSONObject("response")
+                if (resp != null) {
+                    val audiosArr = resp.optJSONArray("audios")
+                    if (audiosArr != null && audiosArr.length() > 0) {
+                        tracks = parseTracksArray(audiosArr)
+                    }
+                    val playlistsArr = resp.optJSONArray("playlists")
+                    if (playlistsArr != null && playlistsArr.length() > 0) {
+                        playlists = parsePlaylistsArray(playlistsArr)
+                    }
+                    val artistsArr = resp.optJSONArray("artists")
+                    if (artistsArr != null && artistsArr.length() > 0) {
+                        artists = parseArtistsArray(artistsArr)
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            Log.w("VkApiClient", "catalog.getAudioSearch failed for '$q'", e)
         }
-        val json = callVkApi("audio.search", params) ?: return@withContext emptyList()
-        parseTracksList(json)
+
+        // 2. Если треки не получены через каталог, вызываем прямой audio.search
+        if (tracks.isEmpty()) {
+            try {
+                val audioSearchJson = callVkApi("audio.search", mapOf(
+                    "q" to q,
+                    "auto_complete" to "1",
+                    "count" to "50"
+                ))
+                if (audioSearchJson != null && !audioSearchJson.has("error")) {
+                    tracks = parseTracksList(audioSearchJson)
+                }
+            } catch (e: Exception) {
+                Log.w("VkApiClient", "audio.search failed for '$q'", e)
+            }
+        }
+
+        SearchResult(tracks = tracks, playlists = playlists, artists = artists)
+    }
+
+    suspend fun searchAudios(query: String, offset: Int = 0, count: Int = 50): List<Track> = withContext(Dispatchers.IO) {
+        searchCatalog(query).tracks
     }
 
     suspend fun getCuratedPlaylists(count: Int = 30): List<Playlist> = withContext(Dispatchers.IO) {
-        // 1. Попытка через catalog.getAudio (официальный каталог рекомендаций и витрин)
+        // 1. Официальный раздел Explore (Обзор / Рекомендации) каталога VK Музыки
         try {
-            val json = callVkApi("catalog.getAudio", mapOf("need_blocks" to "1"))
-            if (json != null) {
+            val json = callVkApi("catalog.getAudio", mapOf(
+                "url" to "https://vk.com/audios?section=explore",
+                "need_blocks" to "1"
+            ))
+            if (json != null && !json.has("error")) {
                 val playlists = parsePlaylists(json)
                 if (playlists.isNotEmpty()) return@withContext playlists
             }
         } catch (e: Exception) {
-            Log.w("VkApiClient", "catalog.getAudio failed for curated playlists", e)
+            Log.w("VkApiClient", "catalog.getAudio explore failed", e)
         }
 
-        // 2. Официальные подборки и чарты от редакции VK Музыки (паблик vk.com/vkmusic, owner_id = -4790019)
+        // 2. Резервный источник: официальные подборки сообщества VK Музыка (owner_id = -4790019)
         val params = mapOf(
             "owner_id" to "-4790019",
             "count" to count.toString()
@@ -167,18 +214,30 @@ class VkApiClient(
     }
 
     suspend fun getChartTracks(count: Int = 50): List<Track> = withContext(Dispatchers.IO) {
-        // 1. Попытка получить топовые треки чарта через catalog.getAudio
+        // 1. Треки чарта из раздела Explore каталога ВК
         try {
-            val json = callVkApi("catalog.getAudio", mapOf("need_blocks" to "1"))
-            if (json != null) {
+            val json = callVkApi("catalog.getAudio", mapOf(
+                "url" to "https://vk.com/audios?section=explore",
+                "need_blocks" to "1"
+            ))
+            if (json != null && !json.has("error")) {
                 val tracks = parseTracksList(json)
                 if (tracks.isNotEmpty()) return@withContext tracks
             }
         } catch (e: Exception) {
-            Log.w("VkApiClient", "catalog.getAudio failed for chart tracks", e)
+            Log.w("VkApiClient", "catalog.getAudio chart failed", e)
         }
 
-        // 2. Резерв: популярные рекомендации
+        // 2. Резерв: топ популярных треков ВКонтакте
+        try {
+            val json = callVkApi("audio.getPopular", mapOf("count" to count.toString()))
+            if (json != null && !json.has("error")) {
+                val tracks = parseTracksList(json)
+                if (tracks.isNotEmpty()) return@withContext tracks
+            }
+        } catch (_: Exception) {}
+
+        // 3. Рекомендации
         getRecommendations(0, count)
     }
 
@@ -247,14 +306,19 @@ class VkApiClient(
         if (url.isNotEmpty()) url else null
     }
 
-    suspend fun getLyrics(audioId: Long, lyricsId: Long?): Lyrics? = withContext(Dispatchers.IO) {
-        if (lyricsId == null || lyricsId == 0L) return@withContext null
-        val params = mapOf("lyrics_id" to lyricsId.toString())
+    suspend fun getLyrics(track: Track): Lyrics? = withContext(Dispatchers.IO) {
+        val fullAudioId = "${track.ownerId}_${track.id}"
+        val params = mutableMapOf("audio_id" to fullAudioId)
+        if (track.lyricsId != null && track.lyricsId > 0) {
+            params["lyrics_id"] = track.lyricsId.toString()
+        }
+
         val json = callVkApi("audio.getLyrics", params) ?: return@withContext null
         val response = json.optJSONObject("response") ?: return@withContext null
+        val lyricsObj = response.optJSONObject("lyrics") ?: response
 
-        val timestamps = response.optJSONArray("timestamps")
-        val textArray = response.optJSONArray("text")
+        val timestamps = lyricsObj.optJSONArray("timestamps")
+        val textArray = lyricsObj.optJSONArray("text")
         val plainTextList = mutableListOf<String>()
 
         if (textArray != null) {
@@ -262,7 +326,7 @@ class VkApiClient(
                 plainTextList.add(textArray.getString(i))
             }
         } else {
-            val textStr = response.optString("text")
+            val textStr = lyricsObj.optString("text")
             if (textStr.isNotEmpty()) {
                 plainTextList.addAll(textStr.split("\n"))
             }
@@ -283,6 +347,47 @@ class VkApiClient(
         }
 
         Lyrics(plainText = plainTextList, lines = lines)
+    }
+
+    suspend fun addAudio(audioId: Long, ownerId: Long): Long? = withContext(Dispatchers.IO) {
+        val params = mapOf(
+            "audio_id" to audioId.toString(),
+            "owner_id" to ownerId.toString()
+        )
+        val json = callVkApi("audio.add", params) ?: return@withContext null
+        if (json.has("response")) {
+            json.optLong("response")
+        } else null
+    }
+
+    suspend fun deleteAudio(audioId: Long, ownerId: Long): Boolean = withContext(Dispatchers.IO) {
+        val params = mapOf(
+            "audio_id" to audioId.toString(),
+            "owner_id" to ownerId.toString()
+        )
+        val json = callVkApi("audio.delete", params) ?: return@withContext false
+        json.optInt("response", 0) == 1
+    }
+
+    suspend fun followPlaylist(playlistId: Long, ownerId: Long, accessKey: String? = null): Boolean = withContext(Dispatchers.IO) {
+        val params = mutableMapOf(
+            "playlist_id" to playlistId.toString(),
+            "owner_id" to ownerId.toString()
+        )
+        if (!accessKey.isNullOrEmpty()) {
+            params["access_key"] = accessKey
+        }
+        val json = callVkApi("audio.followPlaylist", params) ?: return@withContext false
+        !json.has("error")
+    }
+
+    suspend fun deletePlaylist(playlistId: Long, ownerId: Long): Boolean = withContext(Dispatchers.IO) {
+        val params = mapOf(
+            "playlist_id" to playlistId.toString(),
+            "owner_id" to ownerId.toString()
+        )
+        val json = callVkApi("audio.deletePlaylist", params) ?: return@withContext false
+        json.optInt("response", 0) == 1
     }
 
     private fun callVkApi(method: String, params: Map<String, String>): JSONObject? {
@@ -522,6 +627,26 @@ class VkApiClient(
                     accessKey = accessKey
                 )
             )
+        }
+        return list
+    }
+
+    private fun parseArtistsArray(items: JSONArray): List<Artist> {
+        val list = mutableListOf<Artist>()
+        for (i in 0 until items.length()) {
+            val item = items.optJSONObject(i) ?: continue
+            val id = item.optString("id")
+            val name = item.optString("name")
+            var photoUrl: String? = null
+            val photo = item.optJSONObject("photo")
+            if (photo != null) {
+                photoUrl = photo.optString("photo_300").takeIf { it.isNotEmpty() }
+                    ?: photo.optString("photo_600").takeIf { it.isNotEmpty() }
+                    ?: photo.optString("photo_1200").takeIf { it.isNotEmpty() }
+            }
+            if (name.isNotEmpty()) {
+                list.add(Artist(id = id, name = name, photoUrl = photoUrl))
+            }
         }
         return list
     }

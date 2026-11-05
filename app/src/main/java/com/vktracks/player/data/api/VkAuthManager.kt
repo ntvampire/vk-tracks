@@ -40,8 +40,10 @@ class VkAuthManager(context: Context) {
         prefs.edit()
             .putString(KEY_TOKEN, token)
             .putLong(KEY_USER_ID, userId)
-            .putString(KEY_USER_NAME, name)
-            .putString(KEY_USER_PHOTO, photo)
+            .apply {
+                if (!name.isNullOrEmpty()) putString(KEY_USER_NAME, name)
+                if (!photo.isNullOrEmpty()) putString(KEY_USER_PHOTO, photo)
+            }
             .apply()
         _authState.value = true
     }
@@ -52,16 +54,15 @@ class VkAuthManager(context: Context) {
     }
 
     companion object {
-        const val VK_APP_ID = "2274003" // VK Android Official Client ID
-        const val KATE_APP_ID = "2685278" // Kate Mobile Client ID
+        const val KATE_APP_ID = "2685278" // Kate Mobile (полный доступ к Web OAuth audio)
         const val REDIRECT_URI = "https://oauth.vk.com/blank.html"
 
-        fun getOAuthUrl(clientId: String = VK_APP_ID): String {
+        fun getOAuthUrl(clientId: String = KATE_APP_ID): String {
             return Uri.parse("https://oauth.vk.com/authorize").buildUpon()
                 .appendQueryParameter("client_id", clientId)
                 .appendQueryParameter("display", "mobile")
                 .appendQueryParameter("redirect_uri", REDIRECT_URI)
-                .appendQueryParameter("scope", "audio,offline,wall,friends")
+                .appendQueryParameter("scope", "audio,offline")
                 .appendQueryParameter("response_type", "token")
                 .appendQueryParameter("v", "5.131")
                 .appendQueryParameter("revoke", "1")

@@ -28,6 +28,7 @@ import com.vktracks.player.ui.screens.BrowseScreen
 import com.vktracks.player.ui.screens.LibraryScreen
 import com.vktracks.player.ui.screens.ListenNowScreen
 import com.vktracks.player.ui.screens.SearchScreen
+import com.vktracks.player.ui.screens.SettingsScreen
 import com.vktracks.player.ui.theme.VKTracksTheme
 
 enum class MainTab(val title: String, val icon: ImageVector) {
@@ -62,6 +63,7 @@ fun MainAppScreen(viewModel: MainViewModel) {
     var selectedTab by remember { mutableStateOf(MainTab.LISTEN_NOW) }
     var showFullPlayer by remember { mutableStateOf(false) }
     var showAuthDialog by remember { mutableStateOf(false) }
+    var showSettings by remember { mutableStateOf(false) }
 
     val currentTrack by viewModel.currentTrack.collectAsState()
     val isPlaying by viewModel.isPlaying.collectAsState()
@@ -83,9 +85,13 @@ fun MainAppScreen(viewModel: MainViewModel) {
     val availableUpdate by viewModel.availableUpdate.collectAsState()
     val updateProgress by viewModel.updateProgress.collectAsState()
 
-    // Обработка кнопки назад (сворачивание плеера)
-    BackHandler(enabled = showFullPlayer) {
-        showFullPlayer = false
+    // Обработка кнопки назад (сворачивание плеера и настроек)
+    BackHandler(enabled = showFullPlayer || showSettings) {
+        if (showFullPlayer) {
+            showFullPlayer = false
+        } else if (showSettings) {
+            showSettings = false
+        }
     }
 
     Box(modifier = Modifier.fillMaxSize()) {
@@ -141,7 +147,8 @@ fun MainAppScreen(viewModel: MainViewModel) {
                                     viewModel.loadPersonalRadio()
                                 }
                             },
-                            onDownloadClick = { viewModel.downloadTrack(it) }
+                            onDownloadClick = { viewModel.downloadTrack(it) },
+                            onSettingsClick = { showSettings = true }
                         )
                     }
                     MainTab.BROWSE -> {
@@ -169,6 +176,7 @@ fun MainAppScreen(viewModel: MainViewModel) {
                             onPlaylistClick = {},
                             onDownloadClick = { viewModel.downloadTrack(it) },
                             onLoginClick = { showAuthDialog = true },
+                            onSettingsClick = { showSettings = true },
                             isAuthorized = isAuthorized
                         )
                     }
@@ -218,8 +226,21 @@ fun MainAppScreen(viewModel: MainViewModel) {
                 onDismiss = { showAuthDialog = false },
                 onSuccess = {
                     showAuthDialog = false
-                    viewModel.loadLibrary()
+                    viewModel.onAuthSuccess()
                 }
+            )
+        }
+
+        // Экран настроек
+        if (showSettings) {
+            SettingsScreen(
+                authManager = viewModel.authManager,
+                onLoginClick = {
+                    showSettings = false
+                    showAuthDialog = true
+                },
+                onCheckUpdateClick = { viewModel.checkForUpdates() },
+                onDismiss = { showSettings = false }
             )
         }
 

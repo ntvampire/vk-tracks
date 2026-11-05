@@ -23,8 +23,18 @@ class VkApiClient(
         .readTimeout(15, TimeUnit.SECONDS)
         .build()
 
-    private val userAgent = "VKAndroidApp/8.14.2-100150 (Android 14; SDK 34; arm64-v8a; ru)"
+    private val userAgent = "KateMobileAndroid/108.1 lite-535 (Android 14; SDK 34; arm64-v8a; ru)"
     private val apiVersion = "5.131"
+
+    suspend fun getUserProfile(): Pair<String, String>? = withContext(Dispatchers.IO) {
+        val json = callVkApi("users.get", mapOf("fields" to "photo_100")) ?: return@withContext null
+        val response = json.optJSONArray("response") ?: return@withContext null
+        val user = response.optJSONObject(0) ?: return@withContext null
+        val firstName = user.optString("first_name")
+        val lastName = user.optString("last_name")
+        val photo = user.optString("photo_100")
+        Pair("$firstName $lastName", photo)
+    }
 
     suspend fun getMyAudios(offset: Int = 0, count: Int = 50): List<Track> = withContext(Dispatchers.IO) {
         val params = mapOf(

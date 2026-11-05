@@ -4,30 +4,26 @@
     android:height="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
-    <group
-        android:scaleX="1.15"
-        android:scaleY="1.15"
-        android:pivotX="54"
-        android:pivotY="54">
-        <!-- Note Head 1 -->
+    <group>
+        <!-- Left Note Head (Centered and smoothly tilted) -->
         <path
             android:fillColor="#FFFFFF"
-            android:pathData="M 39,66 C 36,63 38,58 45,58 C 50,58 53,62 53,66 C 53,70 48,73 43,73 C 39,73 39,69 39,66 Z" />
-        <!-- Note Stem 1 -->
+            android:pathData="M 38.5,69.5 C 37,65.5 41,62 46.5,63 C 51.5,64 53,68.5 51,72 C 49,75.5 43,76 39.5,73.5 C 38,72.5 38.5,70.5 38.5,69.5 Z" />
+        <!-- Left Stem -->
         <path
             android:fillColor="#FFFFFF"
-            android:pathData="M 49,38 L 53,38 L 53,66 L 49,66 Z" />
-        <!-- Note Head 2 -->
+            android:pathData="M 47.5,42.5 L 51,42.5 L 51,68.5 L 47.5,68.5 Z" />
+        <!-- Right Note Head -->
         <path
             android:fillColor="#FFFFFF"
-            android:pathData="M 59,58 C 56,55 58,50 65,50 C 70,50 73,54 73,58 C 73,62 68,65 63,65 C 59,65 59,61 59,58 Z" />
-        <!-- Note Stem 2 -->
+            android:pathData="M 56.5,62.5 C 55,58.5 59,55 64.5,56 C 69.5,57 71,61.5 69,65 C 67,68.5 61,69 57.5,66.5 C 56,65.5 56.5,63.5 56.5,62.5 Z" />
+        <!-- Right Stem -->
         <path
             android:fillColor="#FFFFFF"
-            android:pathData="M 69,33 L 73,33 L 73,58 L 69,58 Z" />
-        <!-- Connecting Beam -->
+            android:pathData="M 65.5,36.5 L 69,36.5 L 69,61.5 L 65.5,61.5 Z" />
+        <!-- Connecting Top Beam -->
         <path
             android:fillColor="#FFFFFF"
-            android:pathData="M 49,31 L 73,25 L 73,34 L 49,40 Z" />
+            android:pathData="M 47.5,35 L 69,29 L 69,35 L 47.5,41 Z" />
     </group>
 </vector>

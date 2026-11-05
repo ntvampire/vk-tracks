@@ -101,6 +101,21 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         checkForUpdates()
     }
 
+    fun onAuthSuccess() {
+        viewModelScope.launch {
+            try {
+                val profile = apiClient.getUserProfile()
+                if (profile != null) {
+                    val token = authManager.getAccessToken() ?: ""
+                    val userId = authManager.getUserId()
+                    authManager.saveAuthData(token, userId, profile.first, profile.second)
+                }
+            } catch (_: Exception) {}
+            loadLibrary()
+            loadPersonalRadio()
+        }
+    }
+
     fun loadLibrary() {
         viewModelScope.launch {
             _isLoading.value = true

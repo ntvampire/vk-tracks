@@ -1,10 +1,10 @@
-﻿[Console]::OutputEncoding = [System.Text.Encoding]::UTF8
-$OutputEncoding = [System.Text.Encoding]::UTF8
-
-param (
+﻿param (
     [string]$Version = "",
     [string]$Changelog = "Регулярное обновление приложения"
 )
+
+[Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+$OutputEncoding = [System.Text.Encoding]::UTF8
 
 $env:JAVA_HOME = "D:\Projects\AndroidSDK\jdk-17"
 $gradleFile = "app/build.gradle.kts"
@@ -26,7 +26,7 @@ if ($gradleContent -match 'versionCode\s*=\s*(\d+)') {
 
 Write-Host "Сборка VK Tracks v$Version (code $code)..." -ForegroundColor Cyan
 
-& ".\gradlew.bat" assembleRelease
+& ".\gradlew.bat" assembleRelease --quiet
 if ($LASTEXITCODE -ne 0) {
     Write-Error "Ошибка при сборке APK!"
     exit 1
@@ -34,7 +34,6 @@ if ($LASTEXITCODE -ne 0) {
 
 $apkPath = "app/build/outputs/apk/release/VK-Tracks-$Version.apk"
 if (-not (Test-Path $apkPath)) {
-    # Попробуем найти любой release apk в папке
     $found = Get-ChildItem "app/build/outputs/apk/release" -Filter "*.apk" | Select-Object -First 1
     if ($found) {
         $apkPath = $found.FullName
@@ -58,8 +57,9 @@ $updateJson = @"
 Set-Content -Path "docs/update.json" -Value $updateJson -Encoding UTF8
 
 # Git commit и push
-git add docs/update.json app/build.gradle.kts
-git commit -m "Release v$Version: $Changelog"
+git add .
+$commitMsg = "Release v${Version}: $Changelog"
+git commit -m $commitMsg
 git push origin main
 
 # Создание релиза на GitHub

@@ -5,6 +5,8 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.*
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -34,6 +36,7 @@ fun LibraryScreen(
     onPlaylistClick: (Playlist) -> Unit,
     onDownloadClick: (Track) -> Unit,
     onLoginClick: () -> Unit,
+    onSettingsClick: () -> Unit,
     isAuthorized: Boolean,
     modifier: Modifier = Modifier
 ) {
@@ -46,13 +49,27 @@ fun LibraryScreen(
         contentPadding = PaddingValues(bottom = 120.dp)
     ) {
         item {
-            Text(
-                text = "Медиатека",
-                fontSize = 34.sp,
-                fontWeight = FontWeight.Bold,
-                color = MaterialTheme.colorScheme.onBackground,
-                modifier = Modifier.padding(horizontal = 20.dp, vertical = 12.dp)
-            )
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 20.dp, vertical = 12.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "Медиатека",
+                    fontSize = 34.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onBackground
+                )
+                IconButton(onClick = onSettingsClick) {
+                    Icon(
+                        imageVector = Icons.Default.Settings,
+                        contentDescription = "Настройки",
+                        tint = MaterialTheme.colorScheme.onBackground
+                    )
+                }
+            }
 
             // Переключатель разделов
             ScrollableTabRow(

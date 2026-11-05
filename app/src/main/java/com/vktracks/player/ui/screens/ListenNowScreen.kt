@@ -10,6 +10,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Radio
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
@@ -35,6 +36,7 @@ fun ListenNowScreen(
     onTrackClick: (Track, List<Track>) -> Unit,
     onRadioClick: () -> Unit,
     onDownloadClick: (Track) -> Unit,
+    onSettingsClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     LazyColumn(
@@ -45,13 +47,27 @@ fun ListenNowScreen(
     ) {
         // Большой заголовок в стиле Apple Music
         item {
-            Text(
-                text = "Слушать",
-                fontSize = 34.sp,
-                fontWeight = FontWeight.Bold,
-                color = MaterialTheme.colorScheme.onBackground,
-                modifier = Modifier.padding(horizontal = 20.dp, vertical = 12.dp)
-            )
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 20.dp, vertical = 12.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "Слушать",
+                    fontSize = 34.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onBackground
+                )
+                IconButton(onClick = onSettingsClick) {
+                    Icon(
+                        imageVector = Icons.Default.Settings,
+                        contentDescription = "Настройки",
+                        tint = MaterialTheme.colorScheme.onBackground
+                    )
+                }
+            }
         }
 
         // Карточка "VK Mix / Моя Волна"

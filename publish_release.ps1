@@ -45,6 +45,23 @@ if (-not (Test-Path $apkPath)) {
 
 Write-Host "Собран APK: $apkPath" -ForegroundColor Green
 
+# Подписание APK схемами v1 (JAR) и v2/v3 для гарантированной установки на всех Android (MIUI, HyperOS, AOSP)
+Write-Host "Подписание APK схемами v1 + v2/v3..." -ForegroundColor Cyan
+& "$env:JAVA_HOME\bin\java.exe" -jar "D:\Projects\AndroidSDK\build-tools\34.0.0\lib\apksigner.jar" sign `
+    --ks "app/release.jks" `
+    --ks-pass "pass:vktracks_pass" `
+    --key-pass "pass:vktracks_pass" `
+    --ks-key-alias "vktracks" `
+    --v1-signing-enabled true `
+    --v2-signing-enabled true `
+    --min-sdk-version 21 `
+    "$apkPath"
+
+if ($LASTEXITCODE -ne 0) {
+    Write-Error "Ошибка при подписании APK через apksigner!"
+    exit 1
+}
+
 # Обновляем docs/update.json для автообновления
 $updateJson = @"
 {

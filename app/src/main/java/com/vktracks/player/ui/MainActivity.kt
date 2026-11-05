@@ -223,6 +223,7 @@ fun MainAppScreen(viewModel: MainViewModel) {
         if (showAuthDialog) {
             AuthDialog(
                 authManager = viewModel.authManager,
+                apiClient = viewModel.apiClient,
                 onDismiss = { showAuthDialog = false },
                 onSuccess = {
                     showAuthDialog = false

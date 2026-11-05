@@ -54,15 +54,16 @@ class VkAuthManager(context: Context) {
     }
 
     companion object {
-        const val KATE_APP_ID = "2685278" // Kate Mobile (полный доступ к Web OAuth audio)
+        const val VK_MUSIC_APP_ID = "6767438" // Официальный клиент VK Музыка (Boom)
+        const val KATE_APP_ID = "2685278" // Альтернативный клиент Kate Mobile
         const val REDIRECT_URI = "https://oauth.vk.com/blank.html"
 
-        fun getOAuthUrl(clientId: String = KATE_APP_ID): String {
+        fun getOAuthUrl(clientId: String = VK_MUSIC_APP_ID): String {
             return Uri.parse("https://oauth.vk.com/authorize").buildUpon()
                 .appendQueryParameter("client_id", clientId)
                 .appendQueryParameter("display", "mobile")
                 .appendQueryParameter("redirect_uri", REDIRECT_URI)
-                .appendQueryParameter("scope", "audio,offline")
+                .appendQueryParameter("scope", "65544") // 65536 (offline) + 8 (audio)
                 .appendQueryParameter("response_type", "token")
                 .appendQueryParameter("v", "5.131")
                 .appendQueryParameter("revoke", "1")
@@ -70,8 +71,11 @@ class VkAuthManager(context: Context) {
         }
 
         fun parseRedirectUrl(url: String): Pair<String, Long>? {
-            if (!url.startsWith(REDIRECT_URI)) return null
-            val fragment = url.substringAfter("#", "")
+            val fragment = when {
+                url.contains("#") -> url.substringAfter("#", "")
+                url.contains("?") -> url.substringAfter("?", "")
+                else -> ""
+            }
             if (fragment.isEmpty()) return null
 
             var token: String? = null

@@ -36,6 +36,51 @@ class VkApiClient(
         Pair("$firstName $lastName", photo)
     }
 
+    suspend fun validateAndSaveToken(input: String): Boolean = withContext(Dispatchers.IO) {
+        var token = input.trim()
+        if (token.isEmpty()) return@withContext false
+
+        // Если вставлена полная ссылка blank.html#access_token=...
+        if (token.contains("access_token=")) {
+            val redirectData = VkAuthManager.parseRedirectUrl(token)
+            if (redirectData != null) {
+                token = redirectData.first
+            } else {
+                val match = Regex("access_token=([a-zA-Z0-9._-]+)").find(token)
+                if (match != null) {
+                    token = match.groupValues[1]
+                }
+            }
+        }
+
+        // Валидируем токен через users.get
+        val url = "https://api.vk.com/method/users.get?v=$apiVersion&access_token=$token&fields=photo_100"
+        val request = Request.Builder()
+            .url(url)
+            .header("User-Agent", userAgent)
+            .build()
+
+        try {
+            val response = client.newCall(request).execute()
+            val body = response.body?.string() ?: return@withContext false
+            val json = JSONObject(body)
+            val responseArray = json.optJSONArray("response") ?: return@withContext false
+            val user = responseArray.optJSONObject(0) ?: return@withContext false
+            val userId = user.optLong("id")
+            val firstName = user.optString("first_name")
+            val lastName = user.optString("last_name")
+            val photo = user.optString("photo_100")
+
+            if (userId > 0) {
+                authManager.saveAuthData(token, userId, "$firstName $lastName", photo)
+                return@withContext true
+            }
+        } catch (_: Exception) {
+            return@withContext false
+        }
+        false
+    }
+
     suspend fun getMyAudios(offset: Int = 0, count: Int = 50): List<Track> = withContext(Dispatchers.IO) {
         val params = mapOf(
             "offset" to offset.toString(),

@@ -24,6 +24,7 @@ import com.vktracks.player.service.PlaybackService
 import com.vktracks.player.ui.components.AuthDialog
 import com.vktracks.player.ui.components.FullPlayerSheet
 import com.vktracks.player.ui.components.MiniPlayer
+import com.vktracks.player.ui.components.PlaylistDetailSheet
 import com.vktracks.player.ui.screens.BrowseScreen
 import com.vktracks.player.ui.screens.LibraryScreen
 import com.vktracks.player.ui.screens.ListenNowScreen
@@ -80,17 +81,26 @@ fun MainAppScreen(viewModel: MainViewModel) {
     val downloadedTracks by viewModel.downloadedTracks.collectAsState()
     val recommendations by viewModel.recommendations.collectAsState()
     val playlists by viewModel.playlists.collectAsState()
+    val curatedPlaylists by viewModel.curatedPlaylists.collectAsState()
+    val chartTracks by viewModel.chartTracks.collectAsState()
     val searchResults by viewModel.searchResults.collectAsState()
+    val isSearching by viewModel.isSearching.collectAsState()
+
+    val selectedPlaylist by viewModel.selectedPlaylist.collectAsState()
+    val selectedPlaylistTracks by viewModel.selectedPlaylistTracks.collectAsState()
+    val isLoadingPlaylistTracks by viewModel.isLoadingPlaylistTracks.collectAsState()
 
     val availableUpdate by viewModel.availableUpdate.collectAsState()
     val updateProgress by viewModel.updateProgress.collectAsState()
 
-    // Обработка кнопки назад (сворачивание плеера и настроек)
-    BackHandler(enabled = showFullPlayer || showSettings) {
+    // Обработка кнопки назад (сворачивание плеера, настроек и открытого плейлиста)
+    BackHandler(enabled = showFullPlayer || showSettings || selectedPlaylist != null) {
         if (showFullPlayer) {
             showFullPlayer = false
         } else if (showSettings) {
             showSettings = false
+        } else if (selectedPlaylist != null) {
+            viewModel.closePlaylist()
         }
     }
 
@@ -153,14 +163,13 @@ fun MainAppScreen(viewModel: MainViewModel) {
                     }
                     MainTab.BROWSE -> {
                         BrowseScreen(
-                            playlists = playlists,
-                            topTracks = recommendations,
+                            curatedPlaylists = curatedPlaylists,
+                            userPlaylists = playlists,
+                            chartTracks = chartTracks,
                             currentTrack = currentTrack,
                             isPlaying = isPlaying,
                             onTrackClick = { track, list -> viewModel.playTrack(track, list) },
-                            onPlaylistClick = { playlist ->
-                                // Открытие треков плейлиста
-                            },
+                            onPlaylistClick = { playlist -> viewModel.openPlaylist(playlist) },
                             onDownloadClick = { viewModel.downloadTrack(it) }
                         )
                     }
@@ -173,7 +182,7 @@ fun MainAppScreen(viewModel: MainViewModel) {
                             currentTrack = currentTrack,
                             isPlaying = isPlaying,
                             onTrackClick = { track, list -> viewModel.playTrack(track, list) },
-                            onPlaylistClick = {},
+                            onPlaylistClick = { playlist -> viewModel.openPlaylist(playlist) },
                             onDownloadClick = { viewModel.downloadTrack(it) },
                             onLoginClick = { showAuthDialog = true },
                             onSettingsClick = { showSettings = true },
@@ -183,6 +192,7 @@ fun MainAppScreen(viewModel: MainViewModel) {
                     MainTab.SEARCH -> {
                         SearchScreen(
                             searchResults = searchResults,
+                            isSearching = isSearching,
                             currentTrack = currentTrack,
                             isPlaying = isPlaying,
                             onSearch = { viewModel.search(it) },
@@ -216,6 +226,28 @@ fun MainAppScreen(viewModel: MainViewModel) {
                 onToggleRepeat = { viewModel.toggleRepeat() },
                 onDownloadClick = { currentTrack?.let { viewModel.downloadTrack(it) } },
                 onDismiss = { showFullPlayer = false }
+            )
+        }
+
+        // Модальный экран плейлиста в стиле Apple Music
+        selectedPlaylist?.let { playlist ->
+            PlaylistDetailSheet(
+                playlist = playlist,
+                tracks = selectedPlaylistTracks,
+                isLoading = isLoadingPlaylistTracks,
+                currentTrack = currentTrack,
+                isPlaying = isPlaying,
+                onTrackClick = { track, list -> viewModel.playTrack(track, list) },
+                onPlayAllClick = { list -> if (list.isNotEmpty()) viewModel.playTrack(list.first(), list) },
+                onShuffleClick = { list ->
+                    if (list.isNotEmpty()) {
+                        val shuffled = list.shuffled()
+                        viewModel.playTrack(shuffled.first(), shuffled)
+                    }
+                },
+                onDownloadAllClick = { list -> viewModel.downloadAllInPlaylist(list) },
+                onDownloadTrackClick = { viewModel.downloadTrack(it) },
+                onDismiss = { viewModel.closePlaylist() }
             )
         }
 

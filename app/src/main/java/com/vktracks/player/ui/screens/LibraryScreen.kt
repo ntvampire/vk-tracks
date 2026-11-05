@@ -1,18 +1,26 @@
 package com.vktracks.player.ui.screens
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Album
+import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import coil.compose.AsyncImage
 import com.vktracks.player.data.model.Playlist
 import com.vktracks.player.data.model.Track
 import com.vktracks.player.ui.components.TrackItem
@@ -115,12 +123,67 @@ fun LibraryScreen(
             }
 
             if (selectedTab == LibraryTab.PLAYLISTS) {
-                items(playlists) { playlist ->
-                    ListItem(
-                        headlineContent = { Text(playlist.title, fontWeight = FontWeight.SemiBold) },
-                        supportingContent = { Text("${playlist.count} треков") },
-                        modifier = Modifier.clickable { onPlaylistClick(playlist) }
-                    )
+                if (playlists.isEmpty()) {
+                    item {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 60.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                text = "Нет сохранённых плейлистов",
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                } else {
+                    items(playlists) { playlist ->
+                        ListItem(
+                            leadingContent = {
+                                Box(
+                                    modifier = Modifier
+                                        .size(54.dp)
+                                        .clip(RoundedCornerShape(8.dp))
+                                        .background(MaterialTheme.colorScheme.surfaceVariant),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    if (!playlist.coverUrl.isNullOrEmpty()) {
+                                        AsyncImage(
+                                            model = playlist.coverUrl,
+                                            contentDescription = playlist.title,
+                                            modifier = Modifier.fillMaxSize(),
+                                            contentScale = ContentScale.Crop
+                                        )
+                                    } else {
+                                        Icon(
+                                            imageVector = Icons.Default.Album,
+                                            contentDescription = null,
+                                            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
+                                            modifier = Modifier.size(28.dp)
+                                        )
+                                    }
+                                }
+                            },
+                            headlineContent = {
+                                Text(
+                                    text = playlist.title,
+                                    fontWeight = FontWeight.SemiBold,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            },
+                            supportingContent = { Text("${playlist.count} треков") },
+                            trailingContent = {
+                                Icon(
+                                    imageVector = Icons.Default.ChevronRight,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)
+                                )
+                            },
+                            modifier = Modifier.clickable { onPlaylistClick(playlist) }
+                        )
+                    }
                 }
             } else {
                 if (currentList.isEmpty()) {

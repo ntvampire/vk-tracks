@@ -6,14 +6,19 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Album
+import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Download
+import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -22,12 +27,13 @@ import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import com.vktracks.player.data.model.Playlist
 import com.vktracks.player.data.model.Track
-import com.vktracks.player.ui.components.TrackItem
+import com.vktracks.player.ui.theme.AppleRed
 
 @Composable
 fun BrowseScreen(
-    playlists: List<Playlist>,
-    topTracks: List<Track>,
+    curatedPlaylists: List<Playlist>,
+    userPlaylists: List<Playlist>,
+    chartTracks: List<Track>,
     currentTrack: Track?,
     isPlaying: Boolean,
     onTrackClick: (Track, List<Track>) -> Unit,
@@ -51,8 +57,30 @@ fun BrowseScreen(
             )
         }
 
-        // Подборки и альбомы (горизонтальная лента)
-        if (playlists.isNotEmpty()) {
+        // 1. Официальные подборки и чарты от редакции VK Музыки
+        if (curatedPlaylists.isNotEmpty()) {
+            item {
+                Text(
+                    text = "Подборки и чарты VK",
+                    fontSize = 20.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onBackground,
+                    modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp)
+                )
+                LazyRow(
+                    contentPadding = PaddingValues(horizontal = 16.dp),
+                    horizontalArrangement = Arrangement.spacedBy(16.dp)
+                ) {
+                    items(curatedPlaylists) { playlist ->
+                        CuratedPlaylistCard(playlist = playlist, onClick = { onPlaylistClick(playlist) })
+                    }
+                }
+                Spacer(modifier = Modifier.height(20.dp))
+            }
+        }
+
+        // 2. Мои плейлисты / Подборки пользователя
+        if (userPlaylists.isNotEmpty()) {
             item {
                 Text(
                     text = "Популярные плейлисты",
@@ -65,19 +93,19 @@ fun BrowseScreen(
                     contentPadding = PaddingValues(horizontal = 16.dp),
                     horizontalArrangement = Arrangement.spacedBy(14.dp)
                 ) {
-                    items(playlists) { playlist ->
+                    items(userPlaylists) { playlist ->
                         PlaylistCard(playlist = playlist, onClick = { onPlaylistClick(playlist) })
                     }
                 }
+                Spacer(modifier = Modifier.height(20.dp))
             }
         }
 
-        // Топ треки
-        if (topTracks.isNotEmpty()) {
+        // 3. Главный чарт ВКонтакте и новинки
+        if (chartTracks.isNotEmpty()) {
             item {
-                Spacer(modifier = Modifier.height(20.dp))
                 Text(
-                    text = "Чарт и новинки",
+                    text = "Чарт ВКонтакте",
                     fontSize = 20.sp,
                     fontWeight = FontWeight.Bold,
                     color = MaterialTheme.colorScheme.onBackground,
@@ -85,15 +113,148 @@ fun BrowseScreen(
                 )
             }
 
-            items(topTracks) { track ->
-                TrackItem(
-                    track = track,
-                    isPlaying = isPlaying,
-                    isCurrent = currentTrack?.fullId == track.fullId,
-                    onTrackClick = { onTrackClick(track, topTracks) },
-                    onDownloadClick = { onDownloadClick(track) }
+            itemsIndexed(chartTracks) { index, track ->
+                val isCurrent = currentTrack?.fullId == track.fullId
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable { onTrackClick(track, chartTracks) }
+                        .padding(horizontal = 16.dp, vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    // Номер в чарте
+                    Text(
+                        text = "${index + 1}",
+                        fontSize = 15.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = if (index < 3) AppleRed else MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.width(28.dp)
+                    )
+
+                    // Обложка трека
+                    Box(
+                        modifier = Modifier
+                            .size(48.dp)
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(MaterialTheme.colorScheme.surfaceVariant),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        if (!track.coverUrl.isNullOrEmpty()) {
+                            AsyncImage(
+                                model = track.coverUrl,
+                                contentDescription = null,
+                                modifier = Modifier.fillMaxSize(),
+                                contentScale = ContentScale.Crop
+                            )
+                        } else {
+                            Icon(
+                                imageVector = Icons.Default.MusicNote,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
+                                modifier = Modifier.size(24.dp)
+                            )
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.width(14.dp))
+
+                    // Название и артист
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = track.title,
+                            fontSize = 15.sp,
+                            fontWeight = if (isCurrent) FontWeight.Bold else FontWeight.Medium,
+                            color = if (isCurrent) AppleRed else MaterialTheme.colorScheme.onBackground,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                        Text(
+                            text = track.artist,
+                            fontSize = 13.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+
+                    IconButton(
+                        onClick = { onDownloadClick(track) },
+                        modifier = Modifier.size(36.dp)
+                    ) {
+                        Icon(
+                            imageVector = if (track.isLocal) Icons.Default.CheckCircle else Icons.Default.Download,
+                            contentDescription = "Скачать",
+                            tint = if (track.isLocal) AppleRed else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+                            modifier = Modifier.size(20.dp)
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun CuratedPlaylistCard(
+    playlist: Playlist,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Column(
+        modifier = modifier
+            .width(160.dp)
+            .clickable(onClick = onClick)
+    ) {
+        Box(
+            modifier = Modifier
+                .size(160.dp)
+                .shadow(8.dp, RoundedCornerShape(12.dp))
+                .clip(RoundedCornerShape(12.dp))
+                .background(MaterialTheme.colorScheme.surfaceVariant),
+            contentAlignment = Alignment.Center
+        ) {
+            if (!playlist.coverUrl.isNullOrEmpty()) {
+                AsyncImage(
+                    model = playlist.coverUrl,
+                    contentDescription = playlist.title,
+                    modifier = Modifier.fillMaxSize(),
+                    contentScale = ContentScale.Crop
+                )
+            } else {
+                Icon(
+                    imageVector = Icons.Default.Album,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
+                    modifier = Modifier.size(56.dp)
                 )
             }
+        }
+
+        Spacer(modifier = Modifier.height(8.dp))
+
+        Text(
+            text = playlist.title,
+            fontSize = 14.sp,
+            fontWeight = FontWeight.SemiBold,
+            color = MaterialTheme.colorScheme.onBackground,
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis
+        )
+
+        if (!playlist.description.isNullOrEmpty()) {
+            Text(
+                text = playlist.description,
+                fontSize = 12.sp,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+        } else {
+            Text(
+                text = "${playlist.count} треков",
+                fontSize = 12.sp,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
         }
     }
 }
@@ -119,7 +280,7 @@ fun PlaylistCard(
             if (!playlist.coverUrl.isNullOrEmpty()) {
                 AsyncImage(
                     model = playlist.coverUrl,
-                    contentDescription = null,
+                    contentDescription = playlist.title,
                     modifier = Modifier.fillMaxSize(),
                     contentScale = ContentScale.Crop
                 )

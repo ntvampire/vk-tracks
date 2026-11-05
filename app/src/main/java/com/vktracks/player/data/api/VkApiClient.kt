@@ -116,9 +116,10 @@ class VkApiClient(
 
     suspend fun getPlaylistTracks(playlistId: Long, ownerId: Long, accessKey: String? = null): List<Track> = withContext(Dispatchers.IO) {
         val params = mutableMapOf(
+            "playlist_id" to playlistId.toString(),
             "album_id" to playlistId.toString(),
             "owner_id" to ownerId.toString(),
-            "count" to "100"
+            "count" to "150"
         )
         if (!accessKey.isNullOrEmpty()) {
             params["access_key"] = accessKey
@@ -127,16 +128,58 @@ class VkApiClient(
         parseTracksList(json)
     }
 
-    suspend fun searchAudios(query: String, offset: Int = 0, count: Int = 40): List<Track> = withContext(Dispatchers.IO) {
-        val params = mapOf(
+    suspend fun searchAudios(query: String, offset: Int = 0, count: Int = 50): List<Track> = withContext(Dispatchers.IO) {
+        val userId = authManager.getUserId()
+        val params = mutableMapOf(
             "q" to query,
             "auto_complete" to "1",
             "sort" to "2",
+            "filter" to "all",
             "offset" to offset.toString(),
             "count" to count.toString()
         )
+        if (userId > 0) {
+            params["owner_id"] = userId.toString()
+        }
         val json = callVkApi("audio.search", params) ?: return@withContext emptyList()
         parseTracksList(json)
+    }
+
+    suspend fun getCuratedPlaylists(count: Int = 30): List<Playlist> = withContext(Dispatchers.IO) {
+        // 1. Попытка через catalog.getAudio (официальный каталог рекомендаций и витрин)
+        try {
+            val json = callVkApi("catalog.getAudio", mapOf("need_blocks" to "1"))
+            if (json != null) {
+                val playlists = parsePlaylists(json)
+                if (playlists.isNotEmpty()) return@withContext playlists
+            }
+        } catch (e: Exception) {
+            Log.w("VkApiClient", "catalog.getAudio failed for curated playlists", e)
+        }
+
+        // 2. Официальные подборки и чарты от редакции VK Музыки (паблик vk.com/vkmusic, owner_id = -4790019)
+        val params = mapOf(
+            "owner_id" to "-4790019",
+            "count" to count.toString()
+        )
+        val json = callVkApi("audio.getPlaylists", params) ?: return@withContext emptyList()
+        parsePlaylists(json)
+    }
+
+    suspend fun getChartTracks(count: Int = 50): List<Track> = withContext(Dispatchers.IO) {
+        // 1. Попытка получить топовые треки чарта через catalog.getAudio
+        try {
+            val json = callVkApi("catalog.getAudio", mapOf("need_blocks" to "1"))
+            if (json != null) {
+                val tracks = parseTracksList(json)
+                if (tracks.isNotEmpty()) return@withContext tracks
+            }
+        } catch (e: Exception) {
+            Log.w("VkApiClient", "catalog.getAudio failed for chart tracks", e)
+        }
+
+        // 2. Резерв: популярные рекомендации
+        getRecommendations(0, count)
     }
 
     suspend fun getRecommendations(offset: Int = 0, count: Int = 40): List<Track> = withContext(Dispatchers.IO) {
@@ -303,10 +346,20 @@ class VkApiClient(
     }
 
     private suspend fun parseTracksList(json: JSONObject): List<Track> {
-        val response = json.optJSONObject("response") ?: return emptyList()
-        val items = response.optJSONArray("items") ?: return emptyList()
-        val tracks = mutableListOf<Track>()
+        val response = json.optJSONObject("response")
+        val items = response?.optJSONArray("items")
+            ?: response?.optJSONArray("audios")
+            ?: json.optJSONArray("response")
+            ?: json.optJSONArray("items")
 
+        if (items != null) {
+            return parseTracksArray(items)
+        }
+        return emptyList()
+    }
+
+    private suspend fun parseTracksArray(items: org.json.JSONArray): List<Track> {
+        val tracks = mutableListOf<Track>()
         for (i in 0 until items.length()) {
             val item = items.optJSONObject(i) ?: continue
             val track = parseTrackObject(item)
@@ -400,23 +453,63 @@ class VkApiClient(
     }
 
     private fun parsePlaylists(json: JSONObject): List<Playlist> {
-        val response = json.optJSONObject("response") ?: return emptyList()
-        val items = response.optJSONArray("items") ?: return emptyList()
-        val list = mutableListOf<Playlist>()
+        val response = json.optJSONObject("response")
+        val items = response?.optJSONArray("items")
+            ?: response?.optJSONArray("playlists")
+            ?: json.optJSONArray("response")
+            ?: json.optJSONArray("items")
+            ?: return emptyList()
 
+        return parsePlaylistsArray(items)
+    }
+
+    private fun parsePlaylistsArray(items: org.json.JSONArray): List<Playlist> {
+        val list = mutableListOf<Playlist>()
         for (i in 0 until items.length()) {
             val item = items.optJSONObject(i) ?: continue
             val id = item.optLong("id")
             val ownerId = item.optLong("owner_id")
-            val title = item.optString("title")
-            val description = item.optString("description")
-            val count = item.optInt("count")
+            val title = item.optString("title", "Плейлист")
+            val description = item.optString("description", "")
+            val count = item.optInt("count", 0)
             val accessKey = item.optString("access_key")
 
-            val thumb = item.optJSONObject("thumb")
-            val coverUrl = thumb?.optString("photo_600")
-                ?: thumb?.optString("photo_300")
-                ?: thumb?.optString("photo_1200")
+            var coverUrl: String? = null
+
+            // 1. photo (VK API v5.131+ official)
+            val photo = item.optJSONObject("photo")
+            if (photo != null) {
+                coverUrl = photo.optString("photo_600").takeIf { it.isNotEmpty() }
+                    ?: photo.optString("photo_300").takeIf { it.isNotEmpty() }
+                    ?: photo.optString("photo_1200").takeIf { it.isNotEmpty() }
+                    ?: photo.optString("photo_270").takeIf { it.isNotEmpty() }
+                    ?: photo.optString("photo_135").takeIf { it.isNotEmpty() }
+            }
+
+            // 2. thumbs array
+            if (coverUrl.isNullOrEmpty()) {
+                val thumbs = item.optJSONArray("thumbs")
+                if (thumbs != null && thumbs.length() > 0) {
+                    val firstThumb = thumbs.optJSONObject(0)
+                    coverUrl = firstThumb?.optString("photo_600")?.takeIf { it.isNotEmpty() }
+                        ?: firstThumb?.optString("photo_300")?.takeIf { it.isNotEmpty() }
+                        ?: firstThumb?.optString("photo_1200")?.takeIf { it.isNotEmpty() }
+                        ?: firstThumb?.optString("photo_270")?.takeIf { it.isNotEmpty() }
+                }
+            }
+
+            // 3. thumb object
+            if (coverUrl.isNullOrEmpty()) {
+                val thumb = item.optJSONObject("thumb")
+                coverUrl = thumb?.optString("photo_600")?.takeIf { it.isNotEmpty() }
+                    ?: thumb?.optString("photo_300")?.takeIf { it.isNotEmpty() }
+                    ?: thumb?.optString("photo_1200")?.takeIf { it.isNotEmpty() }
+            }
+
+            // 4. cover.uri
+            if (coverUrl.isNullOrEmpty()) {
+                coverUrl = item.optJSONObject("cover")?.optString("uri")?.takeIf { it.isNotEmpty() }
+            }
 
             list.add(
                 Playlist(

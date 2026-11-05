@@ -17,6 +17,8 @@ import com.vktracks.player.data.model.Track
 import com.vktracks.player.data.updater.UpdateChecker
 import com.vktracks.player.service.PlaybackService
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 
@@ -45,6 +47,25 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     private val _searchResults = MutableStateFlow<List<Track>>(emptyList())
     val searchResults: StateFlow<List<Track>> = _searchResults.asStateFlow()
+
+    private val _isSearching = MutableStateFlow(false)
+    val isSearching: StateFlow<Boolean> = _isSearching.asStateFlow()
+    private var searchJob: Job? = null
+
+    private val _curatedPlaylists = MutableStateFlow<List<Playlist>>(emptyList())
+    val curatedPlaylists: StateFlow<List<Playlist>> = _curatedPlaylists.asStateFlow()
+
+    private val _chartTracks = MutableStateFlow<List<Track>>(emptyList())
+    val chartTracks: StateFlow<List<Track>> = _chartTracks.asStateFlow()
+
+    private val _selectedPlaylist = MutableStateFlow<Playlist?>(null)
+    val selectedPlaylist: StateFlow<Playlist?> = _selectedPlaylist.asStateFlow()
+
+    private val _selectedPlaylistTracks = MutableStateFlow<List<Track>>(emptyList())
+    val selectedPlaylistTracks: StateFlow<List<Track>> = _selectedPlaylistTracks.asStateFlow()
+
+    private val _isLoadingPlaylistTracks = MutableStateFlow(false)
+    val isLoadingPlaylistTracks: StateFlow<Boolean> = _isLoadingPlaylistTracks.asStateFlow()
 
     private val _isLoading = MutableStateFlow(false)
     val isLoading: StateFlow<Boolean> = _isLoading.asStateFlow()
@@ -121,8 +142,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             _isLoading.value = true
             try {
                 _myTracks.value = apiClient.getMyAudios(0, 100)
-                _playlists.value = apiClient.getPlaylists(0, 30)
+                _playlists.value = apiClient.getPlaylists(0, 50)
                 _recommendations.value = apiClient.getRecommendations(0, 50)
+                _curatedPlaylists.value = apiClient.getCuratedPlaylists(30)
+                _chartTracks.value = apiClient.getChartTracks(50)
             } catch (_: Exception) {}
             _isLoading.value = false
         }
@@ -137,14 +160,49 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun search(query: String) {
-        if (query.isBlank()) {
+        searchJob?.cancel()
+        val q = query.trim()
+        if (q.isBlank()) {
             _searchResults.value = emptyList()
+            _isSearching.value = false
             return
         }
-        viewModelScope.launch {
+        searchJob = viewModelScope.launch {
+            _isSearching.value = true
+            delay(350)
             try {
-                _searchResults.value = apiClient.searchAudios(query.trim())
-            } catch (_: Exception) {}
+                _searchResults.value = apiClient.searchAudios(q)
+            } catch (_: Exception) {
+            } finally {
+                _isSearching.value = false
+            }
+        }
+    }
+
+    fun openPlaylist(playlist: Playlist) {
+        _selectedPlaylist.value = playlist
+        _selectedPlaylistTracks.value = emptyList()
+        viewModelScope.launch {
+            _isLoadingPlaylistTracks.value = true
+            try {
+                _selectedPlaylistTracks.value = apiClient.getPlaylistTracks(playlist.id, playlist.ownerId, playlist.accessKey)
+            } catch (_: Exception) {
+            } finally {
+                _isLoadingPlaylistTracks.value = false
+            }
+        }
+    }
+
+    fun closePlaylist() {
+        _selectedPlaylist.value = null
+        _selectedPlaylistTracks.value = emptyList()
+    }
+
+    fun downloadAllInPlaylist(tracks: List<Track>) {
+        viewModelScope.launch {
+            for (track in tracks) {
+                downloader.downloadTrack(track)
+            }
         }
     }
 

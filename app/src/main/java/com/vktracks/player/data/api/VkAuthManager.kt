@@ -54,12 +54,11 @@ class VkAuthManager(context: Context) {
     }
 
     companion object {
-        const val KATE_APP_ID = "2685278" // Альтернативный клиент Kate Mobile (разрешен для Web OAuth)
         const val VK_MUSIC_APP_ID = "6767438" // Официальный клиент VK Музыка (Boom)
         const val VK_ANDROID_APP_ID = "2274003" // Официальный клиент VK Android
         const val REDIRECT_URI = "https://oauth.vk.com/blank.html"
 
-        fun getOAuthUrl(clientId: String = KATE_APP_ID): String {
+        fun getOAuthUrl(clientId: String = VK_MUSIC_APP_ID): String {
             return Uri.parse("https://oauth.vk.com/authorize").buildUpon()
                 .appendQueryParameter("client_id", clientId)
                 .appendQueryParameter("display", "mobile")

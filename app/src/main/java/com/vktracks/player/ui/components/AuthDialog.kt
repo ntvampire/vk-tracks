@@ -243,7 +243,7 @@ fun AuthDialog(
                                 )
                                 Spacer(modifier = Modifier.height(4.dp))
                                 Text(
-                                    text = "Самый надежный способ авторизации без ввода паролей в приложении. Поддерживаются токены VK Музыки, Kate Mobile или полные ссылки blank.html.",
+                                    text = "Самый надежный способ авторизации без ввода паролей в приложении. Поддерживаются токены VK Музыки, официального приложения VK или полные ссылки blank.html.",
                                     style = MaterialTheme.typography.bodyMedium,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )

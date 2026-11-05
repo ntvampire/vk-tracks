@@ -24,9 +24,9 @@ class VkApiClient(
         .readTimeout(20, TimeUnit.SECONDS)
         .build()
 
-    // Профили User-Agent для совместимости с токенами VK Android / VK Музыки и Kate Mobile
+    // Официальные профили User-Agent (VK Android и VK Музыка)
     private val vkAndroidUserAgent = "VKAndroidApp/8.14-16238 (Android 14; SDK 34; arm64-v8a; ru)"
-    private val kateUserAgent = "KateMobileAndroid/108.1 lite-535 (Android 14; SDK 34; arm64-v8a; ru)"
+    private val vkMusicUserAgent = "VKMusic/1.1.0 (Android 14; SDK 34; arm64-v8a; ru)"
     private val apiVersion = "5.131"
 
     @Volatile
@@ -251,7 +251,7 @@ class VkApiClient(
             val errCode = result.optJSONObject("error")?.optInt("error_code") ?: 0
             if (errCode == 8 || errCode == 27) {
                 // Несоответствие User-Agent типу токена -> переключаем и пробуем второй профиль
-                val fallbackUa = if (preferredUserAgent == vkAndroidUserAgent) kateUserAgent else vkAndroidUserAgent
+                val fallbackUa = if (preferredUserAgent == vkAndroidUserAgent) vkMusicUserAgent else vkAndroidUserAgent
                 Log.w("VkApiClient", "VK API $method returned error $errCode with $preferredUserAgent, retrying with $fallbackUa")
                 val fallbackResult = executeMethodCall(method, params, token, fallbackUa)
                 if (fallbackResult != null && !fallbackResult.has("error")) {

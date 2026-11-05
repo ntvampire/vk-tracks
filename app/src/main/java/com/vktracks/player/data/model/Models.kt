@@ -63,10 +63,32 @@ data class SearchResult(
     val artists: List<Artist> = emptyList()
 )
 
+data class StreamMix(
+    val id: String,
+    val title: String,
+    val subtitle: String? = null,
+    val imageUrl: String? = null,
+    val images: List<String> = emptyList(),
+    val actionUrl: String? = null,
+    val mixType: String = "general" // "artist", "genre", "personal", "algorithm"
+)
+
+data class CatalogButtonItem(
+    val id: String,
+    val title: String,
+    val url: String? = null,
+    val iconUrl: String? = null,
+    val colorHex: String? = null
+)
+
 data class CatalogBlock(
     val id: String,
     val title: String,
     val subtitle: String? = null,
+    val layoutName: String = "slider",
+    val dataType: String = "",
+    val mixes: List<StreamMix> = emptyList(),
+    val buttons: List<CatalogButtonItem> = emptyList(),
     val playlists: List<Playlist> = emptyList(),
     val tracks: List<Track> = emptyList()
 )

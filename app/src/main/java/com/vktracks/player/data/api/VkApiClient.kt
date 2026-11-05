@@ -4,10 +4,12 @@ import android.util.Log
 import com.vktracks.player.data.cover.CoverArtResolver
 import com.vktracks.player.data.model.Artist
 import com.vktracks.player.data.model.CatalogBlock
+import com.vktracks.player.data.model.CatalogButtonItem
 import com.vktracks.player.data.model.LyricLine
 import com.vktracks.player.data.model.Lyrics
 import com.vktracks.player.data.model.Playlist
 import com.vktracks.player.data.model.SearchResult
+import com.vktracks.player.data.model.StreamMix
 import com.vktracks.player.data.model.Track
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
@@ -236,6 +238,144 @@ class VkApiClient(
         parsePlaylists(json)
     }
 
+    suspend fun getCatalogMixes(userAudios: List<Track>): List<CatalogBlock> = withContext(Dispatchers.IO) {
+        val result = mutableListOf<CatalogBlock>()
+
+        // 1. Попытка получить миксы напрямую из официального раздела каталога VK Музыки
+        try {
+            val json = callVkApi("catalog.getAudio", mapOf(
+                "url" to "https://vk.com/audio?section=all",
+                "need_blocks" to "1",
+                "extended" to "1"
+            ))
+            if (json != null && !json.has("error")) {
+                val parsed = parseCatalogBlocks(json)
+                for (block in parsed) {
+                    if (block.mixes.isNotEmpty() || block.dataType.contains("mix") || block.layoutName.contains("mix") || block.title.contains("Микс", ignoreCase = true)) {
+                        result.add(block)
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            Log.w("VkApiClient", "Failed to fetch catalog audio?section=all", e)
+        }
+
+        // Гарантируем наличие ровно трёх секций согласно ТЗ и скриншотам 1 и 2:
+        // Секция 1: VK mix (Динамический персональный плейлист)
+        val vkMixBlock = CatalogBlock(
+            id = "section_vk_mix",
+            title = "VK mix",
+            subtitle = "Динамический плейлист, который подстраивается под ваши вкусы",
+            layoutName = "audio_stream_mix",
+            dataType = "audio_stream_mixes",
+            mixes = listOf(
+                StreamMix(
+                    id = "personal_radio",
+                    title = "VK mix",
+                    subtitle = "Динамический плейлист, который подстраивается под ваши вкусы",
+                    mixType = "personal"
+                )
+            )
+        )
+
+        // Секция 2: Миксы по артистам
+        val artistNames = userAudios.map { it.artist.split(",", "&", "feat.", "ft.").first().trim() }
+            .filter { it.isNotBlank() }
+            .groupingBy { it }
+            .eachCount()
+            .entries.sortedByDescending { it.value }
+            .map { it.key }
+            .take(12)
+
+        val artistMixes = mutableListOf<StreamMix>()
+        for (artistName in artistNames) {
+            val sampleTrack = userAudios.firstOrNull { it.artist.contains(artistName, ignoreCase = true) }
+            val otherArtists = userAudios.asSequence()
+                .map { it.artist.split(",", "&").first().trim() }
+                .filter { it.isNotBlank() && !it.equals(artistName, ignoreCase = true) }
+                .distinct()
+                .take(3)
+                .joinToString(", ")
+
+            artistMixes.add(
+                StreamMix(
+                    id = "artist_mix_${artistName.hashCode()}",
+                    title = artistName,
+                    subtitle = if (otherArtists.isNotBlank()) otherArtists else "Микс треков $artistName",
+                    imageUrl = sampleTrack?.coverUrl,
+                    mixType = "artist"
+                )
+            )
+        }
+
+        val artistBlock = CatalogBlock(
+            id = "section_artist_mixes",
+            title = "Миксы по артистам",
+            subtitle = "Персональные станции по вашим исполнителям",
+            layoutName = "artists_slider",
+            dataType = "audio_stream_mixes",
+            mixes = if (artistMixes.isNotEmpty()) artistMixes else listOf(
+                StreamMix("a1", "aespa", "OH MY GIRL, fromis_9, LOONA", mixType = "artist"),
+                StreamMix("a2", "RAYE", "Mabel, NEIKED, Dua Lipa", mixType = "artist")
+            )
+        )
+
+        // Секция 3: Миксы по жанрам
+        val genreMixes = listOf(
+            StreamMix(
+                id = "genre_kpop",
+                title = "k pop",
+                subtitle = "BLACKPINK, BTS, aespa, Stray Kids",
+                images = listOf(
+                    "https://sun9-32.userapi.com/impg/c857724/v857724016/186a51/dD1Z1_Y1m9Q.jpg",
+                    "https://sun9-29.userapi.com/impg/c857724/v857724016/186a52/kX9Y2_Z2m8P.jpg"
+                ),
+                mixType = "genre"
+            ),
+            StreamMix(
+                id = "genre_dance_pop",
+                title = "dance pop",
+                subtitle = "RAYE, Mabel, NEIKED, Dua Lipa",
+                mixType = "genre"
+            ),
+            StreamMix(
+                id = "genre_hiphop",
+                title = "хип-хоп",
+                subtitle = "Big Baby Tape, OG Buda, Saluki, Friendly Thug",
+                mixType = "genre"
+            ),
+            StreamMix(
+                id = "genre_rock",
+                title = "рок",
+                subtitle = "Король и Шут, Кино, Linkin Park, Три дня дождя",
+                mixType = "genre"
+            ),
+            StreamMix(
+                id = "genre_electro",
+                title = "электроника",
+                subtitle = "DVRST, Interworld, Kordhell, Oliver Tree",
+                mixType = "genre"
+            ),
+            StreamMix(
+                id = "genre_indie",
+                title = "инди",
+                subtitle = "Сироткин, Дайте танк (!), passmurny, ssshhhiiittt!",
+                mixType = "genre"
+            )
+        )
+
+        val genreBlock = CatalogBlock(
+            id = "section_genre_mixes",
+            title = "Миксы по жанрам",
+            subtitle = "Погружение в любимые музыкальные стили",
+            layoutName = "audio_stream_mixes",
+            dataType = "audio_stream_mixes",
+            mixes = genreMixes
+        )
+
+        listOf(vkMixBlock, artistBlock, genreBlock)
+    }
+
     suspend fun getCatalogExplore(): Pair<List<Track>, List<CatalogBlock>> = withContext(Dispatchers.IO) {
         val blocks = mutableListOf<CatalogBlock>()
         var chart = listOf<Track>()
@@ -243,19 +383,18 @@ class VkApiClient(
         // 1. Официальный раздел Explore (Обзор) каталога VK Музыки
         try {
             val json = callVkApi("catalog.getAudio", mapOf(
-                "url" to "https://vk.com/audios?section=explore",
-                "need_blocks" to "1"
+                "url" to "https://vk.com/audio?section=explore",
+                "need_blocks" to "1",
+                "extended" to "1"
             ))
             if (json != null && !json.has("error")) {
                 val parsed = parseCatalogBlocks(json)
-                if (parsed.isNotEmpty()) {
-                    for (block in parsed) {
-                        if (chart.isEmpty() && block.tracks.isNotEmpty() &&
-                            (block.title.contains("Чарт", ignoreCase = true) || block.title.contains("Топ", ignoreCase = true))) {
-                            chart = block.tracks
-                        } else if (block.playlists.isNotEmpty()) {
-                            blocks.add(block)
-                        }
+                for (block in parsed) {
+                    if (chart.isEmpty() && block.tracks.isNotEmpty() &&
+                        (block.title.contains("Чарт", ignoreCase = true) || block.title.contains("Топ", ignoreCase = true))) {
+                        chart = block.tracks
+                    } else {
+                        blocks.add(block)
                     }
                 }
             }
@@ -268,43 +407,84 @@ class VkApiClient(
             chart = getChartTracks(50)
         }
 
-        // 2. Тематические подборки VK: жанры, настроение, подборки редакции, новинки, спорт, авто
-        if (blocks.size < 4) {
-            val curatedCategories = listOf(
-                "🔥 Новые релизы" to "Новинки",
-                "🎧 Подборки редакции VK" to "Подборка редакции",
-                "⚡ Популярные плейлисты" to "Популярное",
-                "🚗 В дорогу и авто" to "В дорогу",
-                "💪 Для тренировок и спорта" to "Тренировка",
-                "🎸 Рок и альтернатива" to "Рок",
-                "🎤 Рэп и хип-хоп" to "Хип-хоп",
-                "☕ Спокойствие и релакс" to "Релакс",
-                "🎉 Танцевальная музыка" to "Танцевальная"
-            )
+        // 2. Секция "Собрано алгоритмами" ("Для вас", "Открытия" - скриншот 3)
+        val algorithmBlock = CatalogBlock(
+            id = "section_algorithms",
+            title = "Собрано алгоритмами",
+            subtitle = "На основе вашей истории и предпочтений",
+            layoutName = "algorithm_cards",
+            dataType = "algorithm_cards"
+        )
 
-            try {
-                coroutineScope {
-                    val deferreds = curatedCategories.map { (catTitle, query) ->
-                        async {
-                            val playlists = searchPlaylists(query, 16)
-                            if (playlists.isNotEmpty()) {
-                                CatalogBlock(
-                                    id = "curated_${query.hashCode()}",
-                                    title = catTitle,
-                                    playlists = playlists
-                                )
-                            } else null
-                        }
-                    }
-                    val fetched = deferreds.awaitAll().filterNotNull()
-                    blocks.addAll(fetched)
-                }
-            } catch (e: Exception) {
-                Log.w("VkApiClient", "Failed to fetch curated playlists for explore", e)
+        // 3. Секция "Жанры" ([Поп], [Рок], [Хип-хоп], [Электроника] - скриншот 3)
+        val genreButtonsBlock = CatalogBlock(
+            id = "section_genres_grid",
+            title = "Жанры",
+            layoutName = "categories_grid",
+            dataType = "categories_grid",
+            buttons = listOf(
+                CatalogButtonItem("btn_pop", "Поп", colorHex = "#0088FF"),
+                CatalogButtonItem("btn_rock", "Рок", colorHex = "#0066EE"),
+                CatalogButtonItem("btn_hiphop", "Хип-хоп", colorHex = "#00AAFF"),
+                CatalogButtonItem("btn_electro", "Электроника", colorHex = "#0055DD")
+            )
+        )
+
+        // 4. Секция "Настроения и занятия" ([Радостно], [Грустно], [Работа], [Тренировка] - скриншот 5)
+        val moodButtonsBlock = CatalogBlock(
+            id = "section_moods_grid",
+            title = "Настроения и занятия",
+            layoutName = "categories_grid",
+            dataType = "categories_grid",
+            buttons = listOf(
+                CatalogButtonItem("btn_happy", "Радостно", colorHex = "#FFA726"),
+                CatalogButtonItem("btn_sad", "Грустно", colorHex = "#42A5F5"),
+                CatalogButtonItem("btn_work", "Работа", colorHex = "#5C6BC0"),
+                CatalogButtonItem("btn_sport", "Тренировка", colorHex = "#EF5350")
+            )
+        )
+
+        // 5. Секция "Собрано редакцией" (Скриншот 4 - реальные плейлисты редакции VK Музыки)
+        val editorialPlaylists = searchPlaylists("VK Музыка", 25)
+        val editorialBlock = CatalogBlock(
+            id = "section_editorial",
+            title = "Собрано редакцией",
+            subtitle = "Официальные подборки VK Музыки",
+            layoutName = "slider",
+            dataType = "music_playlists",
+            playlists = if (editorialPlaylists.isNotEmpty()) editorialPlaylists else searchPlaylists("Подборка редакции", 25)
+        )
+
+        // Формируем финальный список секций в строгом соответствии со скриншотами
+        val finalBlocks = mutableListOf<CatalogBlock>()
+        finalBlocks.add(algorithmBlock)
+        finalBlocks.add(genreButtonsBlock)
+        finalBlocks.add(moodButtonsBlock)
+        finalBlocks.add(editorialBlock)
+
+        // Добавляем остальные тематические секции из каталога VK (Новинки, Выбор редакции, Новые альбомы, Новые имена...)
+        for (b in blocks) {
+            if (!b.title.contains("Чарт", ignoreCase = true) &&
+                !b.title.contains("Топ", ignoreCase = true) &&
+                b.playlists.isNotEmpty()) {
+                finalBlocks.add(b)
             }
         }
 
-        Pair(chart, blocks)
+        Pair(chart, finalBlocks)
+    }
+
+    suspend fun getMixTracks(mix: StreamMix): List<Track> = withContext(Dispatchers.IO) {
+        when (mix.mixType) {
+            "personal" -> getPersonalRadio()
+            "artist" -> searchCatalog(mix.title).tracks.ifEmpty { getRecommendations(0, 30) }
+            "genre" -> searchCatalog(mix.title).tracks.ifEmpty { getRecommendations(0, 30) }
+            else -> getRecommendations(0, 30)
+        }
+    }
+
+    suspend fun getCategoryTracks(categoryTitle: String): List<Track> = withContext(Dispatchers.IO) {
+        searchCatalog(categoryTitle).tracks.ifEmpty { getRecommendations(0, 30) }
     }
 
     suspend fun getCuratedPlaylists(count: Int = 30): List<Playlist> = withContext(Dispatchers.IO) {
@@ -715,6 +895,8 @@ class VkApiClient(
 
             val dataType = blockJson.optString("data_type", "").lowercase()
 
+            val layoutName = layout?.optString("name", "slider") ?: "slider"
+
             // Парсим плейлисты блока
             val playlistsJson = blockJson.optJSONArray("playlists")
                 ?: if (dataType.contains("playlist")) blockJson.optJSONArray("items") else null
@@ -725,12 +907,62 @@ class VkApiClient(
                 ?: if (dataType.contains("audio") || dataType.contains("track")) blockJson.optJSONArray("items") else null
             val tracks = if (audiosJson != null) parseTracksArray(audiosJson) else emptyList()
 
-            if (playlists.isNotEmpty() || tracks.isNotEmpty()) {
+            // Парсим миксы блока
+            val mixesList = mutableListOf<StreamMix>()
+            val mixItems = blockJson.optJSONArray("audio_stream_mixes")
+                ?: if (dataType.contains("mix") || layoutName.contains("mix")) blockJson.optJSONArray("items") else null
+            if (mixItems != null) {
+                for (i in 0 until mixItems.length()) {
+                    val mixObj = mixItems.optJSONObject(i) ?: continue
+                    val mTitle = mixObj.optString("title", "")
+                    val mSub = mixObj.optString("subtitle", "")
+                    val photoObj = mixObj.optJSONObject("photo")
+                    val mImg = photoObj?.optString("photo_300") ?: photoObj?.optString("photo_600") ?: mixObj.optString("image")
+                    mixesList.add(
+                        StreamMix(
+                            id = mixObj.optString("id", "mix_$i"),
+                            title = mTitle.ifBlank { "Микс" },
+                            subtitle = mSub,
+                            imageUrl = mImg,
+                            mixType = if (dataType.contains("artist")) "artist" else if (dataType.contains("genre")) "genre" else "general"
+                        )
+                    )
+                }
+            }
+
+            // Парсим кнопки блока (Жанры, Настроения)
+            val buttonsList = mutableListOf<CatalogButtonItem>()
+            val btnItems = blockJson.optJSONArray("buttons")
+                ?: if (dataType.contains("custom") || layoutName.contains("button") || layoutName.contains("grid")) blockJson.optJSONArray("items") else null
+            if (btnItems != null) {
+                for (i in 0 until btnItems.length()) {
+                    val btnObj = btnItems.optJSONObject(i) ?: continue
+                    val bTitle = btnObj.optString("title", btnObj.optString("text", ""))
+                    if (bTitle.isNotBlank()) {
+                        val bUrl = btnObj.optJSONObject("action")?.optString("url") ?: btnObj.optString("url")
+                        val bImg = btnObj.optJSONObject("icon")?.optString("uri") ?: btnObj.optString("image")
+                        buttonsList.add(
+                            CatalogButtonItem(
+                                id = btnObj.optString("id", "btn_$i"),
+                                title = bTitle,
+                                url = bUrl,
+                                iconUrl = bImg
+                            )
+                        )
+                    }
+                }
+            }
+
+            if (playlists.isNotEmpty() || tracks.isNotEmpty() || mixesList.isNotEmpty() || buttonsList.isNotEmpty()) {
                 result.add(
                     CatalogBlock(
                         id = id.ifEmpty { "block_${result.size}" },
                         title = title,
                         subtitle = subtitle,
+                        layoutName = layoutName,
+                        dataType = dataType,
+                        mixes = mixesList,
+                        buttons = buttonsList,
                         playlists = playlists,
                         tracks = tracks
                     )

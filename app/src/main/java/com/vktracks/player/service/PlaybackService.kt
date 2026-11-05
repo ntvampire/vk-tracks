@@ -133,6 +133,7 @@ class PlaybackService : MediaSessionService() {
             .setSessionActivity(sessionActivityIntent)
             .setCallback(sessionCallback)
             .build()
+        addSession(mediaSession!!)
 
         player.addListener(object : Player.Listener {
             override fun onIsPlayingChanged(isPlaying: Boolean) {
@@ -170,9 +171,15 @@ class PlaybackService : MediaSessionService() {
         return mediaSession
     }
 
+    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        mediaSession?.let { onUpdateNotification(it) }
+        return super.onStartCommand(intent, flags, startId)
+    }
+
     override fun onDestroy() {
         progressJob?.cancel()
         mediaSession?.run {
+            removeSession(this)
             player.release()
             release()
             mediaSession = null
@@ -218,6 +225,7 @@ class PlaybackService : MediaSessionService() {
         _currentTrack.value = validTrack
         loadArtworkAsync(validTrack)
         updateNotificationLikeButton()
+        mediaSession?.let { onUpdateNotification(it) }
     }
 
     fun togglePlayPause() {

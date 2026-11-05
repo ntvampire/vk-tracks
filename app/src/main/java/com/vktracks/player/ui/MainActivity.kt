@@ -95,6 +95,7 @@ fun MainAppScreen(viewModel: MainViewModel) {
     val isAuthorized by viewModel.isAuthorized.collectAsState()
 
     val radioTracks by viewModel.radioTracks.collectAsState()
+    val mixBlocks by viewModel.mixBlocks.collectAsState()
     val myTracks by viewModel.myTracks.collectAsState()
     val historyTracks by viewModel.historyTracks.collectAsState()
     val downloadedTracks by viewModel.downloadedTracks.collectAsState()
@@ -170,22 +171,12 @@ fun MainAppScreen(viewModel: MainViewModel) {
                 when (selectedTab) {
                     MainTab.LISTEN_NOW -> {
                         ListenNowScreen(
-                            radioTracks = radioTracks,
-                            historyTracks = historyTracks,
-                            recommendations = recommendations,
-                            currentTrack = currentTrack,
-                            isPlaying = isPlaying,
-                            likedTrackIds = likedTrackIds,
-                            onTrackClick = { track, list -> viewModel.playTrack(track, list) },
-                            onRadioClick = {
-                                if (radioTracks.isNotEmpty()) {
-                                    viewModel.playTrack(radioTracks.first(), radioTracks)
-                                } else {
-                                    viewModel.loadPersonalRadio()
-                                }
-                            },
-                            onLikeClick = { viewModel.toggleTrackLike(it) },
-                            onDownloadClick = { viewModel.downloadTrack(it) },
+                            mixBlocks = mixBlocks,
+                            onPlayMix = { viewModel.playStreamMix(it) },
+                            onRadioClick = { viewModel.loadPersonalRadio() },
+                            onTopTracksClick = { viewModel.openTopTracks() },
+                            onTopArtistsClick = { viewModel.openTopArtists() },
+                            onTopGenresClick = { viewModel.openTopGenres() },
                             onSettingsClick = { showSettings = true }
                         )
                     }
@@ -198,6 +189,8 @@ fun MainAppScreen(viewModel: MainViewModel) {
                             likedTrackIds = likedTrackIds,
                             onTrackClick = { track, list -> viewModel.playTrack(track, list) },
                             onPlaylistClick = { playlist -> viewModel.openPlaylist(playlist) },
+                            onCategoryClick = { button -> viewModel.playCategory(button) },
+                            onAlgorithmClick = { type -> viewModel.playAlgorithm(type) },
                             onLikeClick = { viewModel.toggleTrackLike(it) },
                             onDownloadClick = { viewModel.downloadTrack(it) }
                         )

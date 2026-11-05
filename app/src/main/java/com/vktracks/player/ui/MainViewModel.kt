@@ -13,9 +13,11 @@ import com.vktracks.player.data.local.TrackEntity
 import com.vktracks.player.data.model.AppUpdateInfo
 import com.vktracks.player.data.model.Artist
 import com.vktracks.player.data.model.CatalogBlock
+import com.vktracks.player.data.model.CatalogButtonItem
 import com.vktracks.player.data.model.Lyrics
 import com.vktracks.player.data.model.Playlist
 import com.vktracks.player.data.model.SearchResult
+import com.vktracks.player.data.model.StreamMix
 import com.vktracks.player.data.model.Track
 import com.vktracks.player.data.updater.UpdateChecker
 import com.vktracks.player.service.PlaybackService
@@ -64,6 +66,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val _isSearching = MutableStateFlow(false)
     val isSearching: StateFlow<Boolean> = _isSearching.asStateFlow()
     private var searchJob: Job? = null
+
+    private val _mixBlocks = MutableStateFlow<List<CatalogBlock>>(emptyList())
+    val mixBlocks: StateFlow<List<CatalogBlock>> = _mixBlocks.asStateFlow()
 
     private val _catalogBlocks = MutableStateFlow<List<CatalogBlock>>(emptyList())
     val catalogBlocks: StateFlow<List<CatalogBlock>> = _catalogBlocks.asStateFlow()
@@ -161,11 +166,101 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 _likedTrackIds.value = audios.map { it.fullId }.toSet()
                 _playlists.value = apiClient.getPlaylists(0, 50)
                 _recommendations.value = apiClient.getRecommendations(0, 50)
+
+                // 1. Секции для вкладки "Слушать" (VK MIX, Миксы по артистам, Миксы по жанрам)
+                _mixBlocks.value = apiClient.getCatalogMixes(audios)
+
+                // 2. Секции для вкладки "Обзор"
                 val exploreData = apiClient.getCatalogExplore()
                 _chartTracks.value = exploreData.first
                 _catalogBlocks.value = exploreData.second
             } catch (_: Exception) {}
             _isLoading.value = false
+        }
+    }
+
+    fun playStreamMix(mix: StreamMix) {
+        viewModelScope.launch {
+            _isLoading.value = true
+            try {
+                val tracks = apiClient.getMixTracks(mix)
+                if (tracks.isNotEmpty()) {
+                    playTrack(tracks.first(), tracks)
+                }
+            } catch (_: Exception) {}
+            _isLoading.value = false
+        }
+    }
+
+    fun playCategory(button: CatalogButtonItem) {
+        viewModelScope.launch {
+            _isLoading.value = true
+            try {
+                val tracks = apiClient.getCategoryTracks(button.title)
+                if (tracks.isNotEmpty()) {
+                    playTrack(tracks.first(), tracks)
+                }
+            } catch (_: Exception) {}
+            _isLoading.value = false
+        }
+    }
+
+    fun playAlgorithm(type: String) {
+        viewModelScope.launch {
+            _isLoading.value = true
+            try {
+                val tracks = if (type == "for_you") {
+                    _recommendations.value.ifEmpty { apiClient.getRecommendations(0, 50) }
+                } else {
+                    apiClient.getPersonalRadio()
+                }
+                if (tracks.isNotEmpty()) {
+                    playTrack(tracks.first(), tracks)
+                }
+            } catch (_: Exception) {}
+            _isLoading.value = false
+        }
+    }
+
+    fun openTopTracks() {
+        val tracks = historyTracks.value.ifEmpty { _myTracks.value }
+        if (tracks.isNotEmpty()) {
+            _selectedPlaylist.value = Playlist(
+                id = -101,
+                ownerId = 0,
+                title = "Топ прослушанных треков",
+                description = "Самые популярные треки из вашей истории",
+                count = tracks.size
+            )
+            _selectedPlaylistTracks.value = tracks
+        }
+    }
+
+    fun openTopArtists() {
+        val tracks = _myTracks.value
+        if (tracks.isNotEmpty()) {
+            _selectedPlaylist.value = Playlist(
+                id = -102,
+                ownerId = 0,
+                title = "Топ исполнителей",
+                description = "Треки ваших любимых исполнителей",
+                count = tracks.size
+            )
+            _selectedPlaylistTracks.value = tracks
+        }
+    }
+
+    fun openTopGenres() {
+        val tracks = _recommendations.value.ifEmpty { _myTracks.value }
+        if (tracks.isNotEmpty()) {
+            _selectedPlaylist.value = Playlist(
+                id = -103,
+                ownerId = 0,
+                title = "Топ жанров",
+                description = "Популярные жанровые направления",
+                count = tracks.size
+            )
+            _selectedPlaylistTracks.value = tracks
         }
     }
 

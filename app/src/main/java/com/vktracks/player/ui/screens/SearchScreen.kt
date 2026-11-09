@@ -1,5 +1,9 @@
 package com.vktracks.player.ui.screens
 
+import android.content.Context
+import android.content.Intent
+import android.net.Uri
+import android.widget.Toast
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -11,6 +15,8 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Album
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Clear
+import androidx.compose.material.icons.filled.ContentPaste
+import androidx.compose.material.icons.filled.GraphicEq
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.*
@@ -22,6 +28,8 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -63,6 +71,8 @@ fun SearchScreen(
     var query by remember(searchQuery) { mutableStateOf(searchQuery) }
     var selectedTab by remember { mutableStateOf(SearchTab.TRACKS) }
     val focusRequester = remember { FocusRequester() }
+    val context = LocalContext.current
+    val clipboardManager = LocalClipboardManager.current
 
     LaunchedEffect(searchQuery) {
         if (searchQuery.isNotBlank()) {
@@ -108,12 +118,44 @@ fun SearchScreen(
                     Icon(imageVector = Icons.Default.Search, contentDescription = "Поиск")
                 },
                 trailingIcon = {
-                    if (query.isNotEmpty()) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.padding(end = 4.dp)
+                    ) {
+                        if (query.isNotEmpty()) {
+                            IconButton(onClick = {
+                                query = ""
+                                onSearch("")
+                            }) {
+                                Icon(
+                                    imageVector = Icons.Default.Clear,
+                                    contentDescription = "Очистить"
+                                )
+                            }
+                        } else {
+                            val clipText = clipboardManager.getText()?.text
+                            if (!clipText.isNullOrBlank()) {
+                                IconButton(onClick = {
+                                    query = clipText
+                                    onSearch(clipText)
+                                }) {
+                                    Icon(
+                                        imageVector = Icons.Default.ContentPaste,
+                                        contentDescription = "Вставить из буфера",
+                                        tint = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                            }
+                        }
+
                         IconButton(onClick = {
-                            query = ""
-                            onSearch("")
+                            launchGoogleSoundSearch(context)
                         }) {
-                            Icon(imageVector = Icons.Default.Clear, contentDescription = "Очистить")
+                            Icon(
+                                imageVector = Icons.Default.GraphicEq,
+                                contentDescription = "Поиск по звуку (Google)",
+                                tint = AppleRed
+                            )
                         }
                     }
                 },
@@ -396,4 +438,38 @@ private fun SearchPlaylistItem(
         },
         modifier = Modifier.clickable(onClick = onClick)
     )
+}
+
+/**
+ * Запуск встроенного поиска музыки по звуку (Google Sound Search / Google Ассистент).
+ */
+private fun launchGoogleSoundSearch(context: Context) {
+    val soundSearchIntents = listOf(
+        Intent("com.google.android.googlequicksearchbox.MUSIC_SEARCH"),
+        Intent().apply {
+            setClassName(
+                "com.google.android.googlequicksearchbox",
+                "com.google.android.apps.gsa.sidekick.main.SoundSearchShortcutActivity"
+            )
+        },
+        Intent("android.intent.action.MAIN").apply {
+            setClassName(
+                "com.google.android.googlequicksearchbox",
+                "com.google.android.googlequicksearchbox.SearchActivity"
+            )
+            putExtra("query", "Что это за песня")
+        },
+        Intent(Intent.ACTION_VOICE_COMMAND),
+        Intent(Intent.ACTION_VIEW, Uri.parse("shazam://"))
+    )
+
+    for (intent in soundSearchIntents) {
+        try {
+            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            context.startActivity(intent)
+            return
+        } catch (_: Exception) {}
+    }
+
+    Toast.makeText(context, "Поиск по звуку Google не найден на устройстве", Toast.LENGTH_SHORT).show()
 }

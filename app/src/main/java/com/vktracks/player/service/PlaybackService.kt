@@ -91,6 +91,7 @@ class PlaybackService : MediaSessionService() {
 
     override fun onCreate() {
         super.onCreate()
+        instance = this
 
         // Настройка канала уведомлений для Android 8.0+
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
@@ -133,7 +134,6 @@ class PlaybackService : MediaSessionService() {
             .setSessionActivity(sessionActivityIntent)
             .setCallback(sessionCallback)
             .build()
-        addSession(mediaSession!!)
 
         player.addListener(object : Player.Listener {
             override fun onIsPlayingChanged(isPlaying: Boolean) {
@@ -177,8 +177,6 @@ class PlaybackService : MediaSessionService() {
                 android.util.Log.e("PlaybackService", "ExoPlayer error: ${error.errorCodeName} (${error.errorCode}) - ${error.message}", error)
             }
         })
-
-        instance = this
     }
 
     override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaSession? {
@@ -189,13 +187,13 @@ class PlaybackService : MediaSessionService() {
         if (player.playWhenReady) {
             mediaSession?.let { onUpdateNotification(it, true) }
         }
-        return super.onStartCommand(intent, flags, startId)
+        super.onStartCommand(intent, flags, startId)
+        return START_STICKY
     }
 
     override fun onDestroy() {
         progressJob?.cancel()
         mediaSession?.run {
-            removeSession(this)
             player.release()
             release()
             mediaSession = null

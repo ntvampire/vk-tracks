@@ -796,6 +796,36 @@ class VkApiClient(
     }
 
     suspend fun getStudio21CurrentTrack(): Triple<String, String, String?>? = withContext(Dispatchers.IO) {
+        // 1. Официальный сайт Studio 21 (прямой российский источник)
+        try {
+            val req = Request.Builder()
+                .url("https://studio21.ru")
+                .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
+                .header("Accept", "text/html,application/xhtml+xml")
+                .build()
+            client.newCall(req).execute().use { resp ->
+                if (resp.isSuccessful) {
+                    val html = resp.body?.string() ?: ""
+                    val nameMatcher = java.util.regex.Pattern.compile("""<h3 class="name"[^>]*>(.*?)</h3>""", java.util.regex.Pattern.CASE_INSENSITIVE).matcher(html)
+                    val singerMatcher = java.util.regex.Pattern.compile("""<h3 class="singers"[^>]*>(.*?)</h3>""", java.util.regex.Pattern.CASE_INSENSITIVE).matcher(html)
+                    if (nameMatcher.find() && singerMatcher.find()) {
+                        val rawTitle = nameMatcher.group(1)?.trim() ?: ""
+                        val rawArtist = singerMatcher.group(1)?.trim() ?: ""
+                        if (rawTitle.isNotEmpty()) {
+                            val title = HtmlCompat.fromHtml(rawTitle, HtmlCompat.FROM_HTML_MODE_LEGACY).toString().trim()
+                            val artist = HtmlCompat.fromHtml(rawArtist, HtmlCompat.FROM_HTML_MODE_LEGACY).toString().trim()
+                            val imgMatcher = java.util.regex.Pattern.compile("""(https://meta\.hostingradio\.ru/files/elements/cover-images/[^"'\s]+)""").matcher(html)
+                            val cover = if (imgMatcher.find()) imgMatcher.group(1) else coverArtResolver.resolveCover(artist, title)
+                            return@withContext Triple(title, artist, cover)
+                        }
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            Log.w("VkApiClient", "studio21.ru scrape failed, falling back to top-radio", e)
+        }
+
+        // 2. Резервный российский источник top-radio.ru
         try {
             val req = Request.Builder()
                 .url("https://top-radio.ru/playlist/studio-21")
@@ -823,7 +853,7 @@ class VkApiClient(
                 }
             }
         } catch (e: Exception) {
-            Log.w("VkApiClient", "getStudio21CurrentTrack failed", e)
+            Log.w("VkApiClient", "getStudio21CurrentTrack fallback failed", e)
         }
         null
     }
@@ -1408,14 +1438,15 @@ class VkApiClient(
             }
 
             val albumType = item.optString("album_type", "").trim().lowercase()
-            val isExplicitAlbum = item.optBoolean("is_album", false)
-            val type = item.optInt("type", 0)
-            val isAlbum = isExplicitAlbum ||
-                (albumType.isNotEmpty() && albumType != "null" && albumType != "playlist") ||
-                (type == 1 && albumType != "playlist")
+            val isExplicitAlbum = item.optBoolean("is_album", false) || item.optInt("is_album", 0) == 1
             val mainArtists = item.optJSONArray("main_artists")
+            val hasMainArtists = mainArtists != null && mainArtists.length() > 0
             val year = item.optInt("year").takeIf { it > 0 }
             val mainArtist = mainArtists?.optJSONObject(0)?.optString("name")
+
+            val isAlbum = isExplicitAlbum ||
+                (albumType.isNotEmpty() && albumType != "playlist" && albumType != "user" && albumType != "null") ||
+                (hasMainArtists && year != null)
 
             list.add(
                 Playlist(

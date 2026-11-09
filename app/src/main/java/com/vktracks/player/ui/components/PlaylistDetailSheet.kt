@@ -61,6 +61,7 @@ fun PlaylistDetailSheet(
             modifier = Modifier
                 .fillMaxSize()
                 .statusBarsPadding()
+                .navigationBarsPadding()
         ) {
             // Верхняя навигационная панель
             Row(

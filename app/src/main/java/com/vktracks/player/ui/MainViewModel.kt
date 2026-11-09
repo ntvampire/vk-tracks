@@ -20,6 +20,7 @@ import com.vktracks.player.data.model.RadioStation
 import com.vktracks.player.data.model.SearchResult
 import com.vktracks.player.data.model.StreamMix
 import com.vktracks.player.data.model.Track
+import com.vktracks.player.data.model.VkMixSettings
 import com.vktracks.player.data.updater.UpdateChecker
 import com.vktracks.player.service.PlaybackService
 import kotlinx.coroutines.Dispatchers
@@ -29,6 +30,7 @@ import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import okhttp3.WebSocket
 import java.util.concurrent.ConcurrentHashMap
 
 class MainViewModel(application: Application) : AndroidViewModel(application) {
@@ -78,6 +80,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     private val _chartTracks = MutableStateFlow<List<Track>>(emptyList())
     val chartTracks: StateFlow<List<Track>> = _chartTracks.asStateFlow()
+
+    private val _vkMixSettings = MutableStateFlow(VkMixSettings())
+    val vkMixSettings: StateFlow<VkMixSettings> = _vkMixSettings.asStateFlow()
 
     private val playlistTracksCache = ConcurrentHashMap<String, List<Track>>()
 
@@ -268,26 +273,41 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     private var radioMetadataJob: Job? = null
+    private var studio21WebSocket: WebSocket? = null
+
+    fun updateVkMixSettings(settings: VkMixSettings) {
+        _vkMixSettings.value = settings
+        playVkMix(settings)
+    }
 
     fun loadPersonalRadio() {
         viewModelScope.launch {
             try {
-                _radioTracks.value = apiClient.getPersonalRadio()
+                _radioTracks.value = apiClient.getPersonalRadio(_vkMixSettings.value)
             } catch (_: Exception) {}
         }
     }
 
-    fun playVkMix() {
+    fun playVkMix(settings: VkMixSettings = _vkMixSettings.value) {
         radioMetadataJob?.cancel()
+        studio21WebSocket?.close(1000, "Switch to mix")
+        studio21WebSocket = null
+
         viewModelScope.launch {
             _isLoading.value = true
             try {
-                var tracks = _radioTracks.value
-                if (tracks.isEmpty()) {
-                    tracks = apiClient.getPersonalRadio()
-                    _radioTracks.value = tracks
+                var tracks = apiClient.getPersonalRadio(settings)
+                if (settings.familiarity == "familiar" && _myTracks.value.isNotEmpty()) {
+                    val favSub = _myTracks.value.shuffled().take(15)
+                    tracks = (favSub + tracks).distinctBy { it.fullId }
+                } else if (settings.familiarity == "discover" && _likedTrackIds.value.isNotEmpty()) {
+                    val liked = _likedTrackIds.value
+                    tracks = tracks.filter { !liked.contains(it.fullId) }
+                } else if (settings.familiarity == "popular" && _chartTracks.value.isNotEmpty()) {
+                    tracks = (_chartTracks.value.take(10) + tracks).distinctBy { it.fullId }
                 }
                 if (tracks.isNotEmpty()) {
+                    _radioTracks.value = tracks
                     playTrack(tracks.first(), tracks)
                 }
             } catch (e: Exception) {
@@ -300,6 +320,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun playRadio(station: RadioStation) {
         radioMetadataJob?.cancel()
+        studio21WebSocket?.close(1000, "Switch radio")
+        studio21WebSocket = null
+
         val radioTrack = station.toTrack()
         PlaybackService.instance?.playQueue(listOf(radioTrack), 0)
         startRadioPolling(station)
@@ -307,6 +330,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     private fun startRadioPolling(station: RadioStation) {
         radioMetadataJob?.cancel()
+        studio21WebSocket?.close(1000, "Start radio")
+        studio21WebSocket = null
+
         if (station == RadioStation.RADIO_RECORD) {
             radioMetadataJob = viewModelScope.launch(Dispatchers.IO) {
                 while (isActive) {
@@ -318,17 +344,31 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                             val song = trackObj?.optString("song", "") ?: ""
                             val img = trackObj?.optString("image600")?.takeIf { it.isNotEmpty() }
                             if (song.isNotBlank() || artist.isNotBlank()) {
+                                val title = if (song.isNotBlank()) song else station.title
+                                val art = if (artist.isNotBlank()) artist else station.subtitle
                                 withContext(Dispatchers.Main) {
                                     PlaybackService.instance?.updateLiveMetadata(
-                                        title = if (song.isNotBlank()) song else station.title,
-                                        artist = if (artist.isNotBlank()) artist else station.subtitle,
+                                        title = title,
+                                        artist = art,
                                         coverUrl = img
                                     )
                                 }
                             }
                         }
                     } catch (_: Exception) {}
-                    delay(15000)
+                    delay(12000)
+                }
+            }
+        } else if (station == RadioStation.STUDIO_21) {
+            studio21WebSocket = apiClient.connectStudio21WebSocket { title, artist, coverUrl ->
+                viewModelScope.launch(Dispatchers.Main) {
+                    val art = if (artist.isNotBlank()) artist else station.subtitle
+                    val cov = coverUrl ?: station.logoUrl
+                    PlaybackService.instance?.updateLiveMetadata(
+                        title = title,
+                        artist = art,
+                        coverUrl = cov
+                    )
                 }
             }
         }
@@ -450,6 +490,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun playTrack(track: Track, queue: List<Track>) {
         radioMetadataJob?.cancel()
+        studio21WebSocket?.close(1000, "Normal track")
+        studio21WebSocket = null
         viewModelScope.launch {
             var currentTrackToPlay = track
             if (currentTrackToPlay.streamUrl.isEmpty() && !currentTrackToPlay.isLocal) {
@@ -522,6 +564,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             val lyrics = apiClient.getLyrics(track)
             _currentLyrics.value = lyrics
         }
+    }
+
+    override fun onCleared() {
+        super.onCleared()
+        radioMetadataJob?.cancel()
+        studio21WebSocket?.close(1000, "ViewModel cleared")
+        studio21WebSocket = null
     }
 
     private fun TrackEntity.toTrack(): Track {

@@ -25,20 +25,30 @@ import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import com.vktracks.player.data.model.RadioStation
 import com.vktracks.player.data.model.Track
+import com.vktracks.player.data.model.VkMixSettings
+import com.vktracks.player.ui.components.VkMixSettingsSheet
 import com.vktracks.player.ui.theme.AppleRed
 
 @Composable
 fun ListenNowScreen(
     currentTrack: Track?,
     isPlaying: Boolean,
+    mixSettings: VkMixSettings,
     onVkMixClick: () -> Unit,
+    onUpdateMixSettings: (VkMixSettings) -> Unit,
     onRadioClick: (RadioStation) -> Unit,
-    onTopTracksClick: () -> Unit,
-    onTopArtistsClick: () -> Unit,
-    onTopGenresClick: () -> Unit,
     onSettingsClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
+    var showMixSettingsSheet by remember { mutableStateOf(false) }
+
+    if (showMixSettingsSheet) {
+        VkMixSettingsSheet(
+            currentSettings = mixSettings,
+            onApply = { onUpdateMixSettings(it) },
+            onDismiss = { showMixSettingsSheet = false }
+        )
+    }
     LazyColumn(
         modifier = modifier
             .fillMaxSize()
@@ -89,7 +99,12 @@ fun ListenNowScreen(
                     .padding(20.dp)
             ) {
                 Column {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(8.dp))
+                            .clickable { showMixSettingsSheet = true }
+                    ) {
                         Text(
                             text = "VK mix",
                             fontSize = 24.sp,
@@ -99,7 +114,7 @@ fun ListenNowScreen(
                         Spacer(modifier = Modifier.width(6.dp))
                         Icon(
                             imageVector = Icons.Default.KeyboardArrowDown,
-                            contentDescription = null,
+                            contentDescription = "Настройки микса",
                             tint = Color.White.copy(alpha = 0.7f),
                             modifier = Modifier.size(24.dp)
                         )
@@ -146,7 +161,7 @@ fun ListenNowScreen(
                         Spacer(modifier = Modifier.width(12.dp))
 
                         IconButton(
-                            onClick = onVkMixClick,
+                            onClick = { showMixSettingsSheet = true },
                             modifier = Modifier
                                 .size(44.dp)
                                 .clip(RoundedCornerShape(12.dp))
@@ -154,37 +169,68 @@ fun ListenNowScreen(
                         ) {
                             Icon(
                                 imageVector = Icons.Default.Tune,
-                                contentDescription = "Настройка",
+                                contentDescription = "Настройки микса",
                                 tint = Color.White,
                                 modifier = Modifier.size(20.dp)
                             )
                         }
                     }
 
-                    Spacer(modifier = Modifier.height(20.dp))
+                    // Активные фильтры VK Mix
+                    val activeFilters = buildList {
+                        if (mixSettings.mood != "any") {
+                            add(when (mixSettings.mood) {
+                                "energetic" -> "Бодрое"
+                                "calm" -> "Спокойное"
+                                "sad" -> "Грустное"
+                                "happy" -> "Радостное"
+                                else -> mixSettings.mood
+                            })
+                        }
+                        if (mixSettings.familiarity != "any") {
+                            add(when (mixSettings.familiarity) {
+                                "familiar" -> "Знакомое"
+                                "discover" -> "Открытия"
+                                "popular" -> "Популярное"
+                                else -> mixSettings.familiarity
+                            })
+                        }
+                        if (mixSettings.language != "any") {
+                            add(if (mixSettings.language == "russian") "Русский" else "Иностранный")
+                        }
+                        if (mixSettings.genre != "any") {
+                            add(when (mixSettings.genre) {
+                                "pop" -> "Поп"
+                                "rock" -> "Рок"
+                                "hiphop" -> "Хип-хоп"
+                                "electro" -> "Электроника"
+                                "indie" -> "Инди"
+                                "metal" -> "Метал"
+                                else -> mixSettings.genre
+                            })
+                        }
+                    }
 
-                    // Меню переходов (Топ треков, Топ исполнителей, Топ жанров)
-                    Surface(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clip(RoundedCornerShape(16.dp)),
-                        color = Color.White.copy(alpha = 0.08f)
-                    ) {
-                        Column {
-                            MixMenuItem(
-                                title = "Топ прослушанных треков",
-                                onClick = onTopTracksClick
-                            )
-                            HorizontalDivider(color = Color.White.copy(alpha = 0.08f), thickness = 0.8.dp)
-                            MixMenuItem(
-                                title = "Топ исполнителей",
-                                onClick = onTopArtistsClick
-                            )
-                            HorizontalDivider(color = Color.White.copy(alpha = 0.08f), thickness = 0.8.dp)
-                            MixMenuItem(
-                                title = "Топ жанров",
-                                onClick = onTopGenresClick
-                            )
+                    if (activeFilters.isNotEmpty()) {
+                        Spacer(modifier = Modifier.height(14.dp))
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            activeFilters.forEach { filterText ->
+                                Surface(
+                                    color = AppleRed.copy(alpha = 0.25f),
+                                    shape = RoundedCornerShape(8.dp)
+                                ) {
+                                    Text(
+                                        text = filterText,
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.Medium,
+                                        color = Color.White,
+                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                                    )
+                                }
+                            }
                         }
                     }
                 }
@@ -345,33 +391,5 @@ private fun RadioBannerCard(
                 )
             }
         }
-    }
-}
-
-@Composable
-private fun MixMenuItem(
-    title: String,
-    onClick: () -> Unit
-) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable(onClick = onClick)
-            .padding(horizontal = 16.dp, vertical = 14.dp),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Text(
-            text = title,
-            fontSize = 15.sp,
-            fontWeight = FontWeight.Medium,
-            color = Color.White
-        )
-        Icon(
-            imageVector = Icons.AutoMirrored.Filled.ArrowForwardIos,
-            contentDescription = null,
-            tint = Color.White.copy(alpha = 0.5f),
-            modifier = Modifier.size(14.dp)
-        )
     }
 }

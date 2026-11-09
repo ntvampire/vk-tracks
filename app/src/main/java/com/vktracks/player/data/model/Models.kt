@@ -130,3 +130,10 @@ enum class RadioStation(
         albumTitle = "Онлайн-радио"
     )
 }
+
+data class VkMixSettings(
+    val mood: String = "any", // "any", "energetic", "calm", "sad", "happy"
+    val familiarity: String = "any", // "any", "familiar", "discover", "popular"
+    val language: String = "any", // "any", "russian", "foreign"
+    val genre: String = "any" // "any", "pop", "rock", "hiphop", "electro", "indie", "metal"
+)

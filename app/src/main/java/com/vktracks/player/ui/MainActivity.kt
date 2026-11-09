@@ -123,6 +123,7 @@ fun MainAppScreen(viewModel: MainViewModel) {
     val isLoadingPlaylistTracks by viewModel.isLoadingPlaylistTracks.collectAsState()
 
     val availableUpdate by viewModel.availableUpdate.collectAsState()
+    val vkMixSettings by viewModel.vkMixSettings.collectAsState()
     val updateProgress by viewModel.updateProgress.collectAsState()
 
     LaunchedEffect(likedTrackIds) {
@@ -182,11 +183,10 @@ fun MainAppScreen(viewModel: MainViewModel) {
                         ListenNowScreen(
                             currentTrack = currentTrack,
                             isPlaying = isPlaying,
+                            mixSettings = vkMixSettings,
                             onVkMixClick = { viewModel.playVkMix() },
+                            onUpdateMixSettings = { viewModel.updateVkMixSettings(it) },
                             onRadioClick = { viewModel.playRadio(it) },
-                            onTopTracksClick = { viewModel.openTopTracks() },
-                            onTopArtistsClick = { viewModel.openTopArtists() },
-                            onTopGenresClick = { viewModel.openTopGenres() },
                             onSettingsClick = { showSettings = true }
                         )
                     }

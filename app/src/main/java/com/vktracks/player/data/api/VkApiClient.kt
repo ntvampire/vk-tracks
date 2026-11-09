@@ -11,6 +11,7 @@ import com.vktracks.player.data.model.Playlist
 import com.vktracks.player.data.model.SearchResult
 import com.vktracks.player.data.model.StreamMix
 import com.vktracks.player.data.model.Track
+import com.vktracks.player.data.model.VkMixSettings
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
@@ -19,6 +20,9 @@ import kotlinx.coroutines.withContext
 import okhttp3.FormBody
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import okhttp3.Response
+import okhttp3.WebSocket
+import okhttp3.WebSocketListener
 import org.json.JSONArray
 import org.json.JSONObject
 import java.util.concurrent.TimeUnit
@@ -190,10 +194,58 @@ class VkApiClient(
                     if (artistsArr != null && artistsArr.length() > 0) {
                         artists = parseArtistsArray(artistsArr)
                     }
+
+                    // Каталожные секции и блоки поиска
+                    val catalog = resp.optJSONObject("catalog")
+                    val sections = catalog?.optJSONArray("sections") ?: resp.optJSONArray("sections")
+                    if (sections != null) {
+                        for (s in 0 until sections.length()) {
+                            val sec = sections.optJSONObject(s) ?: continue
+                            val blocks = sec.optJSONArray("blocks") ?: continue
+                            for (b in 0 until blocks.length()) {
+                                val blk = blocks.optJSONObject(b) ?: continue
+                                val dt = blk.optString("data_type").lowercase()
+                                val items = blk.optJSONArray("items")
+                                    ?: blk.optJSONArray("audios")
+                                    ?: blk.optJSONArray("playlists")
+                                    ?: blk.optJSONArray("artists")
+                                if (items != null && items.length() > 0) {
+                                    if ((dt.contains("artist") || blk.optString("layout_name").contains("artist")) && artists.isEmpty()) {
+                                        artists = parseArtistsArray(items)
+                                    } else if (dt.contains("playlist") && playlists.isEmpty()) {
+                                        playlists = parsePlaylistsArray(items)
+                                    } else if ((dt.contains("audio") || dt.contains("track")) && tracks.isEmpty()) {
+                                        tracks = parseTracksArray(items)
+                                    }
+                                }
+                            }
+                        }
+                    }
                 }
             }
         } catch (e: Exception) {
             Log.w("VkApiClient", "catalog.getAudioSearch failed for '$q'", e)
+        }
+
+        // 2. Поиск артистов через прямой audio.searchArtists если каталог не вернул
+        if (artists.isEmpty()) {
+            try {
+                val artJson = callVkApi("audio.searchArtists", mapOf(
+                    "q" to q,
+                    "count" to "30"
+                ))
+                if (artJson != null && !artJson.has("error")) {
+                    val artResp = artJson.optJSONObject("response")
+                    val artItems = artResp?.optJSONArray("items")
+                        ?: artJson.optJSONArray("response")
+                        ?: artResp?.optJSONArray("artists")
+                    if (artItems != null && artItems.length() > 0) {
+                        artists = parseArtistsArray(artItems)
+                    }
+                }
+            } catch (e: Exception) {
+                Log.w("VkApiClient", "audio.searchArtists failed for '$q'", e)
+            }
         }
 
         // 2. Если треки не получены через каталог, вызываем прямой audio.search
@@ -583,43 +635,81 @@ class VkApiClient(
         parseTracksList(json)
     }
 
-    suspend fun getPersonalRadio(): List<Track> = withContext(Dispatchers.IO) {
+    suspend fun getPersonalRadio(settings: VkMixSettings? = null): List<Track> = withContext(Dispatchers.IO) {
         val token = authManager.getAccessToken() ?: return@withContext emptyList()
         val userId = authManager.getUserId()
 
-        // 1. Попытка запроса в UMA (VK Mix / Boom радио как в VKX)
-        try {
-            val path = "/radio/personal/"
-            val crc = CRC32()
-            val userStr = if (userId > 0) userId.toString() else "anonymous"
-            crc.update(userStr.toByteArray(Charsets.UTF_8))
-            crc.update(path.toByteArray(Charsets.UTF_8))
-            crc.update(48) // '0'
+        var tracks: List<Track> = emptyList()
 
-            val request = Request.Builder()
-                .url("https://api.moosic.io$path")
-                .header("User-Agent", vkAndroidUserAgent)
-                .header("X-App-Id", "6767438")
-                .header("X-Client-Version", "10683")
-                .header("X-CRC", crc.value.toString())
-                .header("Authorization", "Bearer $token")
-                .build()
-
-            client.newCall(request).execute().use { response ->
-                if (response.isSuccessful) {
-                    val body = response.body?.string()
-                    if (!body.isNullOrEmpty()) {
-                        val tracks = parseUmaTracks(JSONObject(body))
-                        if (tracks.isNotEmpty()) return@withContext tracks
-                    }
+        // 1. Если задан конкретный жанр или настроение, ищем целевые треки
+        if (settings != null && (settings.genre != "any" || settings.mood != "any")) {
+            val queryTag = when {
+                settings.genre != "any" -> settings.genre
+                settings.mood == "energetic" -> "energy dance"
+                settings.mood == "calm" -> "chill relax"
+                settings.mood == "sad" -> "sad melancholy"
+                settings.mood == "happy" -> "happy party"
+                else -> ""
+            }
+            if (queryTag.isNotEmpty()) {
+                val genreTracks = searchCatalog(queryTag).tracks
+                if (genreTracks.isNotEmpty()) {
+                    tracks = genreTracks
                 }
             }
-        } catch (e: Exception) {
-            Log.w("VkApiClient", "UMA personal radio request failed, falling back to recommendations", e)
         }
 
-        // 2. Fallback на аудиорекомендации VK
-        getRecommendations(0, 40)
+        // 2. Попытка запроса в UMA (VK Mix / Boom радио как в VKX)
+        if (tracks.isEmpty()) {
+            try {
+                val path = "/radio/personal/"
+                val crc = CRC32()
+                val userStr = if (userId > 0) userId.toString() else "anonymous"
+                crc.update(userStr.toByteArray(Charsets.UTF_8))
+                crc.update(path.toByteArray(Charsets.UTF_8))
+                crc.update(48) // '0'
+
+                val request = Request.Builder()
+                    .url("https://api.moosic.io$path")
+                    .header("User-Agent", vkAndroidUserAgent)
+                    .header("X-App-Id", "6767438")
+                    .header("X-Client-Version", "10683")
+                    .header("X-CRC", crc.value.toString())
+                    .header("Authorization", "Bearer $token")
+                    .build()
+
+                client.newCall(request).execute().use { response ->
+                    if (response.isSuccessful) {
+                        val body = response.body?.string()
+                        if (!body.isNullOrEmpty()) {
+                            val umaTracks = parseUmaTracks(JSONObject(body))
+                            if (umaTracks.isNotEmpty()) tracks = umaTracks
+                        }
+                    }
+                }
+            } catch (e: Exception) {
+                Log.w("VkApiClient", "UMA personal radio request failed, falling back to recommendations", e)
+            }
+        }
+
+        // 3. Fallback на аудиорекомендации VK
+        if (tracks.isEmpty()) {
+            tracks = getRecommendations(0, 40)
+        }
+
+        // 4. Фильтрация по языку
+        if (settings != null && tracks.isNotEmpty()) {
+            val ruRegex = Regex("[а-яА-ЯёЁ]")
+            if (settings.language == "russian") {
+                val filtered = tracks.filter { ruRegex.containsMatchIn(it.title) || ruRegex.containsMatchIn(it.artist) }
+                if (filtered.isNotEmpty()) tracks = filtered
+            } else if (settings.language == "foreign") {
+                val filtered = tracks.filter { !ruRegex.containsMatchIn(it.title) && !ruRegex.containsMatchIn(it.artist) }
+                if (filtered.isNotEmpty()) tracks = filtered
+            }
+        }
+
+        tracks
     }
 
     suspend fun resolveTrackUrl(track: Track): String? = withContext(Dispatchers.IO) {
@@ -660,6 +750,45 @@ class VkApiClient(
             }
         } catch (_: Exception) {}
         null
+    }
+
+    fun connectStudio21WebSocket(onTrackUpdate: (title: String, artist: String, coverUrl: String?) -> Unit): WebSocket {
+        val req = Request.Builder()
+            .url("wss://meta.hostingradio.ru/emg/ws?format=native")
+            .build()
+
+        return client.newWebSocket(req, object : WebSocketListener() {
+            override fun onOpen(webSocket: WebSocket, response: Response) {
+                webSocket.send("{\"subscribe\":{\"full\":[\"studio21\"]},\"fetch\":{\"full\":[\"studio21\"]}}")
+            }
+
+            override fun onMessage(webSocket: WebSocket, text: String) {
+                try {
+                    val json = JSONObject(text)
+                    val s21 = json.optJSONObject("studio21") ?: return
+                    val current = s21.optJSONObject("current")
+                    val targetObj = if (current != null && current.optString("title").isNotEmpty()) {
+                        current
+                    } else {
+                        val prev = s21.optJSONArray("previous")
+                        if (prev != null && prev.length() > 0) prev.optJSONObject(prev.length() - 1) else null
+                    }
+
+                    if (targetObj != null) {
+                        val artist = targetObj.optString("artist")
+                        val title = targetObj.optString("title")
+                        val cover = targetObj.optString("coverImageUrl600").takeIf { it.isNotEmpty() }
+                            ?: targetObj.optString("coverImageUrl300").takeIf { it.isNotEmpty() }
+                            ?: targetObj.optString("coverImageUrl100").takeIf { it.isNotEmpty() }
+                        if (title.isNotEmpty()) {
+                            onTrackUpdate(title, artist, cover)
+                        }
+                    }
+                } catch (e: Exception) {
+                    Log.w("VkApiClient", "Failed to parse Studio 21 WS message", e)
+                }
+            }
+        })
     }
 
     suspend fun getLyrics(track: Track): Lyrics? = withContext(Dispatchers.IO) {
@@ -1148,9 +1277,12 @@ class VkApiClient(
                 coverUrl = item.optJSONObject("cover")?.optString("uri")?.takeIf { it.isNotEmpty() }
             }
 
-            val isAlbum = item.optInt("type") == 1 || item.optBoolean("is_album") || item.optString("album_type").isNotEmpty() || item.has("year")
-            val year = item.optInt("year").takeIf { it > 0 }
+            val albumType = item.optString("album_type", "")
             val mainArtists = item.optJSONArray("main_artists")
+            val hasMainArtists = mainArtists != null && mainArtists.length() > 0
+            val isExplicitAlbum = item.optBoolean("is_album", false)
+            val isAlbum = (albumType.isNotEmpty() && albumType != "null") || isExplicitAlbum || hasMainArtists
+            val year = item.optInt("year").takeIf { it > 0 }
             val mainArtist = mainArtists?.optJSONObject(0)?.optString("name")
 
             list.add(
@@ -1178,11 +1310,27 @@ class VkApiClient(
             val id = item.optString("id")
             val name = item.optString("name")
             var photoUrl: String? = null
-            val photo = item.optJSONObject("photo")
-            if (photo != null) {
-                photoUrl = photo.optString("photo_300").takeIf { it.isNotEmpty() }
-                    ?: photo.optString("photo_600").takeIf { it.isNotEmpty() }
-                    ?: photo.optString("photo_1200").takeIf { it.isNotEmpty() }
+
+            val photoObj = item.optJSONObject("photo")
+            if (photoObj != null) {
+                photoUrl = photoObj.optString("photo_600").takeIf { it.isNotEmpty() }
+                    ?: photoObj.optString("photo_300").takeIf { it.isNotEmpty() }
+                    ?: photoObj.optString("photo_1200").takeIf { it.isNotEmpty() }
+                    ?: photoObj.optString("url").takeIf { it.isNotEmpty() }
+            }
+            if (photoUrl == null) {
+                val photoArr = item.optJSONArray("photo")
+                if (photoArr != null && photoArr.length() > 0) {
+                    val last = photoArr.optJSONObject(photoArr.length() - 1)
+                    photoUrl = last?.optString("url")?.takeIf { it.isNotEmpty() }
+                        ?: photoArr.optJSONObject(0)?.optString("url")?.takeIf { it.isNotEmpty() }
+                }
+            }
+            if (photoUrl == null) {
+                photoUrl = item.optString("photo_600").takeIf { it.isNotEmpty() }
+                    ?: item.optString("photo_300").takeIf { it.isNotEmpty() }
+                    ?: item.optString("photo_1200").takeIf { it.isNotEmpty() }
+                    ?: item.optString("avatar_url").takeIf { it.isNotEmpty() }
             }
             if (name.isNotEmpty()) {
                 list.add(Artist(id = id, name = name, photoUrl = photoUrl))

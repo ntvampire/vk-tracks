@@ -1,6 +1,6 @@
 ﻿{
-  "versionCode": 13,
-  "versionName": "1.0.12",
-  "downloadUrl": "https://github.com/ntvampire/vk-tracks/releases/download/v1.0.12/VK-Tracks-1.0.12.apk",
-  "changelog": "3 вкладки (Слушать, Медиатека, Поиск); запуск VK Mix; радио Studio 21 и Record с живыми метаданными; табы Избранное/Плейлисты/Альбомы/Скачанное; авто-фокус и табы Треки/Плейлисты/Альбомы/Исполнители"
+  "versionCode": 14,
+  "versionName": "1.0.13",
+  "downloadUrl": "https://github.com/ntvampire/vk-tracks/releases/download/v1.0.13/VK-Tracks-1.0.13.apk",
+  "changelog": "Радио Studio 21: живой поток метаданных через официальный WebSocket; настройки VK Mix (модальный экран, настроение, узнаваемость, язык, жанр); исправление разделения альбомов и плейлистов; поиск артистов; фикс отступа наэкранных кнопок мини-плеера"
 }

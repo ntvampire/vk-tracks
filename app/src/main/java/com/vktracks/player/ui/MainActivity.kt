@@ -116,8 +116,6 @@ fun MainAppScreen(viewModel: MainViewModel) {
 
     val currentTrack by viewModel.currentTrack.collectAsState()
     val isPlaying by viewModel.isPlaying.collectAsState()
-    val currentPosMs by viewModel.currentPosMs.collectAsState()
-    val durationMs by viewModel.durationMs.collectAsState()
     val isShuffle by viewModel.isShuffle.collectAsState()
     val repeatMode by viewModel.repeatMode.collectAsState()
     val lyrics by viewModel.currentLyrics.collectAsState()
@@ -320,6 +318,8 @@ fun MainAppScreen(viewModel: MainViewModel) {
 
         // Полноэкранный плеер в стиле Apple Music (поверх всех экранов и плейлистов)
         if (showFullPlayer) {
+            val currentPosMs by viewModel.currentPosMs.collectAsState()
+            val durationMs by viewModel.durationMs.collectAsState()
             val isCurrentLiked = currentTrack?.let {
                 likedTrackIds.contains(it.fullId) || it.isLiked
             } ?: false

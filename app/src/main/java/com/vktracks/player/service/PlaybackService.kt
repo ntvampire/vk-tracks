@@ -17,8 +17,10 @@ import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
 import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
+import androidx.core.app.NotificationCompat
 import androidx.media3.session.CommandButton
 import androidx.media3.session.DefaultMediaNotificationProvider
+import androidx.media3.session.MediaNotification
 import androidx.media3.session.MediaSession
 import androidx.media3.session.MediaSessionService
 import androidx.media3.session.SessionCommand
@@ -26,6 +28,7 @@ import androidx.media3.session.SessionResult
 import coil.ImageLoader
 import coil.request.ImageRequest
 import coil.request.SuccessResult
+import com.google.common.collect.ImmutableList
 import com.google.common.util.concurrent.Futures
 import com.google.common.util.concurrent.ListenableFuture
 import com.vktracks.player.R
@@ -108,7 +111,33 @@ class PlaybackService : MediaSessionService() {
             notificationManager?.createNotificationChannel(channel)
         }
 
-        val provider = DefaultMediaNotificationProvider(this)
+        val provider = object : DefaultMediaNotificationProvider(this) {
+            override fun getNotificationContentTitle(mediaMetadata: MediaMetadata): CharSequence? {
+                return _currentTrack.value?.title ?: mediaMetadata.title
+            }
+
+            override fun getNotificationContentText(mediaMetadata: MediaMetadata): CharSequence? {
+                return _currentTrack.value?.artist ?: mediaMetadata.artist
+            }
+
+            override fun addNotificationActions(
+                mediaSession: MediaSession,
+                mediaButtons: ImmutableList<CommandButton>,
+                builder: NotificationCompat.Builder,
+                actionFactory: MediaNotification.ActionFactory
+            ): IntArray {
+                val track = _currentTrack.value
+                if (track != null) {
+                    builder.setTicker("${track.artist} — ${track.title}")
+                    builder.setContentTitle(track.title)
+                    builder.setContentText(track.artist)
+                    if (!track.albumTitle.isNullOrBlank() && track.albumTitle != "Онлайн-радио") {
+                        builder.setSubText(track.albumTitle)
+                    }
+                }
+                return super.addNotificationActions(mediaSession, mediaButtons, builder, actionFactory)
+            }
+        }
         provider.setSmallIcon(R.drawable.ic_notification)
         setMediaNotificationProvider(provider)
 
@@ -238,6 +267,7 @@ class PlaybackService : MediaSessionService() {
             val metadata = MediaMetadata.Builder()
                 .setTitle(track.title)
                 .setArtist(track.artist)
+                .setDisplayTitle(track.title)
                 .setAlbumTitle(track.albumTitle)
                 .setArtworkUri(track.coverUrl?.let { Uri.parse(it) })
                 .build()
@@ -294,6 +324,7 @@ class PlaybackService : MediaSessionService() {
                 val newMeta = currentItem.mediaMetadata.buildUpon()
                     .setTitle(cleanTitle)
                     .setArtist(cleanArtist)
+                    .setDisplayTitle(cleanTitle)
                     .build()
                 val newItem = currentItem.buildUpon()
                     .setMediaMetadata(newMeta)
@@ -420,6 +451,7 @@ class PlaybackService : MediaSessionService() {
                                     val newMetadata = currentItem.mediaMetadata.buildUpon()
                                         .setTitle(currentLive?.title ?: track.title)
                                         .setArtist(currentLive?.artist ?: track.artist)
+                                        .setDisplayTitle(currentLive?.title ?: track.title)
                                         .setArtworkData(bytes, MediaMetadata.PICTURE_TYPE_FRONT_COVER)
                                         .build()
                                     val newItem = currentItem.buildUpon()

@@ -1,7 +1,7 @@
 ﻿{
-    "versionCode":  26,
-    "versionName":  "1.0.25",
-    "downloadUrl":  "https://github.com/ntvampire/vk-tracks/releases/download/v1.0.25/VK-Tracks-1.0.25.apk",
-    "mirrorUrl":  "https://ntvampire.github.io/vk-tracks/VK-Tracks-1.0.25.apk",
-    "changelog":  "Устранение подтормаживаний интерфейса: изоляция обновления позиции плеера (только внутри FullPlayerSheet), удаление фонового шторма подгрузки обложек медиатеки, мгновенный показ закешированных обложек, отказ от replaceMediaItem при обновлении обложки в шторке."
+    "versionCode":  27,
+    "versionName":  "1.0.26",
+    "downloadUrl":  "https://github.com/ntvampire/vk-tracks/releases/download/v1.0.26/VK-Tracks-1.0.26.apk",
+    "mirrorUrl":  "https://ntvampire.github.io/vk-tracks/VK-Tracks-1.0.26.apk",
+    "changelog":  "Быстрый поиск по звуку и вставка: кнопка запуска Google Sound Search в строке поиска + смарт-вставка из буфера обмена."
 }

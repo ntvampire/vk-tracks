@@ -168,7 +168,7 @@ class PlaybackService : MediaSessionService() {
                         val parts = streamTitle.split(" - ", limit = 2)
                         val artist = if (parts.size == 2) parts[0].trim() else current.title
                         val title = if (parts.size == 2) parts[1].trim() else streamTitle
-                        _currentTrack.value = current.copy(title = title, artist = artist)
+                        updateLiveMetadata(title, artist, null)
                     }
                 }
             }
@@ -205,6 +205,7 @@ class PlaybackService : MediaSessionService() {
     fun playQueue(tracks: List<Track>, startIndex: Int = 0) {
         if (tracks.isEmpty()) return
         currentQueue = tracks
+        _currentQueueFlow.value = tracks
 
         val validTrack = tracks.getOrNull(startIndex) ?: return
         if (validTrack.streamUrl.isEmpty() && !validTrack.isLocal) {
@@ -249,11 +250,31 @@ class PlaybackService : MediaSessionService() {
     fun updateLiveMetadata(title: String, artist: String, coverUrl: String? = null) {
         val current = _currentTrack.value ?: return
         if (current.duration == 0) {
-            _currentTrack.value = current.copy(
+            val updated = current.copy(
                 title = title,
                 artist = artist,
                 coverUrl = coverUrl ?: current.coverUrl
             )
+            _currentTrack.value = updated
+
+            val currentIndex = player.currentMediaItemIndex
+            val currentItem = player.currentMediaItem
+            if (currentItem != null && currentIndex in currentQueue.indices) {
+                val newMeta = currentItem.mediaMetadata.buildUpon()
+                    .setTitle(title)
+                    .setArtist(artist)
+                    .build()
+                val newItem = currentItem.buildUpon()
+                    .setMediaMetadata(newMeta)
+                    .build()
+                player.replaceMediaItem(currentIndex, newItem)
+            }
+
+            if (!coverUrl.isNullOrEmpty() && coverUrl != current.coverUrl) {
+                loadArtworkAsync(updated)
+            }
+
+            mediaSession?.let { onUpdateNotification(it, player.playWhenReady) }
         }
     }
 
@@ -364,13 +385,17 @@ class PlaybackService : MediaSessionService() {
                                 val currentIndex = player.currentMediaItemIndex
                                 val currentItem = player.currentMediaItem
                                 if (currentItem != null && currentItem.mediaId == track.fullId) {
+                                    val currentLive = _currentTrack.value
                                     val newMetadata = currentItem.mediaMetadata.buildUpon()
+                                        .setTitle(currentLive?.title ?: track.title)
+                                        .setArtist(currentLive?.artist ?: track.artist)
                                         .setArtworkData(bytes, MediaMetadata.PICTURE_TYPE_FRONT_COVER)
                                         .build()
                                     val newItem = currentItem.buildUpon()
                                         .setMediaMetadata(newMetadata)
                                         .build()
                                     player.replaceMediaItem(currentIndex, newItem)
+                                    mediaSession?.let { onUpdateNotification(it, player.playWhenReady) }
                                 }
                             }
                         }
@@ -444,6 +469,8 @@ class PlaybackService : MediaSessionService() {
         }
 
         private var currentQueue: List<Track> = emptyList()
+        private val _currentQueueFlow = MutableStateFlow<List<Track>>(emptyList())
+        val currentQueueFlow: StateFlow<List<Track>> = _currentQueueFlow.asStateFlow()
 
         private val _currentTrack = MutableStateFlow<Track?>(null)
         val currentTrack: StateFlow<Track?> = _currentTrack.asStateFlow()

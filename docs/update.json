@@ -1,7 +1,7 @@
 ﻿{
-    "versionCode":  18,
-    "versionName":  "1.0.17",
-    "downloadUrl":  "https://github.com/ntvampire/vk-tracks/releases/download/v1.0.17/VK-Tracks-1.0.17.apk",
-    "mirrorUrl":  "https://ntvampire.github.io/vk-tracks/VK-Tracks-1.0.17.apk",
-    "changelog":  "Studio 21 metadata: official EMG WebSocket restored as authoritative real-time source"
+    "versionCode":  19,
+    "versionName":  "1.0.18",
+    "downloadUrl":  "https://github.com/ntvampire/vk-tracks/releases/download/v1.0.18/VK-Tracks-1.0.18.apk",
+    "mirrorUrl":  "https://ntvampire.github.io/vk-tracks/VK-Tracks-1.0.18.apk",
+    "changelog":  "1. Фоновое скачивание обновлений в Foreground Service (UpdateDownloadService) с WakeLock (без обрывов при блокировке экрана и сворачивании) и прогресс-баром в шторке. 2. Отображение метаданных радиостанций (название и исполнитель) в плеере в шторке и на экране блокировки. 3. Экран плеера: кнопка очереди треков вверху справа (переключение Обложка / Текст / Очередь); кнопка сердечка для радио мгновенно переходит в Поиск с подставленным треком; внизу слева кнопка текста песни, справа - скачивание. 4. План на будущее: редактируемая очередь, продвинутое кэширование по подобию VKX, контекстное меню треков."
 }

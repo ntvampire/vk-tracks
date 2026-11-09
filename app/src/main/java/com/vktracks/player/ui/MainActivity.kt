@@ -133,6 +133,8 @@ fun MainAppScreen(viewModel: MainViewModel) {
     val availableUpdate by viewModel.availableUpdate.collectAsState()
     val vkMixSettings by viewModel.vkMixSettings.collectAsState()
     val updateProgress by viewModel.updateProgress.collectAsState()
+    val currentQueue by viewModel.currentQueue.collectAsState()
+    val searchQuery by viewModel.searchQuery.collectAsState()
 
     LaunchedEffect(likedTrackIds) {
         PlaybackService.updateLikedTrackIds(likedTrackIds)
@@ -226,6 +228,7 @@ fun MainAppScreen(viewModel: MainViewModel) {
                     }
                     MainTab.SEARCH -> {
                         SearchScreen(
+                            searchQuery = searchQuery,
                             searchResults = searchResults,
                             searchPlaylists = searchPlaylists,
                             searchArtists = searchArtists,
@@ -305,8 +308,25 @@ fun MainAppScreen(viewModel: MainViewModel) {
                 isShuffle = isShuffle,
                 repeatMode = repeatMode,
                 lyrics = lyrics,
+                queue = currentQueue,
                 isLiked = isCurrentLiked,
-                onLikeClick = { currentTrack?.let { viewModel.toggleTrackLike(it) } },
+                onLikeClick = {
+                    val track = currentTrack
+                    if (track != null) {
+                        if (track.duration == 0) {
+                            showFullPlayer = false
+                            selectedTab = MainTab.SEARCH
+                            val query = if (track.artist.isNotBlank() && track.title.isNotBlank()) {
+                                "${track.artist} - ${track.title}"
+                            } else {
+                                track.title
+                            }
+                            viewModel.search(query)
+                        } else {
+                            viewModel.toggleTrackLike(track)
+                        }
+                    }
+                },
                 onPlayPauseClick = { viewModel.togglePlayPause() },
                 onNextClick = { viewModel.playNext() },
                 onPrevClick = { viewModel.playPrevious() },
@@ -314,6 +334,7 @@ fun MainAppScreen(viewModel: MainViewModel) {
                 onToggleShuffle = { viewModel.toggleShuffle() },
                 onToggleRepeat = { viewModel.toggleRepeat() },
                 onDownloadClick = { currentTrack?.let { viewModel.downloadTrack(it) } },
+                onTrackClick = { track, list -> viewModel.playTrack(track, list) },
                 onDismiss = { showFullPlayer = false }
             )
         }

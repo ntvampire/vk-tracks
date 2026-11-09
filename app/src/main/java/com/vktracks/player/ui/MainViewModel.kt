@@ -76,6 +76,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     private val _isSearching = MutableStateFlow(false)
     val isSearching: StateFlow<Boolean> = _isSearching.asStateFlow()
+    private val _searchQuery = MutableStateFlow("")
+    val searchQuery: StateFlow<String> = _searchQuery.asStateFlow()
     private var searchJob: Job? = null
 
     private val _mixBlocks = MutableStateFlow<List<CatalogBlock>>(emptyList())
@@ -119,11 +121,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val _availableUpdate = MutableStateFlow<AppUpdateInfo?>(null)
     val availableUpdate: StateFlow<AppUpdateInfo?> = _availableUpdate.asStateFlow()
 
-    private val _updateProgress = MutableStateFlow(-1)
-    val updateProgress: StateFlow<Int> = _updateProgress.asStateFlow()
+    val updateProgress: StateFlow<Int> = com.vktracks.player.data.updater.UpdateDownloadService.progressFlow
 
     // Слушатели плеера
     val currentTrack = PlaybackService.currentTrack
+    val currentQueue = PlaybackService.currentQueueFlow
     val isPlaying = PlaybackService.isPlaying
     val currentPosMs = PlaybackService.currentPositionMs
     val durationMs = PlaybackService.durationMs
@@ -440,6 +442,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun search(query: String) {
+        _searchQuery.value = query
         searchJob?.cancel()
         val q = query.trim()
         if (q.isBlank()) {
@@ -673,24 +676,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun installUpdate(info: AppUpdateInfo) {
-        viewModelScope.launch {
-            _updateProgress.value = 0
-            val result = updateChecker.downloadAndInstallApk(info) { progress ->
-                _updateProgress.value = progress
-            }
-            if (result.isFailure) {
-                _updateProgress.value = -1
-                val err = result.exceptionOrNull()?.localizedMessage ?: "Сетевая ошибка"
-                android.util.Log.e("MainViewModel", "Update download failed: $err", result.exceptionOrNull())
-                withContext(Dispatchers.Main) {
-                    android.widget.Toast.makeText(
-                        getApplication(),
-                        "Ошибка автообновления: $err. Попробуйте скачать через браузер.",
-                        android.widget.Toast.LENGTH_LONG
-                    ).show()
-                }
-            }
-        }
+        com.vktracks.player.data.updater.UpdateDownloadService.start(
+            context = getApplication(),
+            versionName = info.versionName,
+            downloadUrl = info.downloadUrl,
+            mirrorUrl = info.mirrorUrl
+        )
     }
 
     fun dismissUpdate() {

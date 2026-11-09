@@ -43,6 +43,7 @@ enum class SearchTab(val title: String) {
 
 @Composable
 fun SearchScreen(
+    searchQuery: String = "",
     searchResults: List<Track>,
     searchPlaylists: List<Playlist> = emptyList(),
     searchArtists: List<Artist> = emptyList(),
@@ -58,9 +59,15 @@ fun SearchScreen(
     onDownloadClick: (Track) -> Unit,
     modifier: Modifier = Modifier
 ) {
-    var query by remember { mutableStateOf("") }
+    var query by remember(searchQuery) { mutableStateOf(searchQuery) }
     var selectedTab by remember { mutableStateOf(SearchTab.TRACKS) }
     val focusRequester = remember { FocusRequester() }
+
+    LaunchedEffect(searchQuery) {
+        if (searchQuery.isNotBlank()) {
+            selectedTab = SearchTab.TRACKS
+        }
+    }
 
     LaunchedEffect(Unit) {
         focusRequester.requestFocus()

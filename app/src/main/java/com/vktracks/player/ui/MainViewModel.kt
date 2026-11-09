@@ -185,6 +185,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         .stateIn(viewModelScope, SharingStarted.Lazily, emptyList())
 
     init {
+        coverArtResolver.vkApiClient = apiClient
+        CoverArtResolver.instance = coverArtResolver
         initMediaController()
 
         viewModelScope.launch {
@@ -459,11 +461,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                             if (rawSong.isNotBlank() || rawArtist.isNotBlank()) {
                                 val title = if (rawSong.isNotBlank()) rawSong else station.title
                                 val art = if (rawArtist.isNotBlank()) rawArtist else station.subtitle
+                                val cov = img ?: coverArtResolver.resolveCover(art, title) ?: station.logoUrl
                                 withContext(Dispatchers.Main) {
                                     PlaybackService.instance?.updateLiveMetadata(
                                         title = title,
                                         artist = art,
-                                        coverUrl = img
+                                        coverUrl = cov
                                     )
                                 }
                             }

@@ -19,6 +19,7 @@ import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import com.vktracks.player.data.cache.MediaCacheManager
+import com.vktracks.player.data.cover.CoverArtResolver
 import androidx.core.app.NotificationCompat
 import androidx.media3.session.CommandButton
 import androidx.media3.session.DefaultMediaNotificationProvider
@@ -431,12 +432,27 @@ class PlaybackService : MediaSessionService() {
 
     private fun loadArtworkAsync(track: Track) {
         serviceScope.launch(Dispatchers.IO) {
-            val coverUrl = track.coverUrl?.takeIf { it.isNotBlank() } ?: run {
+            var coverUrl = track.coverUrl?.takeIf { it.isNotBlank() } ?: run {
                 try {
                     val db = AppDatabase.getInstance(applicationContext)
                     db.trackDao().getTrackById(track.fullId)?.coverUrl?.takeIf { it.isNotBlank() }
                 } catch (_: Exception) {
                     null
+                }
+            }
+
+            if (coverUrl.isNullOrEmpty()) {
+                coverUrl = CoverArtResolver.instance?.resolveCover(
+                    track.artist,
+                    track.title,
+                    track.albumTitle
+                )
+                if (!coverUrl.isNullOrEmpty()) {
+                    withContext(Dispatchers.Main) {
+                        if (_currentTrack.value?.fullId == track.fullId) {
+                            _currentTrack.value = _currentTrack.value?.copy(coverUrl = coverUrl)
+                        }
+                    }
                 }
             }
 

@@ -1,7 +1,7 @@
 ﻿{
-    "versionCode":  23,
-    "versionName":  "1.0.22",
-    "downloadUrl":  "https://github.com/ntvampire/vk-tracks/releases/download/v1.0.22/VK-Tracks-1.0.22.apk",
-    "mirrorUrl":  "https://ntvampire.github.io/vk-tracks/VK-Tracks-1.0.22.apk",
-    "changelog":  "1. Сохранение скачанных треков в общедоступное хранилище устройства (Music/VK Tracks/) через MediaStore API на Android 10+ с немедленной регистрацией в MediaScanner (устранен сбой cross-device rename, автоочистка несуществующих записей). 2. Клик по плееру в шторке гарантированно открывает полный плеер."
+    "versionCode":  24,
+    "versionName":  "1.0.23",
+    "downloadUrl":  "https://github.com/ntvampire/vk-tracks/releases/download/v1.0.23/VK-Tracks-1.0.23.apk",
+    "mirrorUrl":  "https://ntvampire.github.io/vk-tracks/VK-Tracks-1.0.23.apk",
+    "changelog":  "Трёхступенчатый каскадный резолвер обложек (iTunes + VK): 1. Поиск обложки трека/сингла с защитой от подмены (Strict Guard \u003e= 85%); 2. Поиск обложки альбома исполнителя; 3. Fallback: официальное фото исполнителя из VK/iTunes. Deezer исключен. Автоподгрузка в плеер, шторку, радио и загрузчик ID3."
 }

@@ -6,6 +6,7 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
+import androidx.compose.foundation.basicMarquee
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -185,21 +186,36 @@ fun FullPlayerSheet(
 
             Spacer(modifier = Modifier.height(16.dp))
 
-            // Название трека, артист и кнопка сердечка (Apple Music style)
+            // Название трека, артист и кнопка сердечка (Apple Music style с плавной бегущей строкой)
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Column(modifier = Modifier.weight(1f)) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(
+                    modifier = Modifier
+                        .weight(1f)
+                        .padding(end = 12.dp)
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
                         Text(
                             text = track.title,
                             fontSize = 22.sp,
                             fontWeight = FontWeight.Bold,
                             color = MaterialTheme.colorScheme.onBackground,
                             maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
+                            softWrap = false,
+                            modifier = Modifier
+                                .weight(1f, fill = false)
+                                .basicMarquee(
+                                    iterations = Int.MAX_VALUE,
+                                    initialDelayMillis = 1500,
+                                    repeatDelayMillis = 2000,
+                                    velocity = 35.dp
+                                )
                         )
                         if (track.isExplicit) {
                             Spacer(modifier = Modifier.width(8.dp))
@@ -224,7 +240,15 @@ fun FullPlayerSheet(
                         fontSize = 17.sp,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
+                        softWrap = false,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .basicMarquee(
+                                iterations = Int.MAX_VALUE,
+                                initialDelayMillis = 1500,
+                                repeatDelayMillis = 2000,
+                                velocity = 35.dp
+                            )
                     )
                 }
 
@@ -588,7 +612,18 @@ fun PlayerQueueView(
                             fontWeight = if (isCurrent) FontWeight.Bold else FontWeight.Medium,
                             color = if (isCurrent) AppleRed else MaterialTheme.colorScheme.onBackground,
                             maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
+                            softWrap = false,
+                            modifier = if (isCurrent) {
+                                Modifier.basicMarquee(
+                                    iterations = Int.MAX_VALUE,
+                                    initialDelayMillis = 1500,
+                                    repeatDelayMillis = 2000,
+                                    velocity = 30.dp
+                                )
+                            } else {
+                                Modifier
+                            },
+                            overflow = if (isCurrent) TextOverflow.Clip else TextOverflow.Ellipsis
                         )
                         Spacer(modifier = Modifier.height(2.dp))
                         Text(
@@ -596,7 +631,18 @@ fun PlayerQueueView(
                             fontSize = 13.sp,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
+                            softWrap = false,
+                            modifier = if (isCurrent) {
+                                Modifier.basicMarquee(
+                                    iterations = Int.MAX_VALUE,
+                                    initialDelayMillis = 1500,
+                                    repeatDelayMillis = 2000,
+                                    velocity = 30.dp
+                                )
+                            } else {
+                                Modifier
+                            },
+                            overflow = if (isCurrent) TextOverflow.Clip else TextOverflow.Ellipsis
                         )
                     }
 

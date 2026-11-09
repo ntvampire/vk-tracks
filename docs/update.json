@@ -1,7 +1,7 @@
 ﻿{
-    "versionCode":  20,
-    "versionName":  "1.0.19",
-    "downloadUrl":  "https://github.com/ntvampire/vk-tracks/releases/download/v1.0.19/VK-Tracks-1.0.19.apk",
-    "mirrorUrl":  "https://ntvampire.github.io/vk-tracks/VK-Tracks-1.0.19.apk",
-    "changelog":  "Исправление дублирования названия трека в поле исполнителя при воспроизведении радио (Studio 21 и Record)"
+    "versionCode":  21,
+    "versionName":  "1.0.20",
+    "downloadUrl":  "https://github.com/ntvampire/vk-tracks/releases/download/v1.0.20/VK-Tracks-1.0.20.apk",
+    "mirrorUrl":  "https://ntvampire.github.io/vk-tracks/VK-Tracks-1.0.20.apk",
+    "changelog":  "Плавная прокрутка (Marquee) длинных названий треков и исполнителей в плеере и мини-плеере; обогащение метаданных шторки уведомлений (displayTitle, ticker)"
 }

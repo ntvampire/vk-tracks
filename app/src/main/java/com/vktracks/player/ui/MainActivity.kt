@@ -3,6 +3,7 @@ package com.vktracks.player.ui
 import android.Manifest
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.widget.Toast
@@ -19,10 +20,12 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import com.vktracks.player.BuildConfig
@@ -349,6 +352,8 @@ fun UpdateDialog(
     onInstall: () -> Unit,
     onDismiss: () -> Unit
 ) {
+    val context = LocalContext.current
+
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("Доступно обновление v${update.versionName}") },
@@ -357,14 +362,37 @@ fun UpdateDialog(
                 Text(update.changelog)
                 if (progress >= 0) {
                     Spacer(modifier = Modifier.height(16.dp))
-                    LinearProgressIndicator(
-                        progress = { progress / 100f },
-                        modifier = Modifier.fillMaxWidth()
-                    )
+                    if (progress == 0) {
+                        LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+                    } else {
+                        LinearProgressIndicator(
+                            progress = { progress / 100f },
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                    }
                     Spacer(modifier = Modifier.height(6.dp))
                     Text(
-                        text = "Загрузка: $progress%",
+                        text = if (progress == 0) "Подключение к серверу..." else "Загрузка: $progress%",
                         style = MaterialTheme.typography.bodySmall
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(12.dp))
+                TextButton(
+                    onClick = {
+                        try {
+                            val intent = Intent(Intent.ACTION_VIEW, Uri.parse(update.downloadUrl)).apply {
+                                flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                            }
+                            context.startActivity(intent)
+                        } catch (_: Exception) {}
+                    },
+                    modifier = Modifier.align(Alignment.End)
+                ) {
+                    Text(
+                        text = "Скачать через браузер",
+                        fontSize = 12.sp,
+                        color = MaterialTheme.colorScheme.primary
                     )
                 }
             }

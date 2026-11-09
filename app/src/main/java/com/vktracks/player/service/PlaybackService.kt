@@ -57,6 +57,7 @@ class PlaybackService : MediaSessionService() {
     private lateinit var player: ExoPlayer
     private val serviceScope = CoroutineScope(Dispatchers.Main + Job())
     private var progressJob: Job? = null
+    private var lastLoadedArtworkKey: String? = null
 
     private val sessionCallback = object : MediaSession.Callback {
         override fun onConnect(
@@ -190,6 +191,9 @@ class PlaybackService : MediaSessionService() {
             }
 
             override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
+                if (reason == Player.MEDIA_ITEM_TRANSITION_REASON_PLAYLIST_CHANGED) {
+                    return
+                }
                 val index = player.currentMediaItemIndex
                 if (index in currentQueue.indices) {
                     val track = currentQueue[index]
@@ -431,6 +435,12 @@ class PlaybackService : MediaSessionService() {
     }
 
     private fun loadArtworkAsync(track: Track) {
+        val currentKey = "${track.fullId}_${track.title}_${track.artist}"
+        if (lastLoadedArtworkKey == currentKey) {
+            return
+        }
+        lastLoadedArtworkKey = currentKey
+
         serviceScope.launch(Dispatchers.IO) {
             var coverUrl = track.coverUrl?.takeIf { it.isNotBlank() } ?: run {
                 try {
@@ -448,10 +458,13 @@ class PlaybackService : MediaSessionService() {
                     track.albumTitle
                 )
                 if (!coverUrl.isNullOrEmpty()) {
+                    val updated = track.copy(coverUrl = coverUrl)
                     withContext(Dispatchers.Main) {
                         if (_currentTrack.value?.fullId == track.fullId) {
                             _currentTrack.value = _currentTrack.value?.copy(coverUrl = coverUrl)
                         }
+                        currentQueue = currentQueue.map { if (it.fullId == track.fullId) updated else it }
+                        _currentQueueFlow.value = currentQueue
                     }
                 }
             }

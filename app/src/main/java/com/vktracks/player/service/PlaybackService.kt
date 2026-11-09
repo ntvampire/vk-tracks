@@ -161,14 +161,29 @@ class PlaybackService : MediaSessionService() {
             }
 
             override fun onMediaMetadataChanged(mediaMetadata: MediaMetadata) {
-                val streamTitle = mediaMetadata.title?.toString()
-                if (!streamTitle.isNullOrBlank()) {
-                    val current = _currentTrack.value
-                    if (current != null && current.duration == 0) {
+                val current = _currentTrack.value ?: return
+                if (current.duration != 0) return
+
+                val streamArtist = mediaMetadata.artist?.toString()?.trim()
+                val streamTitle = mediaMetadata.title?.toString()?.trim()
+
+                // Если в mediaMetadata уже задан исполнитель (от нашего replaceMediaItem), не перепарсиваем
+                if (!streamArtist.isNullOrEmpty()) {
+                    return
+                }
+
+                // Обработка сырых ICY-тегов из потока (StreamTitle="Artist - Title")
+                if (!streamTitle.isNullOrEmpty()) {
+                    if (streamTitle.contains(" - ")) {
                         val parts = streamTitle.split(" - ", limit = 2)
-                        val artist = if (parts.size == 2) parts[0].trim() else current.title
-                        val title = if (parts.size == 2) parts[1].trim() else streamTitle
-                        updateLiveMetadata(title, artist, null)
+                        val parsedArtist = parts[0].trim()
+                        val parsedTitle = parts[1].trim()
+                        if (parsedArtist.isNotEmpty() && parsedTitle.isNotEmpty()) {
+                            updateLiveMetadata(title = parsedTitle, artist = parsedArtist, coverUrl = null)
+                        }
+                    } else if (streamTitle != current.title) {
+                        // Одиночная строка без дефиса: обновляем только название, исполнителя не затираем
+                        updateLiveMetadata(title = streamTitle, artist = current.artist, coverUrl = null)
                     }
                 }
             }
@@ -250,9 +265,25 @@ class PlaybackService : MediaSessionService() {
     fun updateLiveMetadata(title: String, artist: String, coverUrl: String? = null) {
         val current = _currentTrack.value ?: return
         if (current.duration == 0) {
+            val cleanTitle = title.trim()
+            var cleanArtist = artist.trim()
+
+            // Защита: не допускать дублирования названия трека в поле исполнителя
+            if (cleanArtist.equals(cleanTitle, ignoreCase = true) || cleanArtist.isEmpty()) {
+                cleanArtist = if (current.artist.isNotEmpty() && !current.artist.equals(cleanTitle, ignoreCase = true)) {
+                    current.artist
+                } else {
+                    "Прямой эфир"
+                }
+            }
+
+            if (current.title == cleanTitle && current.artist == cleanArtist && (coverUrl == null || coverUrl == current.coverUrl)) {
+                return
+            }
+
             val updated = current.copy(
-                title = title,
-                artist = artist,
+                title = cleanTitle,
+                artist = cleanArtist,
                 coverUrl = coverUrl ?: current.coverUrl
             )
             _currentTrack.value = updated
@@ -261,8 +292,8 @@ class PlaybackService : MediaSessionService() {
             val currentItem = player.currentMediaItem
             if (currentItem != null && currentIndex in currentQueue.indices) {
                 val newMeta = currentItem.mediaMetadata.buildUpon()
-                    .setTitle(title)
-                    .setArtist(artist)
+                    .setTitle(cleanTitle)
+                    .setArtist(cleanArtist)
                     .build()
                 val newItem = currentItem.buildUpon()
                     .setMediaMetadata(newMeta)

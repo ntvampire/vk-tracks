@@ -406,12 +406,17 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         val json = apiClient.getRecordNowPlaying()
                         if (json != null) {
                             val trackObj = json.optJSONObject("track")
-                            val artist = trackObj?.optString("artist", "") ?: ""
-                            val song = trackObj?.optString("song", "") ?: ""
+                            var rawArtist = trackObj?.optString("artist", "")?.trim() ?: ""
+                            var rawSong = trackObj?.optString("song", "")?.trim() ?: ""
+                            if (rawArtist.isEmpty() && rawSong.contains(" - ")) {
+                                val p = rawSong.split(" - ", limit = 2)
+                                rawArtist = p[0].trim()
+                                rawSong = p[1].trim()
+                            }
                             val img = trackObj?.optString("image600")?.takeIf { it.isNotEmpty() }
-                            if (song.isNotBlank() || artist.isNotBlank()) {
-                                val title = if (song.isNotBlank()) song else station.title
-                                val art = if (artist.isNotBlank()) artist else station.subtitle
+                            if (rawSong.isNotBlank() || rawArtist.isNotBlank()) {
+                                val title = if (rawSong.isNotBlank()) rawSong else station.title
+                                val art = if (rawArtist.isNotBlank()) rawArtist else station.subtitle
                                 withContext(Dispatchers.Main) {
                                     PlaybackService.instance?.updateLiveMetadata(
                                         title = title,

@@ -189,6 +189,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         CoverArtResolver.instance = coverArtResolver
         initMediaController()
 
+        viewModelScope.launch(Dispatchers.IO) {
+            coverArtResolver.preloadMemoryCache()
+        }
+
         viewModelScope.launch {
             authManager.authState.collect { auth ->
                 if (auth) {
@@ -198,11 +202,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             }
         }
 
-        // Автоматическая подгрузка текста песни при смене трека
+        // Автоматическая подгрузка текста песни при смене трека и мгновенное обновление обложки в списках
         viewModelScope.launch {
             currentTrack.collect { track ->
                 if (track != null) {
                     loadLyrics(track)
+                    if (!track.coverUrl.isNullOrEmpty()) {
+                        updateCoverInDisplayedLists(track.fullId, track.coverUrl)
+                    }
                 } else {
                     _currentLyrics.value = null
                 }
@@ -280,7 +287,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 val audios = apiClient.getMyAudios(0, 100)
                 _myTracks.value = audios
                 _likedTrackIds.value = audios.map { it.fullId }.toSet()
-                startBackgroundLibraryCoverPreload(audios)
                 _playlists.value = apiClient.getPlaylists(0, 100)
                 _recommendations.value = apiClient.getRecommendations(0, 50)
 
@@ -814,60 +820,26 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    private var libraryCoverPreloadJob: Job? = null
-
-    private fun startBackgroundLibraryCoverPreload(tracks: List<Track>) {
-        libraryCoverPreloadJob?.cancel()
-        libraryCoverPreloadJob = viewModelScope.launch(Dispatchers.IO) {
-            coverArtResolver.preloadMemoryCache()
-
-            // 1. Быстрый проход: треки, у которых обложка уже есть в кэше памяти или Room
-            var currentList = _myTracks.value.toMutableList()
-            var hasInstantUpdates = false
-            for (i in currentList.indices) {
-                val t = currentList[i]
-                if (t.coverUrl.isNullOrEmpty()) {
-                    val cached = coverArtResolver.getCachedCover(t.artist, t.title)
-                    if (!cached.isNullOrEmpty()) {
-                        currentList[i] = t.copy(coverUrl = cached)
-                        hasInstantUpdates = true
-                    }
-                }
+    private fun updateCoverInDisplayedLists(fullId: String, coverUrl: String) {
+        if (_myTracks.value.any { it.fullId == fullId && it.coverUrl != coverUrl }) {
+            _myTracks.value = _myTracks.value.map {
+                if (it.fullId == fullId) it.copy(coverUrl = coverUrl) else it
             }
-            if (hasInstantUpdates) {
-                withContext(Dispatchers.Main) {
-                    _myTracks.value = currentList.toList()
-                }
+        }
+        if (_selectedPlaylistTracks.value.any { it.fullId == fullId && it.coverUrl != coverUrl }) {
+            _selectedPlaylistTracks.value = _selectedPlaylistTracks.value.map {
+                if (it.fullId == fullId) it.copy(coverUrl = coverUrl) else it
             }
-
-            // 2. Фоновый проход по оставшимся трекам без обложки с щадящей паузой
-            val missingIndices = currentList.indices.filter { currentList[it].coverUrl.isNullOrEmpty() }
-            if (missingIndices.isEmpty()) return@launch
-
-            for (idx in missingIndices) {
-                if (!isActive) break
-                val track = currentList.getOrNull(idx) ?: continue
-                if (!track.coverUrl.isNullOrEmpty()) continue
-
-                val resolved = coverArtResolver.resolveCover(track.artist, track.title, track.albumTitle)
-                if (!resolved.isNullOrEmpty() && isActive) {
-                    currentList = _myTracks.value.toMutableList()
-                    val targetIdx = currentList.indexOfFirst { it.fullId == track.fullId }
-                    if (targetIdx != -1) {
-                        currentList[targetIdx] = currentList[targetIdx].copy(coverUrl = resolved)
-                        withContext(Dispatchers.Main) {
-                            _myTracks.value = currentList.toList()
-                        }
-                    }
-                }
-                delay(120)
+        }
+        if (_radioTracks.value.any { it.fullId == fullId && it.coverUrl != coverUrl }) {
+            _radioTracks.value = _radioTracks.value.map {
+                if (it.fullId == fullId) it.copy(coverUrl = coverUrl) else it
             }
         }
     }
 
     override fun onCleared() {
         super.onCleared()
-        libraryCoverPreloadJob?.cancel()
         mediaController?.release()
         mediaController = null
         radioMetadataJob?.cancel()

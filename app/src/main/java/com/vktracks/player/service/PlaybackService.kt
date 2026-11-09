@@ -58,6 +58,8 @@ class PlaybackService : MediaSessionService() {
     private val serviceScope = CoroutineScope(Dispatchers.Main + Job())
     private var progressJob: Job? = null
     private var lastLoadedArtworkKey: String? = null
+    @Volatile
+    private var currentNotificationBitmap: Bitmap? = null
 
     private val sessionCallback = object : MediaSession.Callback {
         override fun onConnect(
@@ -142,7 +144,11 @@ class PlaybackService : MediaSessionService() {
                         builder.setSubText(track.albumTitle)
                     }
                 }
-                return super.addNotificationActions(mediaSession, mediaButtons, builder, actionFactory)
+                val actionIndices = super.addNotificationActions(mediaSession, mediaButtons, builder, actionFactory)
+                currentNotificationBitmap?.let { bitmap ->
+                    builder.setLargeIcon(bitmap)
+                }
+                return actionIndices
             }
         }
         provider.setSmallIcon(R.drawable.ic_notification)
@@ -198,6 +204,7 @@ class PlaybackService : MediaSessionService() {
                 if (index in currentQueue.indices) {
                     val track = currentQueue[index]
                     _currentTrack.value = track
+                    currentNotificationBitmap = null
                     saveHistory(track)
                     loadArtworkAsync(track)
                     updateNotificationLikeButton()
@@ -300,6 +307,7 @@ class PlaybackService : MediaSessionService() {
                 .build()
         }
 
+        currentNotificationBitmap = null
         player.setMediaItems(mediaItems, startIndex, 0L)
         player.prepare()
         player.play()
@@ -338,20 +346,6 @@ class PlaybackService : MediaSessionService() {
                 coverUrl = coverUrl ?: current.coverUrl
             )
             _currentTrack.value = updated
-
-            val currentIndex = player.currentMediaItemIndex
-            val currentItem = player.currentMediaItem
-            if (currentItem != null && currentIndex in currentQueue.indices) {
-                val newMeta = currentItem.mediaMetadata.buildUpon()
-                    .setTitle(cleanTitle)
-                    .setArtist(cleanArtist)
-                    .setDisplayTitle(cleanTitle)
-                    .build()
-                val newItem = currentItem.buildUpon()
-                    .setMediaMetadata(newMeta)
-                    .build()
-                player.replaceMediaItem(currentIndex, newItem)
-            }
 
             if (!coverUrl.isNullOrEmpty() && coverUrl != current.coverUrl) {
                 loadArtworkAsync(updated)
@@ -443,6 +437,8 @@ class PlaybackService : MediaSessionService() {
 
         serviceScope.launch(Dispatchers.IO) {
             var coverUrl = track.coverUrl?.takeIf { it.isNotBlank() } ?: run {
+                CoverArtResolver.instance?.getCachedCover(track.artist, track.title)
+            } ?: run {
                 try {
                     val db = AppDatabase.getInstance(applicationContext)
                     db.trackDao().getTrackById(track.fullId)?.coverUrl?.takeIf { it.isNotBlank() }
@@ -457,60 +453,41 @@ class PlaybackService : MediaSessionService() {
                     track.title,
                     track.albumTitle
                 )
-                if (!coverUrl.isNullOrEmpty()) {
-                    val updated = track.copy(coverUrl = coverUrl)
-                    withContext(Dispatchers.Main) {
-                        if (_currentTrack.value?.fullId == track.fullId) {
-                            _currentTrack.value = _currentTrack.value?.copy(coverUrl = coverUrl)
-                        }
-                        currentQueue = currentQueue.map { if (it.fullId == track.fullId) updated else it }
-                        _currentQueueFlow.value = currentQueue
-                    }
-                }
             }
 
-            if (coverUrl.isNullOrEmpty()) return@launch
+            if (!coverUrl.isNullOrEmpty()) {
+                val updated = track.copy(coverUrl = coverUrl)
+                withContext(Dispatchers.Main) {
+                    if (_currentTrack.value?.fullId == track.fullId) {
+                        _currentTrack.value = _currentTrack.value?.copy(coverUrl = coverUrl)
+                    }
+                    currentQueue = currentQueue.map { if (it.fullId == track.fullId) updated else it }
+                    _currentQueueFlow.value = currentQueue
+                }
 
-            try {
-                val loader = ImageLoader(this@PlaybackService)
-                val req = ImageRequest.Builder(this@PlaybackService)
-                    .data(coverUrl)
-                    .size(600, 600)
-                    .allowHardware(false)
-                    .build()
-                val result = loader.execute(req)
-                if (result is SuccessResult) {
-                    val drawable = result.drawable
-                    val bitmap = (drawable as? BitmapDrawable)?.bitmap
-                    if (bitmap != null) {
-                        val stream = ByteArrayOutputStream()
-                        bitmap.compress(Bitmap.CompressFormat.JPEG, 85, stream)
-                        val bytes = stream.toByteArray()
-
-                        withContext(Dispatchers.Main) {
-                            if (_currentTrack.value?.fullId == track.fullId && player.currentMediaItemIndex in currentQueue.indices) {
-                                val currentIndex = player.currentMediaItemIndex
-                                val currentItem = player.currentMediaItem
-                                if (currentItem != null && currentItem.mediaId == track.fullId) {
-                                    val currentLive = _currentTrack.value
-                                    val newMetadata = currentItem.mediaMetadata.buildUpon()
-                                        .setTitle(currentLive?.title ?: track.title)
-                                        .setArtist(currentLive?.artist ?: track.artist)
-                                        .setDisplayTitle(currentLive?.title ?: track.title)
-                                        .setArtworkData(bytes, MediaMetadata.PICTURE_TYPE_FRONT_COVER)
-                                        .build()
-                                    val newItem = currentItem.buildUpon()
-                                        .setMediaMetadata(newMetadata)
-                                        .build()
-                                    player.replaceMediaItem(currentIndex, newItem)
+                try {
+                    val loader = ImageLoader(this@PlaybackService)
+                    val req = ImageRequest.Builder(this@PlaybackService)
+                        .data(coverUrl)
+                        .size(600, 600)
+                        .allowHardware(false)
+                        .build()
+                    val result = loader.execute(req)
+                    if (result is SuccessResult) {
+                        val drawable = result.drawable
+                        val bitmap = (drawable as? BitmapDrawable)?.bitmap
+                        if (bitmap != null) {
+                            withContext(Dispatchers.Main) {
+                                if (_currentTrack.value?.fullId == track.fullId) {
+                                    currentNotificationBitmap = bitmap
                                     mediaSession?.let { onUpdateNotification(it, player.playWhenReady) }
                                 }
                             }
                         }
                     }
+                } catch (e: Exception) {
+                    android.util.Log.w("PlaybackService", "Failed to load artwork for notification", e)
                 }
-            } catch (e: Exception) {
-                android.util.Log.w("PlaybackService", "Failed to load artwork for notification", e)
             }
         }
     }

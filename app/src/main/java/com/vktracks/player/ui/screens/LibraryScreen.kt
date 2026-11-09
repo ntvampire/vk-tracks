@@ -41,6 +41,7 @@ fun LibraryScreen(
     currentTrack: Track?,
     isPlaying: Boolean,
     likedTrackIds: Set<String> = emptySet(),
+    downloadedTrackIds: Set<String> = emptySet(),
     onTrackClick: (Track, List<Track>) -> Unit,
     onPlaylistClick: (Playlist) -> Unit,
     onLikeClick: (Track) -> Unit = {},
@@ -134,6 +135,7 @@ fun LibraryScreen(
                                 isCurrent = currentTrack?.fullId == track.fullId,
                                 onTrackClick = { onTrackClick(track, myTracks) },
                                 isLiked = likedTrackIds.contains(track.fullId) || track.isLiked,
+                                isDownloaded = downloadedTrackIds.contains(track.fullId) || track.isLocal,
                                 onLikeClick = { onLikeClick(track) },
                                 onDownloadClick = { onDownloadClick(track, "Favorites") }
                             )
@@ -188,6 +190,7 @@ fun LibraryScreen(
                                 isCurrent = currentTrack?.fullId == track.fullId,
                                 onTrackClick = { onTrackClick(track, downloadedTracks) },
                                 isLiked = likedTrackIds.contains(track.fullId) || track.isLiked,
+                                isDownloaded = true,
                                 onLikeClick = { onLikeClick(track) },
                                 onDownloadClick = { onDownloadClick(track, null) }
                             )

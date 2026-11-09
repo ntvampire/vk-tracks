@@ -32,6 +32,7 @@ fun TrackItem(
     isCurrent: Boolean,
     onTrackClick: () -> Unit,
     isLiked: Boolean = false,
+    isDownloaded: Boolean = false,
     onLikeClick: (() -> Unit)? = null,
     onDownloadClick: (() -> Unit)? = null,
     modifier: Modifier = Modifier
@@ -127,14 +128,15 @@ fun TrackItem(
 
         // Кнопка скачивания
         if (onDownloadClick != null) {
+            val isTrackSaved = isDownloaded || track.isLocal
             IconButton(
                 onClick = onDownloadClick,
                 modifier = Modifier.size(36.dp)
             ) {
-                if (track.isLocal) {
+                if (isTrackSaved) {
                     Icon(
                         imageVector = Icons.Default.CheckCircle,
-                        contentDescription = "Скачано",
+                        contentDescription = "Скачано (нажмите для удаления)",
                         tint = AppleRed,
                         modifier = Modifier.size(20.dp)
                     )

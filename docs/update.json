@@ -1,7 +1,7 @@
 ﻿{
-    "versionCode":  21,
-    "versionName":  "1.0.20",
-    "downloadUrl":  "https://github.com/ntvampire/vk-tracks/releases/download/v1.0.20/VK-Tracks-1.0.20.apk",
-    "mirrorUrl":  "https://ntvampire.github.io/vk-tracks/VK-Tracks-1.0.20.apk",
-    "changelog":  "Плавная прокрутка (Marquee) длинных названий треков и исполнителей в плеере и мини-плеере; обогащение метаданных шторки уведомлений (displayTitle, ticker)"
+    "versionCode":  22,
+    "versionName":  "1.0.21",
+    "downloadUrl":  "https://github.com/ntvampire/vk-tracks/releases/download/v1.0.21/VK-Tracks-1.0.21.apk",
+    "mirrorUrl":  "https://ntvampire.github.io/vk-tracks/VK-Tracks-1.0.21.apk",
+    "changelog":  "Продвинутое кэширование на лету (ExoPlayer SimpleCache) в стиле VKX и Murglar; надежное скачивание треков и плейлистов с вшиванием ID3v2 тегов и рекурсивным HLS-парсингом; управление кэшем в Настройках; синхронизация статуса загрузки по всей медиатеке."
 }

@@ -38,6 +38,12 @@ import java.io.File
 fun SettingsScreen(
     authManager: VkAuthManager,
     downloader: TrackDownloader,
+    cacheSizeDisplay: String = "0 МБ",
+    isCacheEnabled: Boolean = true,
+    maxCacheMb: Int = 2048,
+    onToggleCacheEnabled: (Boolean) -> Unit = {},
+    onSelectMaxCacheMb: (Int) -> Unit = {},
+    onClearCache: () -> Unit = {},
     onLoginClick: () -> Unit,
     onCheckUpdateClick: () -> Unit,
     onDismiss: () -> Unit,
@@ -51,6 +57,26 @@ fun SettingsScreen(
 
     var downloadPathDisplay by remember { mutableStateOf(downloader.getDownloadPathDisplay()) }
     var showFolderDialog by remember { mutableStateOf(false) }
+    var showCacheLimitDialog by remember { mutableStateOf(false) }
+
+    val cacheLimitOptions = listOf(
+        500 to "500 МБ",
+        1024 to "1 ГБ",
+        2048 to "2 ГБ",
+        5120 to "5 ГБ",
+        10240 to "10 ГБ",
+        0 to "Без ограничений"
+    )
+
+    val currentLimitDisplay = when (maxCacheMb) {
+        0 -> "Без ограничений"
+        500 -> "500 МБ"
+        1024 -> "1 ГБ"
+        2048 -> "2 ГБ"
+        5120 -> "5 ГБ"
+        10240 -> "10 ГБ"
+        else -> "$maxCacheMb МБ"
+    }
 
     val folderPickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocumentTree()
@@ -110,6 +136,57 @@ fun SettingsScreen(
                     }
                 ) {
                     Text("Сбросить по умолчанию")
+                }
+            }
+        )
+    }
+
+    if (showCacheLimitDialog) {
+        AlertDialog(
+            onDismissRequest = { showCacheLimitDialog = false },
+            title = { Text("Лимит дискового кэша") },
+            text = {
+                Column {
+                    Text(
+                        "При превышении лимита старые треки удаляются автоматически (LRU).",
+                        fontSize = 13.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Spacer(modifier = Modifier.height(12.dp))
+                    cacheLimitOptions.forEach { (mb, label) ->
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable {
+                                    onSelectMaxCacheMb(mb)
+                                    showCacheLimitDialog = false
+                                    Toast.makeText(context, "Лимит кэша: $label", Toast.LENGTH_SHORT).show()
+                                }
+                                .padding(vertical = 10.dp, horizontal = 4.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            RadioButton(
+                                selected = maxCacheMb == mb,
+                                onClick = {
+                                    onSelectMaxCacheMb(mb)
+                                    showCacheLimitDialog = false
+                                    Toast.makeText(context, "Лимит кэша: $label", Toast.LENGTH_SHORT).show()
+                                },
+                                colors = RadioButtonDefaults.colors(selectedColor = AppleRed)
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = label,
+                                fontSize = 15.sp,
+                                fontWeight = if (maxCacheMb == mb) FontWeight.Bold else FontWeight.Normal
+                            )
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { showCacheLimitDialog = false }) {
+                    Text("Закрыть")
                 }
             }
         )
@@ -260,6 +337,49 @@ fun SettingsScreen(
                 }
             }
 
+            // Кэширование (VKX & Murglar style)
+            item {
+                Spacer(modifier = Modifier.height(20.dp))
+                SettingsHeader("КЭШИРОВАНИЕ (VKX)")
+                SettingsCard {
+                    SettingsSwitchItem(
+                        icon = Icons.Default.CloudSync,
+                        title = "Кэшировать треки на лету",
+                        subtitle = "Сохранять воспроизводимые треки во временный кэш для офлайн-прослушивания",
+                        checked = isCacheEnabled,
+                        onCheckedChange = onToggleCacheEnabled
+                    )
+                    if (isCacheEnabled) {
+                        HorizontalDivider(color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
+                        SettingsItem(
+                            icon = Icons.Default.Storage,
+                            title = "Размер кэша",
+                            subtitle = "Занято: $cacheSizeDisplay",
+                            onClick = {
+                                Toast.makeText(context, "Занято кэшем: $cacheSizeDisplay", Toast.LENGTH_SHORT).show()
+                            }
+                        )
+                        HorizontalDivider(color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
+                        SettingsItem(
+                            icon = Icons.Default.DataUsage,
+                            title = "Лимит размера кэша",
+                            subtitle = currentLimitDisplay,
+                            onClick = { showCacheLimitDialog = true }
+                        )
+                        HorizontalDivider(color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
+                        SettingsItem(
+                            icon = Icons.Default.DeleteOutline,
+                            title = "Очистить кэш треков",
+                            subtitle = "Удалить все кэшированные аудиозаписи",
+                            onClick = {
+                                onClearCache()
+                                Toast.makeText(context, "Кэш треков очищен", Toast.LENGTH_SHORT).show()
+                            }
+                        )
+                    }
+                }
+            }
+
             // О приложении и обновления
             item {
                 Spacer(modifier = Modifier.height(20.dp))
@@ -347,6 +467,55 @@ fun SettingsItem(
             contentDescription = null,
             tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
             modifier = Modifier.size(20.dp)
+        )
+    }
+}
+
+@Composable
+fun SettingsSwitchItem(
+    icon: ImageVector,
+    title: String,
+    subtitle: String? = null,
+    checked: Boolean,
+    onCheckedChange: (Boolean) -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable { onCheckedChange(!checked) }
+            .padding(horizontal = 16.dp, vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Icon(
+            imageVector = icon,
+            contentDescription = null,
+            tint = AppleRed,
+            modifier = Modifier.size(24.dp)
+        )
+        Spacer(modifier = Modifier.width(16.dp))
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = title,
+                fontSize = 16.sp,
+                fontWeight = FontWeight.Medium,
+                color = MaterialTheme.colorScheme.onSurface
+            )
+            if (!subtitle.isNullOrEmpty()) {
+                Spacer(modifier = Modifier.height(2.dp))
+                Text(
+                    text = subtitle,
+                    fontSize = 13.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        }
+        Switch(
+            checked = checked,
+            onCheckedChange = onCheckedChange,
+            colors = SwitchDefaults.colors(
+                checkedThumbColor = Color.White,
+                checkedTrackColor = AppleRed
+            )
         )
     }
 }

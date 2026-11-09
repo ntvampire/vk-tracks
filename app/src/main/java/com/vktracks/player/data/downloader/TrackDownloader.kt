@@ -131,7 +131,24 @@ class TrackDownloader(
         }
     }
 
-    private fun downloadHlsStream(m3u8Url: String, target: File, onProgress: (Int) -> Unit) {
+    suspend fun deleteDownloadedTrack(track: Track): Boolean = withContext(Dispatchers.IO) {
+        try {
+            val entity = database.trackDao().getTrackById(track.fullId)
+            if (entity?.localFilePath != null) {
+                val file = File(entity.localFilePath)
+                if (file.exists()) {
+                    file.delete()
+                }
+            }
+            database.trackDao().removeDownload(track.fullId)
+            _downloadProgress.remove(track.fullId)
+            true
+        } catch (_: Exception) {
+            false
+        }
+    }
+
+    private fun fetchMediaPlaylist(m3u8Url: String): Pair<String, List<String>> {
         val playlistRequest = Request.Builder().url(m3u8Url).build()
         val playlistText = client.newCall(playlistRequest).execute().use { response ->
             if (!response.isSuccessful) throw Exception("HLS playlist HTTP ${response.code}")
@@ -139,12 +156,22 @@ class TrackDownloader(
         }
 
         val baseUrl = m3u8Url.substringBeforeLast("/") + "/"
+        val lines = playlistText.lines().map { it.trim() }.filter { it.isNotEmpty() }
+        val childM3u8 = lines.firstOrNull { !it.startsWith("#") && it.contains(".m3u8") }
+        if (childM3u8 != null) {
+            val childUrl = if (childM3u8.startsWith("http")) childM3u8 else baseUrl + childM3u8
+            return fetchMediaPlaylist(childUrl)
+        }
+        return Pair(baseUrl, lines)
+    }
+
+    private fun downloadHlsStream(m3u8Url: String, target: File, onProgress: (Int) -> Unit) {
+        val (baseUrl, lines) = fetchMediaPlaylist(m3u8Url)
         val segmentUrls = mutableListOf<String>()
 
-        for (line in playlistText.lines()) {
-            val trimmed = line.trim()
-            if (trimmed.isNotEmpty() && !trimmed.startsWith("#")) {
-                val segmentUrl = if (trimmed.startsWith("http")) trimmed else baseUrl + trimmed
+        for (line in lines) {
+            if (!line.startsWith("#")) {
+                val segmentUrl = if (line.startsWith("http")) line else baseUrl + line
                 segmentUrls.add(segmentUrl)
             }
         }

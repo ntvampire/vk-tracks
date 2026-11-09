@@ -37,6 +37,7 @@ fun ArtistDetailScreen(
     artistDetail: ArtistDetail,
     isLoading: Boolean,
     likedTrackIds: Set<String>,
+    downloadedTrackIds: Set<String> = emptySet(),
     currentTrack: Track?,
     isPlaying: Boolean,
     onTrackClick: (Track, List<Track>) -> Unit,
@@ -223,6 +224,7 @@ fun ArtistDetailScreen(
                                 isCurrent = isCurrent,
                                 isPlaying = isPlaying && isCurrent,
                                 isLiked = isLiked,
+                                isDownloaded = downloadedTrackIds.contains(track.fullId) || track.isLocal,
                                 onTrackClick = { onTrackClick(track, artistDetail.popularTracks) },
                                 onLikeClick = { onToggleLike(track) },
                                 onDownloadClick = { onDownloadTrackClick(track) }

@@ -58,6 +58,7 @@ fun FullPlayerSheet(
     lyrics: Lyrics?,
     queue: List<Track> = emptyList(),
     isLiked: Boolean = false,
+    isDownloaded: Boolean = false,
     onLikeClick: () -> Unit = {},
     onPlayPauseClick: () -> Unit,
     onNextClick: () -> Unit,
@@ -433,11 +434,12 @@ fun FullPlayerSheet(
                 }
 
                 // Скачивание трека в MP3
+                val isTrackSaved = isDownloaded || track.isLocal
                 IconButton(onClick = onDownloadClick) {
                     Icon(
-                        imageVector = if (track.isLocal) Icons.Default.CheckCircle else Icons.Default.Download,
-                        contentDescription = if (track.isLocal) "Скачано" else "Скачать на телефон",
-                        tint = if (track.isLocal) AppleRed else MaterialTheme.colorScheme.onSurfaceVariant,
+                        imageVector = if (isTrackSaved) Icons.Default.CheckCircle else Icons.Default.Download,
+                        contentDescription = if (isTrackSaved) "Скачано (нажмите для удаления)" else "Скачать на телефон",
+                        tint = if (isTrackSaved) AppleRed else MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.size(24.dp)
                     )
                 }

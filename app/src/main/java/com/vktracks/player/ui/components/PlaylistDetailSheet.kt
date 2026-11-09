@@ -36,6 +36,7 @@ fun PlaylistDetailSheet(
     isLoading: Boolean,
     isFollowed: Boolean,
     likedTrackIds: Set<String>,
+    downloadedTrackIds: Set<String> = emptySet(),
     currentTrack: Track?,
     isPlaying: Boolean,
     onTrackClick: (Track, List<Track>) -> Unit,
@@ -331,14 +332,15 @@ fun PlaylistDetailSheet(
                                 }
 
                                 // Кнопка скачивания трека
+                                val isDownloaded = track.isLocal || downloadedTrackIds.contains(track.fullId)
                                 IconButton(
                                     onClick = { onDownloadTrackClick(track) },
                                     modifier = Modifier.size(36.dp)
                                 ) {
                                     Icon(
-                                        imageVector = if (track.isLocal) Icons.Default.CheckCircle else Icons.Default.Download,
-                                        contentDescription = "Скачать",
-                                        tint = if (track.isLocal) AppleRed else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+                                        imageVector = if (isDownloaded) Icons.Default.CheckCircle else Icons.Default.Download,
+                                        contentDescription = if (isDownloaded) "Скачано (нажмите для удаления)" else "Скачать",
+                                        tint = if (isDownloaded) AppleRed else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
                                         modifier = Modifier.size(20.dp)
                                     )
                                 }

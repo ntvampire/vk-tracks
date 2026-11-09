@@ -51,6 +51,7 @@ fun SearchScreen(
     currentTrack: Track?,
     isPlaying: Boolean,
     likedTrackIds: Set<String> = emptySet(),
+    downloadedTrackIds: Set<String> = emptySet(),
     onSearch: (String) -> Unit,
     onTrackClick: (Track, List<Track>) -> Unit,
     onPlaylistClick: (Playlist) -> Unit = {},
@@ -178,6 +179,7 @@ fun SearchScreen(
                                 isCurrent = currentTrack?.fullId == track.fullId,
                                 onTrackClick = { onTrackClick(track, searchResults) },
                                 isLiked = likedTrackIds.contains(track.fullId) || track.isLiked,
+                                isDownloaded = downloadedTrackIds.contains(track.fullId) || track.isLocal,
                                 onLikeClick = { onLikeClick(track) },
                                 onDownloadClick = { onDownloadClick(track) }
                             )

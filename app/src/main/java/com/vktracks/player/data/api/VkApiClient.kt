@@ -779,83 +779,28 @@ class VkApiClient(
                     }
 
                     if (targetObj != null) {
-                        val artist = targetObj.optString("artist")
-                        val title = targetObj.optString("title")
-                        val cover = targetObj.optString("coverImageUrl600").takeIf { it.isNotEmpty() }
+                        val artist = targetObj.optString("artist").ifEmpty { targetObj.optString("singer") }
+                        val title = targetObj.optString("title").ifEmpty { targetObj.optString("song") }
+                        val rawCover = targetObj.optString("coverImageUrl600").takeIf { it.isNotEmpty() }
                             ?: targetObj.optString("coverImageUrl300").takeIf { it.isNotEmpty() }
                             ?: targetObj.optString("coverImageUrl100").takeIf { it.isNotEmpty() }
+                            ?: targetObj.optString("coverImageUrl").takeIf { it.isNotEmpty() }
+                            ?: targetObj.optString("cover").takeIf { it.isNotEmpty() }
+                            ?: targetObj.optString("image").takeIf { it.isNotEmpty() }
+
                         if (title.isNotEmpty()) {
-                            onTrackUpdate(title, artist, cover)
+                            onTrackUpdate(title, artist, rawCover)
                         }
                     }
                 } catch (e: Exception) {
                     Log.w("VkApiClient", "Failed to parse Studio 21 WS message", e)
                 }
             }
+
+            override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
+                Log.w("VkApiClient", "Studio 21 WS connection failed: ${t.message}")
+            }
         })
-    }
-
-    suspend fun getStudio21CurrentTrack(): Triple<String, String, String?>? = withContext(Dispatchers.IO) {
-        // 1. Официальный сайт Studio 21 (прямой российский источник)
-        try {
-            val req = Request.Builder()
-                .url("https://studio21.ru")
-                .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
-                .header("Accept", "text/html,application/xhtml+xml")
-                .build()
-            client.newCall(req).execute().use { resp ->
-                if (resp.isSuccessful) {
-                    val html = resp.body?.string() ?: ""
-                    val nameMatcher = java.util.regex.Pattern.compile("""<h3 class="name"[^>]*>(.*?)</h3>""", java.util.regex.Pattern.CASE_INSENSITIVE).matcher(html)
-                    val singerMatcher = java.util.regex.Pattern.compile("""<h3 class="singers"[^>]*>(.*?)</h3>""", java.util.regex.Pattern.CASE_INSENSITIVE).matcher(html)
-                    if (nameMatcher.find() && singerMatcher.find()) {
-                        val rawTitle = nameMatcher.group(1)?.trim() ?: ""
-                        val rawArtist = singerMatcher.group(1)?.trim() ?: ""
-                        if (rawTitle.isNotEmpty()) {
-                            val title = HtmlCompat.fromHtml(rawTitle, HtmlCompat.FROM_HTML_MODE_LEGACY).toString().trim()
-                            val artist = HtmlCompat.fromHtml(rawArtist, HtmlCompat.FROM_HTML_MODE_LEGACY).toString().trim()
-                            val imgMatcher = java.util.regex.Pattern.compile("""(https://meta\.hostingradio\.ru/files/elements/cover-images/[^"'\s]+)""").matcher(html)
-                            val cover = if (imgMatcher.find()) imgMatcher.group(1) else coverArtResolver.resolveCover(artist, title)
-                            return@withContext Triple(title, artist, cover)
-                        }
-                    }
-                }
-            }
-        } catch (e: Exception) {
-            Log.w("VkApiClient", "studio21.ru scrape failed, falling back to top-radio", e)
-        }
-
-        // 2. Резервный российский источник top-radio.ru
-        try {
-            val req = Request.Builder()
-                .url("https://top-radio.ru/playlist/studio-21")
-                .header("User-Agent", "Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36")
-                .header("Accept", "text/html,application/xhtml+xml")
-                .build()
-            client.newCall(req).execute().use { resp ->
-                if (resp.isSuccessful) {
-                    val html = resp.body?.string() ?: return@withContext null
-                    val pattern = java.util.regex.Pattern.compile(
-                        """<div class="name_track">\s*<span class="artist">(.*?)</span>\s*-\s*<span class="song">(.*?)</span>""",
-                        java.util.regex.Pattern.CASE_INSENSITIVE
-                    )
-                    val matcher = pattern.matcher(html)
-                    if (matcher.find()) {
-                        val rawArtist = matcher.group(1)?.trim() ?: ""
-                        val rawTitle = matcher.group(2)?.trim() ?: ""
-                        if (rawTitle.isNotEmpty()) {
-                            val artist = HtmlCompat.fromHtml(rawArtist, HtmlCompat.FROM_HTML_MODE_LEGACY).toString().trim()
-                            val title = HtmlCompat.fromHtml(rawTitle, HtmlCompat.FROM_HTML_MODE_LEGACY).toString().trim()
-                            val cover = coverArtResolver.resolveCover(artist, title)
-                            return@withContext Triple(title, artist, cover)
-                        }
-                    }
-                }
-            }
-        } catch (e: Exception) {
-            Log.w("VkApiClient", "getStudio21CurrentTrack fallback failed", e)
-        }
-        null
     }
 
     suspend fun getArtistDetail(artist: Artist): ArtistDetail = withContext(Dispatchers.IO) {

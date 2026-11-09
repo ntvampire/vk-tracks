@@ -244,11 +244,7 @@ fun MainAppScreen(viewModel: MainViewModel) {
                 }
 
                 // Экран карточки артиста в стиле Apple Music (внутри контентной зоны, таб-бар и мини-плеер остаются на виду)
-                AnimatedVisibility(
-                    visible = selectedArtist != null,
-                    enter = slideInVertically(initialOffsetY = { it }),
-                    exit = slideOutVertically(targetOffsetY = { it })
-                ) {
+                if (selectedArtist != null) {
                     selectedArtistDetail?.let { artistDetail ->
                         ArtistDetailScreen(
                             artistDetail = artistDetail,
@@ -266,11 +262,7 @@ fun MainAppScreen(viewModel: MainViewModel) {
                 }
 
                 // Экран плейлиста / альбома в стиле Apple Music (внутри контентной зоны, таб-бар и мини-плеер остаются на виду)
-                AnimatedVisibility(
-                    visible = selectedPlaylist != null,
-                    enter = slideInVertically(initialOffsetY = { it }),
-                    exit = slideOutVertically(targetOffsetY = { it })
-                ) {
+                if (selectedPlaylist != null) {
                     selectedPlaylist?.let { playlist ->
                         PlaylistDetailSheet(
                             playlist = playlist,
@@ -300,11 +292,7 @@ fun MainAppScreen(viewModel: MainViewModel) {
         }
 
         // Полноэкранный плеер в стиле Apple Music (поверх всех экранов и плейлистов)
-        AnimatedVisibility(
-            visible = showFullPlayer,
-            enter = slideInVertically(initialOffsetY = { it }),
-            exit = slideOutVertically(targetOffsetY = { it })
-        ) {
+        if (showFullPlayer) {
             val isCurrentLiked = currentTrack?.let {
                 likedTrackIds.contains(it.fullId) || it.isLiked
             } ?: false

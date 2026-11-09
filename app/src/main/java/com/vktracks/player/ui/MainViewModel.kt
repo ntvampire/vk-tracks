@@ -1,9 +1,14 @@
 package com.vktracks.player.ui
 
 import android.app.Application
+import android.content.ComponentName
+import android.content.Intent
+import androidx.core.content.ContextCompat
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.media3.common.Player
+import androidx.media3.session.MediaController
+import androidx.media3.session.SessionToken
 import com.vktracks.player.data.api.VkApiClient
 import com.vktracks.player.data.api.VkAuthManager
 import com.vktracks.player.data.cover.CoverArtResolver
@@ -136,6 +141,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         .stateIn(viewModelScope, SharingStarted.Lazily, emptyList())
 
     init {
+        initMediaController()
+
         viewModelScope.launch {
             authManager.authState.collect { auth ->
                 if (auth) {
@@ -158,6 +165,51 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
         // Проверка автообновления
         checkForUpdates()
+    }
+
+    private var mediaController: MediaController? = null
+
+    private fun initMediaController() {
+        try {
+            val context = getApplication<Application>()
+            val sessionToken = SessionToken(context, ComponentName(context, PlaybackService::class.java))
+            val controllerFuture = MediaController.Builder(context, sessionToken).buildAsync()
+            controllerFuture.addListener({
+                try {
+                    mediaController = controllerFuture.get()
+                    android.util.Log.d("MainViewModel", "MediaController bound to PlaybackService successfully")
+                } catch (e: Exception) {
+                    android.util.Log.e("MainViewModel", "Failed to get MediaController", e)
+                }
+            }, ContextCompat.getMainExecutor(context))
+        } catch (e: Exception) {
+            android.util.Log.e("MainViewModel", "Failed to init MediaController", e)
+        }
+    }
+
+    private fun ensurePlaybackService(onReady: (PlaybackService) -> Unit) {
+        val current = PlaybackService.instance
+        if (current != null) {
+            onReady(current)
+            return
+        }
+        val context = getApplication<Application>()
+        try {
+            val intent = Intent(context, PlaybackService::class.java)
+            context.startService(intent)
+        } catch (e: Exception) {
+            android.util.Log.e("MainViewModel", "Failed to start PlaybackService", e)
+        }
+        viewModelScope.launch {
+            for (i in 1..25) {
+                delay(60)
+                PlaybackService.instance?.let {
+                    onReady(it)
+                    return@launch
+                }
+            }
+            android.util.Log.e("MainViewModel", "PlaybackService failed to become ready after 1.5s")
+        }
     }
 
     fun onAuthSuccess() {
@@ -334,7 +386,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         studio21WebSocket = null
 
         val radioTrack = station.toTrack()
-        PlaybackService.instance?.playQueue(listOf(radioTrack), 0)
+        ensurePlaybackService { service ->
+            service.playQueue(listOf(radioTrack), 0)
+        }
         startRadioPolling(station)
     }
 
@@ -558,32 +612,73 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             }
             val updatedQueue = queue.map { if (it.fullId == currentTrackToPlay.fullId) currentTrackToPlay else it }
             val index = updatedQueue.indexOfFirst { it.fullId == currentTrackToPlay.fullId }.coerceAtLeast(0)
-            PlaybackService.instance?.playQueue(updatedQueue, index)
+            ensurePlaybackService { service ->
+                service.playQueue(updatedQueue, index)
+            }
         }
     }
 
     fun togglePlayPause() {
-        PlaybackService.instance?.togglePlayPause()
+        val service = PlaybackService.instance
+        if (service != null) {
+            service.togglePlayPause()
+        } else {
+            mediaController?.let {
+                if (it.isPlaying) it.pause() else it.play()
+            }
+        }
     }
 
     fun playNext() {
-        PlaybackService.instance?.playNext()
+        val service = PlaybackService.instance
+        if (service != null) {
+            service.playNext()
+        } else {
+            mediaController?.seekToNextMediaItem()
+        }
     }
 
     fun playPrevious() {
-        PlaybackService.instance?.playPrevious()
+        val service = PlaybackService.instance
+        if (service != null) {
+            service.playPrevious()
+        } else {
+            mediaController?.seekToPreviousMediaItem()
+        }
     }
 
     fun seekTo(positionMs: Long) {
-        PlaybackService.instance?.seekTo(positionMs)
+        val service = PlaybackService.instance
+        if (service != null) {
+            service.seekTo(positionMs)
+        } else {
+            mediaController?.seekTo(positionMs)
+        }
     }
 
     fun toggleShuffle() {
-        PlaybackService.instance?.toggleShuffle()
+        val service = PlaybackService.instance
+        if (service != null) {
+            service.toggleShuffle()
+        } else {
+            mediaController?.let { it.shuffleModeEnabled = !it.shuffleModeEnabled }
+        }
     }
 
     fun toggleRepeat() {
-        PlaybackService.instance?.toggleRepeat()
+        val service = PlaybackService.instance
+        if (service != null) {
+            service.toggleRepeat()
+        } else {
+            mediaController?.let {
+                val next = when (it.repeatMode) {
+                    Player.REPEAT_MODE_OFF -> Player.REPEAT_MODE_ALL
+                    Player.REPEAT_MODE_ALL -> Player.REPEAT_MODE_ONE
+                    else -> Player.REPEAT_MODE_OFF
+                }
+                it.repeatMode = next
+            }
+        }
     }
 
     fun checkForUpdates(isManual: Boolean = false, onNoUpdate: (() -> Unit)? = null) {
@@ -632,6 +727,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     override fun onCleared() {
         super.onCleared()
+        mediaController?.release()
+        mediaController = null
         radioMetadataJob?.cancel()
         studio21WebSocket?.close(1000, "ViewModel cleared")
         studio21WebSocket = null

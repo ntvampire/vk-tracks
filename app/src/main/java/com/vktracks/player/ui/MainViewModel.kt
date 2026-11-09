@@ -12,6 +12,7 @@ import com.vktracks.player.data.local.AppDatabase
 import com.vktracks.player.data.local.TrackEntity
 import com.vktracks.player.data.model.AppUpdateInfo
 import com.vktracks.player.data.model.Artist
+import com.vktracks.player.data.model.ArtistDetail
 import com.vktracks.player.data.model.CatalogBlock
 import com.vktracks.player.data.model.CatalogButtonItem
 import com.vktracks.player.data.model.Lyrics
@@ -95,6 +96,15 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val _isLoadingPlaylistTracks = MutableStateFlow(false)
     val isLoadingPlaylistTracks: StateFlow<Boolean> = _isLoadingPlaylistTracks.asStateFlow()
 
+    private val _selectedArtist = MutableStateFlow<Artist?>(null)
+    val selectedArtist: StateFlow<Artist?> = _selectedArtist.asStateFlow()
+
+    private val _selectedArtistDetail = MutableStateFlow<ArtistDetail?>(null)
+    val selectedArtistDetail: StateFlow<ArtistDetail?> = _selectedArtistDetail.asStateFlow()
+
+    private val _isLoadingArtistDetail = MutableStateFlow(false)
+    val isLoadingArtistDetail: StateFlow<Boolean> = _isLoadingArtistDetail.asStateFlow()
+
     private val _isLoading = MutableStateFlow(false)
     val isLoading: StateFlow<Boolean> = _isLoading.asStateFlow()
 
@@ -172,7 +182,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 val audios = apiClient.getMyAudios(0, 100)
                 _myTracks.value = audios
                 _likedTrackIds.value = audios.map { it.fullId }.toSet()
-                _playlists.value = apiClient.getPlaylists(0, 50)
+                _playlists.value = apiClient.getPlaylists(0, 100)
                 _recommendations.value = apiClient.getRecommendations(0, 50)
 
                 // 1. Секции для вкладки "Слушать" (VK MIX, Миксы по артистам, Миксы по жанрам)
@@ -360,6 +370,27 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 }
             }
         } else if (station == RadioStation.STUDIO_21) {
+            // Регулярный опрос трека Studio 21 через российский веб-источник
+            radioMetadataJob = viewModelScope.launch(Dispatchers.IO) {
+                while (isActive) {
+                    try {
+                        val trackInfo = apiClient.getStudio21CurrentTrack()
+                        if (trackInfo != null) {
+                            val (title, artist, cover) = trackInfo
+                            withContext(Dispatchers.Main) {
+                                PlaybackService.instance?.updateLiveMetadata(
+                                    title = title,
+                                    artist = if (artist.isNotBlank()) artist else station.subtitle,
+                                    coverUrl = cover ?: station.logoUrl
+                                )
+                            }
+                        }
+                    } catch (_: Exception) {}
+                    delay(12000)
+                }
+            }
+
+            // WebSocket для push-обновлений
             studio21WebSocket = apiClient.connectStudio21WebSocket { title, artist, coverUrl ->
                 viewModelScope.launch(Dispatchers.Main) {
                     val art = if (artist.isNotBlank()) artist else station.subtitle
@@ -472,6 +503,27 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun closePlaylist() {
         _selectedPlaylist.value = null
         _selectedPlaylistTracks.value = emptyList()
+    }
+
+    fun openArtist(artist: Artist) {
+        _selectedArtist.value = artist
+        _selectedArtistDetail.value = ArtistDetail(artist = artist)
+        _isLoadingArtistDetail.value = true
+        viewModelScope.launch {
+            try {
+                val detail = apiClient.getArtistDetail(artist)
+                _selectedArtistDetail.value = detail
+            } catch (e: Exception) {
+                android.util.Log.e("MainViewModel", "Failed to load artist detail", e)
+            } finally {
+                _isLoadingArtistDetail.value = false
+            }
+        }
+    }
+
+    fun closeArtist() {
+        _selectedArtist.value = null
+        _selectedArtistDetail.value = null
     }
 
     fun downloadTrack(track: Track, subfolder: String? = null) {

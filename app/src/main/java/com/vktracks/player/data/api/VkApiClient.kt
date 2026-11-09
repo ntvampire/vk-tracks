@@ -1,8 +1,10 @@
 package com.vktracks.player.data.api
 
 import android.util.Log
+import androidx.core.text.HtmlCompat
 import com.vktracks.player.data.cover.CoverArtResolver
 import com.vktracks.player.data.model.Artist
+import com.vktracks.player.data.model.ArtistDetail
 import com.vktracks.player.data.model.CatalogBlock
 import com.vktracks.player.data.model.CatalogButtonItem
 import com.vktracks.player.data.model.LyricLine
@@ -755,6 +757,8 @@ class VkApiClient(
     fun connectStudio21WebSocket(onTrackUpdate: (title: String, artist: String, coverUrl: String?) -> Unit): WebSocket {
         val req = Request.Builder()
             .url("wss://meta.hostingradio.ru/emg/ws?format=native")
+            .header("Origin", "https://studio21.ru")
+            .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
             .build()
 
         return client.newWebSocket(req, object : WebSocketListener() {
@@ -789,6 +793,132 @@ class VkApiClient(
                 }
             }
         })
+    }
+
+    suspend fun getStudio21CurrentTrack(): Triple<String, String, String?>? = withContext(Dispatchers.IO) {
+        try {
+            val req = Request.Builder()
+                .url("https://top-radio.ru/playlist/studio-21")
+                .header("User-Agent", "Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36")
+                .header("Accept", "text/html,application/xhtml+xml")
+                .build()
+            client.newCall(req).execute().use { resp ->
+                if (resp.isSuccessful) {
+                    val html = resp.body?.string() ?: return@withContext null
+                    val pattern = java.util.regex.Pattern.compile(
+                        """<div class="name_track">\s*<span class="artist">(.*?)</span>\s*-\s*<span class="song">(.*?)</span>""",
+                        java.util.regex.Pattern.CASE_INSENSITIVE
+                    )
+                    val matcher = pattern.matcher(html)
+                    if (matcher.find()) {
+                        val rawArtist = matcher.group(1)?.trim() ?: ""
+                        val rawTitle = matcher.group(2)?.trim() ?: ""
+                        if (rawTitle.isNotEmpty()) {
+                            val artist = HtmlCompat.fromHtml(rawArtist, HtmlCompat.FROM_HTML_MODE_LEGACY).toString().trim()
+                            val title = HtmlCompat.fromHtml(rawTitle, HtmlCompat.FROM_HTML_MODE_LEGACY).toString().trim()
+                            val cover = coverArtResolver.resolveCover(artist, title)
+                            return@withContext Triple(title, artist, cover)
+                        }
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            Log.w("VkApiClient", "getStudio21CurrentTrack failed", e)
+        }
+        null
+    }
+
+    suspend fun getArtistDetail(artist: Artist): ArtistDetail = withContext(Dispatchers.IO) {
+        var popularTracks = emptyList<Track>()
+        var albums = emptyList<Playlist>()
+        var updatedPhotoUrl = artist.photoUrl
+        var bio: String? = null
+
+        // 1. Полноценный каталог страницы артиста catalog.getAudioArtist
+        if (artist.id.isNotEmpty()) {
+            try {
+                val json = callVkApi("catalog.getAudioArtist", mapOf(
+                    "artist_id" to artist.id,
+                    "need_blocks" to "1"
+                ))
+                if (json != null && !json.has("error")) {
+                    val resp = json.optJSONObject("response")
+                    if (resp != null) {
+                        val artistObj = resp.optJSONObject("artist")
+                        if (artistObj != null) {
+                            val photos = parseArtistsArray(JSONArray().put(artistObj))
+                            if (photos.isNotEmpty() && photos[0].photoUrl != null) {
+                                updatedPhotoUrl = photos[0].photoUrl
+                            }
+                        }
+
+                        val catalog = resp.optJSONObject("catalog")
+                        val sections = catalog?.optJSONArray("sections") ?: resp.optJSONArray("sections")
+                        if (sections != null) {
+                            for (s in 0 until sections.length()) {
+                                val sec = sections.optJSONObject(s) ?: continue
+                                val blocks = sec.optJSONArray("blocks") ?: continue
+                                for (b in 0 until blocks.length()) {
+                                    val blk = blocks.optJSONObject(b) ?: continue
+                                    val dt = blk.optString("data_type").lowercase()
+                                    val items = blk.optJSONArray("items")
+                                        ?: blk.optJSONArray("audios")
+                                        ?: blk.optJSONArray("playlists")
+                                    if (items != null && items.length() > 0) {
+                                        if ((dt.contains("audio") || dt.contains("track")) && popularTracks.isEmpty()) {
+                                            popularTracks = parseTracksArray(items)
+                                        } else if (dt.contains("playlist") || dt.contains("album")) {
+                                            val parsedAlbums = parsePlaylistsArray(items)
+                                            albums = (albums + parsedAlbums).distinctBy { it.fullId }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            } catch (e: Exception) {
+                Log.w("VkApiClient", "catalog.getAudioArtist failed for ${artist.id}", e)
+            }
+        }
+
+        // 2. Резервный вызов: audio.getAudiosByArtist если треки не получены из каталога
+        if (popularTracks.isEmpty() && artist.id.isNotEmpty()) {
+            try {
+                val json = callVkApi("audio.getAudiosByArtist", mapOf(
+                    "artist_id" to artist.id,
+                    "count" to "50"
+                ))
+                if (json != null && !json.has("error")) {
+                    popularTracks = parseTracksList(json)
+                }
+            } catch (e: Exception) {
+                Log.w("VkApiClient", "audio.getAudiosByArtist failed", e)
+            }
+        }
+
+        // 3. Fallback: поиск по каталогу по имени исполнителя
+        if (popularTracks.isEmpty()) {
+            val res = searchCatalog(artist.name)
+            popularTracks = res.tracks
+            if (albums.isEmpty()) {
+                albums = res.playlists.filter { it.isAlbum || it.title.contains(artist.name, ignoreCase = true) }
+            }
+        }
+
+        if (albums.isEmpty()) {
+            try {
+                albums = searchPlaylists(artist.name, 30).filter { it.isAlbum || it.title.contains(artist.name, ignoreCase = true) }
+            } catch (_: Exception) {}
+        }
+
+        val updatedArtist = artist.copy(photoUrl = updatedPhotoUrl ?: artist.photoUrl)
+        ArtistDetail(
+            artist = updatedArtist,
+            popularTracks = popularTracks,
+            albums = albums,
+            bio = bio
+        )
     }
 
     suspend fun getLyrics(track: Track): Lyrics? = withContext(Dispatchers.IO) {
@@ -1277,11 +1407,13 @@ class VkApiClient(
                 coverUrl = item.optJSONObject("cover")?.optString("uri")?.takeIf { it.isNotEmpty() }
             }
 
-            val albumType = item.optString("album_type", "")
-            val mainArtists = item.optJSONArray("main_artists")
-            val hasMainArtists = mainArtists != null && mainArtists.length() > 0
+            val albumType = item.optString("album_type", "").trim().lowercase()
             val isExplicitAlbum = item.optBoolean("is_album", false)
-            val isAlbum = (albumType.isNotEmpty() && albumType != "null") || isExplicitAlbum || hasMainArtists
+            val type = item.optInt("type", 0)
+            val isAlbum = isExplicitAlbum ||
+                (albumType.isNotEmpty() && albumType != "null" && albumType != "playlist") ||
+                (type == 1 && albumType != "playlist")
+            val mainArtists = item.optJSONArray("main_artists")
             val year = item.optInt("year").takeIf { it > 0 }
             val mainArtist = mainArtists?.optJSONObject(0)?.optString("name")
 

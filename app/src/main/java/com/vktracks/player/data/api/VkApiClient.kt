@@ -637,6 +637,31 @@ class VkApiClient(
         if (url.isNotEmpty()) url else null
     }
 
+    suspend fun getRecordNowPlaying(): JSONObject? = withContext(Dispatchers.IO) {
+        try {
+            val req = Request.Builder()
+                .url("https://www.radiorecord.ru/api/stations/now/")
+                .header("User-Agent", "VKTracks/1.0")
+                .build()
+            client.newCall(req).execute().use { resp ->
+                if (resp.isSuccessful) {
+                    val body = resp.body?.string() ?: return@withContext null
+                    val json = JSONObject(body)
+                    val result = json.optJSONArray("result")
+                    if (result != null) {
+                        for (i in 0 until result.length()) {
+                            val st = result.optJSONObject(i) ?: continue
+                            if (st.optInt("id") == 15016 || st.optInt("id") == 67) {
+                                return@withContext st
+                            }
+                        }
+                    }
+                }
+            }
+        } catch (_: Exception) {}
+        null
+    }
+
     suspend fun getLyrics(track: Track): Lyrics? = withContext(Dispatchers.IO) {
         val fullAudioId = "${track.ownerId}_${track.id}"
         val params = mutableMapOf("audio_id" to fullAudioId)
@@ -1123,6 +1148,11 @@ class VkApiClient(
                 coverUrl = item.optJSONObject("cover")?.optString("uri")?.takeIf { it.isNotEmpty() }
             }
 
+            val isAlbum = item.optInt("type") == 1 || item.optBoolean("is_album") || item.optString("album_type").isNotEmpty() || item.has("year")
+            val year = item.optInt("year").takeIf { it > 0 }
+            val mainArtists = item.optJSONArray("main_artists")
+            val mainArtist = mainArtists?.optJSONObject(0)?.optString("name")
+
             list.add(
                 Playlist(
                     id = id,
@@ -1131,7 +1161,10 @@ class VkApiClient(
                     description = description,
                     coverUrl = coverUrl,
                     count = count,
-                    accessKey = accessKey
+                    accessKey = accessKey,
+                    isAlbum = isAlbum,
+                    year = year,
+                    mainArtist = mainArtist
                 )
             )
         }

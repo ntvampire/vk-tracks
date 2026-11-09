@@ -160,6 +160,19 @@ class PlaybackService : MediaSessionService() {
                 }
             }
 
+            override fun onMediaMetadataChanged(mediaMetadata: MediaMetadata) {
+                val streamTitle = mediaMetadata.title?.toString()
+                if (!streamTitle.isNullOrBlank()) {
+                    val current = _currentTrack.value
+                    if (current != null && current.duration == 0) {
+                        val parts = streamTitle.split(" - ", limit = 2)
+                        val artist = if (parts.size == 2) parts[0].trim() else current.title
+                        val title = if (parts.size == 2) parts[1].trim() else streamTitle
+                        _currentTrack.value = current.copy(title = title, artist = artist)
+                    }
+                }
+            }
+
             override fun onPlayerError(error: androidx.media3.common.PlaybackException) {
                 android.util.Log.e("PlaybackService", "ExoPlayer error: ${error.errorCodeName} (${error.errorCode}) - ${error.message}", error)
             }
@@ -233,6 +246,17 @@ class PlaybackService : MediaSessionService() {
 
     fun refreshNotification() {
         mediaSession?.let { onUpdateNotification(it, player.playWhenReady) }
+    }
+
+    fun updateLiveMetadata(title: String, artist: String, coverUrl: String? = null) {
+        val current = _currentTrack.value ?: return
+        if (current.duration == 0) {
+            _currentTrack.value = current.copy(
+                title = title,
+                artist = artist,
+                coverUrl = coverUrl ?: current.coverUrl
+            )
+        }
     }
 
     fun togglePlayPause() {

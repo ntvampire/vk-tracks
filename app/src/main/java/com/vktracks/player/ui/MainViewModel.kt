@@ -16,6 +16,7 @@ import com.vktracks.player.data.model.CatalogBlock
 import com.vktracks.player.data.model.CatalogButtonItem
 import com.vktracks.player.data.model.Lyrics
 import com.vktracks.player.data.model.Playlist
+import com.vktracks.player.data.model.RadioStation
 import com.vktracks.player.data.model.SearchResult
 import com.vktracks.player.data.model.StreamMix
 import com.vktracks.player.data.model.Track
@@ -25,7 +26,9 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.*
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.util.concurrent.ConcurrentHashMap
 
 class MainViewModel(application: Application) : AndroidViewModel(application) {
@@ -264,11 +267,70 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    private var radioMetadataJob: Job? = null
+
     fun loadPersonalRadio() {
         viewModelScope.launch {
             try {
                 _radioTracks.value = apiClient.getPersonalRadio()
             } catch (_: Exception) {}
+        }
+    }
+
+    fun playVkMix() {
+        radioMetadataJob?.cancel()
+        viewModelScope.launch {
+            _isLoading.value = true
+            try {
+                var tracks = _radioTracks.value
+                if (tracks.isEmpty()) {
+                    tracks = apiClient.getPersonalRadio()
+                    _radioTracks.value = tracks
+                }
+                if (tracks.isNotEmpty()) {
+                    playTrack(tracks.first(), tracks)
+                }
+            } catch (e: Exception) {
+                android.util.Log.e("MainViewModel", "Failed to play VK mix", e)
+            } finally {
+                _isLoading.value = false
+            }
+        }
+    }
+
+    fun playRadio(station: RadioStation) {
+        radioMetadataJob?.cancel()
+        val radioTrack = station.toTrack()
+        PlaybackService.instance?.playQueue(listOf(radioTrack), 0)
+        startRadioPolling(station)
+    }
+
+    private fun startRadioPolling(station: RadioStation) {
+        radioMetadataJob?.cancel()
+        if (station == RadioStation.RADIO_RECORD) {
+            radioMetadataJob = viewModelScope.launch(Dispatchers.IO) {
+                while (isActive) {
+                    try {
+                        val json = apiClient.getRecordNowPlaying()
+                        if (json != null) {
+                            val trackObj = json.optJSONObject("track")
+                            val artist = trackObj?.optString("artist", "") ?: ""
+                            val song = trackObj?.optString("song", "") ?: ""
+                            val img = trackObj?.optString("image600")?.takeIf { it.isNotEmpty() }
+                            if (song.isNotBlank() || artist.isNotBlank()) {
+                                withContext(Dispatchers.Main) {
+                                    PlaybackService.instance?.updateLiveMetadata(
+                                        title = if (song.isNotBlank()) song else station.title,
+                                        artist = if (artist.isNotBlank()) artist else station.subtitle,
+                                        coverUrl = img
+                                    )
+                                }
+                            }
+                        }
+                    } catch (_: Exception) {}
+                    delay(15000)
+                }
+            }
         }
     }
 
@@ -387,6 +449,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun playTrack(track: Track, queue: List<Track>) {
+        radioMetadataJob?.cancel()
         viewModelScope.launch {
             var currentTrackToPlay = track
             if (currentTrackToPlay.streamUrl.isEmpty() && !currentTrackToPlay.isLocal) {

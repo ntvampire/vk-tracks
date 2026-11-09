@@ -32,7 +32,6 @@ import com.vktracks.player.ui.components.AuthDialog
 import com.vktracks.player.ui.components.FullPlayerSheet
 import com.vktracks.player.ui.components.MiniPlayer
 import com.vktracks.player.ui.components.PlaylistDetailSheet
-import com.vktracks.player.ui.screens.BrowseScreen
 import com.vktracks.player.ui.screens.LibraryScreen
 import com.vktracks.player.ui.screens.ListenNowScreen
 import com.vktracks.player.ui.screens.SearchScreen
@@ -41,7 +40,6 @@ import com.vktracks.player.ui.theme.VKTracksTheme
 
 enum class MainTab(val title: String, val icon: ImageVector) {
     LISTEN_NOW("Слушать", Icons.Default.PlayCircleOutline),
-    BROWSE("Обзор", Icons.Default.Dashboard),
     LIBRARY("Медиатека", Icons.Default.LibraryMusic),
     SEARCH("Поиск", Icons.Default.Search)
 }
@@ -182,28 +180,14 @@ fun MainAppScreen(viewModel: MainViewModel) {
                 when (selectedTab) {
                     MainTab.LISTEN_NOW -> {
                         ListenNowScreen(
-                            mixBlocks = mixBlocks,
-                            onPlayMix = { viewModel.playStreamMix(it) },
-                            onRadioClick = { viewModel.loadPersonalRadio() },
+                            currentTrack = currentTrack,
+                            isPlaying = isPlaying,
+                            onVkMixClick = { viewModel.playVkMix() },
+                            onRadioClick = { viewModel.playRadio(it) },
                             onTopTracksClick = { viewModel.openTopTracks() },
                             onTopArtistsClick = { viewModel.openTopArtists() },
                             onTopGenresClick = { viewModel.openTopGenres() },
                             onSettingsClick = { showSettings = true }
-                        )
-                    }
-                    MainTab.BROWSE -> {
-                        BrowseScreen(
-                            catalogBlocks = catalogBlocks,
-                            chartTracks = chartTracks,
-                            currentTrack = currentTrack,
-                            isPlaying = isPlaying,
-                            likedTrackIds = likedTrackIds,
-                            onTrackClick = { track, list -> viewModel.playTrack(track, list) },
-                            onPlaylistClick = { playlist -> viewModel.openPlaylist(playlist) },
-                            onCategoryClick = { button -> viewModel.playCategory(button) },
-                            onAlgorithmClick = { type -> viewModel.playAlgorithm(type) },
-                            onLikeClick = { viewModel.toggleTrackLike(it) },
-                            onDownloadClick = { viewModel.downloadTrack(it) }
                         )
                     }
                     MainTab.LIBRARY -> {

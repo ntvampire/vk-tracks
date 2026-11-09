@@ -26,7 +26,10 @@ data class Playlist(
     val description: String? = null,
     val coverUrl: String? = null,
     val count: Int = 0,
-    val accessKey: String? = null
+    val accessKey: String? = null,
+    val isAlbum: Boolean = false,
+    val year: Int? = null,
+    val mainArtist: String? = null
 ) {
     val fullId: String get() = "${ownerId}_${id}"
 }
@@ -93,3 +96,37 @@ data class CatalogBlock(
     val tracks: List<Track> = emptyList(),
     val nextFrom: String? = null
 )
+
+enum class RadioStation(
+    val id: String,
+    val title: String,
+    val subtitle: String,
+    val streamUrl: String,
+    val logoUrl: String
+) {
+    STUDIO_21(
+        id = "radio_studio_21",
+        title = "Studio 21",
+        subtitle = "Hip-Hop & R&B • Прямой эфир",
+        streamUrl = "https://icecast-studio21.cdnvideo.ru/S21cl_1r",
+        logoUrl = "https://studio21.ru/_nuxt/img/disk.2bba1d4.png"
+    ),
+    RADIO_RECORD(
+        id = "radio_record",
+        title = "Radio Record",
+        subtitle = "Dance Radio • Прямой эфир",
+        streamUrl = "https://radiorecord.hostingradio.ru/rr_main96.aacp",
+        logoUrl = "https://www.radiorecord.ru/upload/stations_images/record_image600_colored_fill.png"
+    );
+
+    fun toTrack(): Track = Track(
+        id = id.hashCode().toLong(),
+        ownerId = 0,
+        title = title,
+        artist = subtitle,
+        duration = 0,
+        streamUrl = streamUrl,
+        coverUrl = logoUrl,
+        albumTitle = "Онлайн-радио"
+    )
+}

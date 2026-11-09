@@ -217,44 +217,81 @@ fun FullPlayerSheet(
 
             Spacer(modifier = Modifier.height(20.dp))
 
-            // Таймлайн (Слайдер прогресса)
-            var sliderPosition by remember { mutableStateOf<Float?>(null) }
-            val currentSlider = sliderPosition ?: if (durationMs > 0) (currentPosMs.toFloat() / durationMs).coerceIn(0f, 1f) else 0f
+            val isLiveStream = track.duration == 0
 
-            Slider(
-                value = currentSlider,
-                onValueChange = { sliderPosition = it },
-                onValueChangeFinished = {
-                    sliderPosition?.let {
-                        onSeekTo((it * durationMs).toLong())
-                        sliderPosition = null
+            if (isLiveStream) {
+                // Бейдж прямого эфира
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 14.dp),
+                    horizontalArrangement = Arrangement.Center,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(AppleRed)
+                            .padding(horizontal = 12.dp, vertical = 6.dp)
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Box(
+                                modifier = Modifier
+                                    .size(6.dp)
+                                    .clip(CircleShape)
+                                    .background(Color.White)
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = "ПРЯМОЙ ЭФИР",
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = Color.White,
+                                letterSpacing = 1.sp
+                            )
+                        }
                     }
-                },
-                colors = SliderDefaults.colors(
-                    thumbColor = MaterialTheme.colorScheme.onBackground,
-                    activeTrackColor = MaterialTheme.colorScheme.onBackground,
-                    inactiveTrackColor = MaterialTheme.colorScheme.surfaceVariant
-                ),
-                modifier = Modifier.fillMaxWidth()
-            )
+                }
+            } else {
+                // Таймлайн (Слайдер прогресса)
+                var sliderPosition by remember { mutableStateOf<Float?>(null) }
+                val currentSlider = sliderPosition ?: if (durationMs > 0) (currentPosMs.toFloat() / durationMs).coerceIn(0f, 1f) else 0f
 
-            // Метки времени
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 4.dp),
-                horizontalArrangement = Arrangement.SpaceBetween
-            ) {
-                Text(
-                    text = formatMs(currentPosMs),
-                    fontSize = 12.sp,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                Slider(
+                    value = currentSlider,
+                    onValueChange = { sliderPosition = it },
+                    onValueChangeFinished = {
+                        sliderPosition?.let {
+                            onSeekTo((it * durationMs).toLong())
+                            sliderPosition = null
+                        }
+                    },
+                    colors = SliderDefaults.colors(
+                        thumbColor = MaterialTheme.colorScheme.onBackground,
+                        activeTrackColor = MaterialTheme.colorScheme.onBackground,
+                        inactiveTrackColor = MaterialTheme.colorScheme.surfaceVariant
+                    ),
+                    modifier = Modifier.fillMaxWidth()
                 )
-                Text(
-                    text = if (durationMs > 0) "-" + formatMs((durationMs - currentPosMs).coerceAtLeast(0)) else "--:--",
-                    fontSize = 12.sp,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
+
+                // Метки времени
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 4.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Text(
+                        text = formatMs(currentPosMs),
+                        fontSize = 12.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Text(
+                        text = if (durationMs > 0) "-" + formatMs((durationMs - currentPosMs).coerceAtLeast(0)) else "--:--",
+                        fontSize = 12.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
             }
 
             Spacer(modifier = Modifier.height(16.dp))

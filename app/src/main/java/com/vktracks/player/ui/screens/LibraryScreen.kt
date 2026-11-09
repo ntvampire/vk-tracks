@@ -26,10 +26,10 @@ import com.vktracks.player.data.model.Track
 import com.vktracks.player.ui.components.TrackItem
 
 enum class LibraryTab(val title: String) {
-    MY_TRACKS("Мои аудиозаписи"),
-    DOWNLOADED("Скачанные"),
-    HISTORY("История"),
-    PLAYLISTS("Плейлисты")
+    FAVORITES("Избранное"),
+    PLAYLISTS("Плейлисты"),
+    ALBUMS("Альбомы"),
+    DOWNLOADED("Скачанное")
 }
 
 @Composable
@@ -50,7 +50,10 @@ fun LibraryScreen(
     isAuthorized: Boolean,
     modifier: Modifier = Modifier
 ) {
-    var selectedTab by remember { mutableStateOf(LibraryTab.MY_TRACKS) }
+    var selectedTab by remember { mutableStateOf(LibraryTab.FAVORITES) }
+
+    val userPlaylists = remember(playlists) { playlists.filter { !it.isAlbum } }
+    val userAlbums = remember(playlists) { playlists.filter { it.isAlbum } }
 
     LazyColumn(
         modifier = modifier
@@ -81,7 +84,7 @@ fun LibraryScreen(
                 }
             }
 
-            // Переключатель разделов
+            // Переключатель разделов (Избранное, Плейлисты, Альбомы, Скачанное)
             ScrollableTabRow(
                 selectedTabIndex = selectedTab.ordinal,
                 edgePadding = 20.dp,
@@ -103,7 +106,7 @@ fun LibraryScreen(
             }
         }
 
-        if (!isAuthorized && selectedTab == LibraryTab.MY_TRACKS) {
+        if (!isAuthorized && selectedTab != LibraryTab.DOWNLOADED) {
             item {
                 Box(
                     modifier = Modifier
@@ -117,106 +120,148 @@ fun LibraryScreen(
                 }
             }
         } else {
-            val currentList = when (selectedTab) {
-                LibraryTab.MY_TRACKS -> myTracks
-                LibraryTab.DOWNLOADED -> downloadedTracks
-                LibraryTab.HISTORY -> historyTracks
-                LibraryTab.PLAYLISTS -> emptyList()
-            }
-
-            if (selectedTab == LibraryTab.PLAYLISTS) {
-                if (playlists.isEmpty()) {
-                    item {
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(vertical = 60.dp),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Text(
-                                text = "Нет сохранённых плейлистов",
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
+            when (selectedTab) {
+                LibraryTab.FAVORITES -> {
+                    if (myTracks.isEmpty()) {
+                        item {
+                            EmptyLibraryMessage("В избранном пока нет треков")
+                        }
+                    } else {
+                        items(myTracks) { track ->
+                            TrackItem(
+                                track = track,
+                                isPlaying = isPlaying,
+                                isCurrent = currentTrack?.fullId == track.fullId,
+                                onTrackClick = { onTrackClick(track, myTracks) },
+                                isLiked = likedTrackIds.contains(track.fullId) || track.isLiked,
+                                onLikeClick = { onLikeClick(track) },
+                                onDownloadClick = { onDownloadClick(track, "Favorites") }
                             )
                         }
-                    }
-                } else {
-                    items(playlists) { playlist ->
-                        ListItem(
-                            leadingContent = {
-                                Box(
-                                    modifier = Modifier
-                                        .size(54.dp)
-                                        .clip(RoundedCornerShape(8.dp))
-                                        .background(MaterialTheme.colorScheme.surfaceVariant),
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    if (!playlist.coverUrl.isNullOrEmpty()) {
-                                        AsyncImage(
-                                            model = playlist.coverUrl,
-                                            contentDescription = playlist.title,
-                                            modifier = Modifier.fillMaxSize(),
-                                            contentScale = ContentScale.Crop
-                                        )
-                                    } else {
-                                        Icon(
-                                            imageVector = Icons.Default.Album,
-                                            contentDescription = null,
-                                            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
-                                            modifier = Modifier.size(28.dp)
-                                        )
-                                    }
-                                }
-                            },
-                            headlineContent = {
-                                Text(
-                                    text = playlist.title,
-                                    fontWeight = FontWeight.SemiBold,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
-                                )
-                            },
-                            supportingContent = { Text("${playlist.count} треков") },
-                            trailingContent = {
-                                Icon(
-                                    imageVector = Icons.Default.ChevronRight,
-                                    contentDescription = null,
-                                    tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)
-                                )
-                            },
-                            modifier = Modifier.clickable { onPlaylistClick(playlist) }
-                        )
                     }
                 }
-            } else {
-                if (currentList.isEmpty()) {
-                    item {
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(vertical = 60.dp),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Text(
-                                text = if (selectedTab == LibraryTab.DOWNLOADED) "Нет скачанных треков" else "Список пуст",
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                LibraryTab.PLAYLISTS -> {
+                    if (userPlaylists.isEmpty()) {
+                        item {
+                            EmptyLibraryMessage("Нет сохранённых плейлистов")
+                        }
+                    } else {
+                        items(userPlaylists) { playlist ->
+                            PlaylistListItem(
+                                playlist = playlist,
+                                subtitle = "${playlist.count} треков",
+                                onClick = { onPlaylistClick(playlist) }
                             )
                         }
                     }
-                } else {
-                    items(currentList) { track ->
-                        val downloadSubfolder = if (selectedTab == LibraryTab.MY_TRACKS) "Favorites" else null
-                        TrackItem(
-                            track = track,
-                            isPlaying = isPlaying,
-                            isCurrent = currentTrack?.fullId == track.fullId,
-                            onTrackClick = { onTrackClick(track, currentList) },
-                            isLiked = likedTrackIds.contains(track.fullId) || track.isLiked,
-                            onLikeClick = { onLikeClick(track) },
-                            onDownloadClick = { onDownloadClick(track, downloadSubfolder) }
-                        )
+                }
+                LibraryTab.ALBUMS -> {
+                    if (userAlbums.isEmpty()) {
+                        item {
+                            EmptyLibraryMessage("Нет сохранённых альбомов")
+                        }
+                    } else {
+                        items(userAlbums) { album ->
+                            val desc = buildString {
+                                if (!album.mainArtist.isNullOrBlank()) append("${album.mainArtist} • ")
+                                if (album.year != null && album.year > 0) append("${album.year} • ")
+                                append("${album.count} треков")
+                            }
+                            PlaylistListItem(
+                                playlist = album,
+                                subtitle = desc,
+                                onClick = { onPlaylistClick(album) }
+                            )
+                        }
+                    }
+                }
+                LibraryTab.DOWNLOADED -> {
+                    if (downloadedTracks.isEmpty()) {
+                        item {
+                            EmptyLibraryMessage("Нет скачанных треков")
+                        }
+                    } else {
+                        items(downloadedTracks) { track ->
+                            TrackItem(
+                                track = track,
+                                isPlaying = isPlaying,
+                                isCurrent = currentTrack?.fullId == track.fullId,
+                                onTrackClick = { onTrackClick(track, downloadedTracks) },
+                                isLiked = likedTrackIds.contains(track.fullId) || track.isLiked,
+                                onLikeClick = { onLikeClick(track) },
+                                onDownloadClick = { onDownloadClick(track, null) }
+                            )
+                        }
                     }
                 }
             }
         }
     }
+}
+
+@Composable
+private fun EmptyLibraryMessage(text: String) {
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 60.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        Text(
+            text = text,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+    }
+}
+
+@Composable
+private fun PlaylistListItem(
+    playlist: Playlist,
+    subtitle: String,
+    onClick: () -> Unit
+) {
+    ListItem(
+        leadingContent = {
+            Box(
+                modifier = Modifier
+                    .size(54.dp)
+                    .clip(RoundedCornerShape(8.dp))
+                    .background(MaterialTheme.colorScheme.surfaceVariant),
+                contentAlignment = Alignment.Center
+            ) {
+                if (!playlist.coverUrl.isNullOrEmpty()) {
+                    AsyncImage(
+                        model = playlist.coverUrl,
+                        contentDescription = playlist.title,
+                        modifier = Modifier.fillMaxSize(),
+                        contentScale = ContentScale.Crop
+                    )
+                } else {
+                    Icon(
+                        imageVector = Icons.Default.Album,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
+                        modifier = Modifier.size(28.dp)
+                    )
+                }
+            }
+        },
+        headlineContent = {
+            Text(
+                text = playlist.title,
+                fontWeight = FontWeight.SemiBold,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+        },
+        supportingContent = { Text(subtitle) },
+        trailingContent = {
+            Icon(
+                imageVector = Icons.Default.ChevronRight,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)
+            )
+        },
+        modifier = Modifier.clickable(onClick = onClick)
+    )
 }

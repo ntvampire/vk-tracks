@@ -4,20 +4,13 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.LazyRow
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowForwardIos
-import androidx.compose.material.icons.filled.Album
-import androidx.compose.material.icons.filled.KeyboardArrowDown
-import androidx.compose.material.icons.filled.Person
-import androidx.compose.material.icons.filled.PlayArrow
-import androidx.compose.material.icons.filled.Settings
-import androidx.compose.material.icons.filled.Tune
+import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
-import androidx.compose.runtime.Composable
+import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -30,25 +23,22 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
-import com.vktracks.player.data.model.CatalogBlock
-import com.vktracks.player.data.model.StreamMix
+import com.vktracks.player.data.model.RadioStation
+import com.vktracks.player.data.model.Track
 import com.vktracks.player.ui.theme.AppleRed
 
 @Composable
 fun ListenNowScreen(
-    mixBlocks: List<CatalogBlock>,
-    onPlayMix: (StreamMix) -> Unit,
-    onRadioClick: () -> Unit,
+    currentTrack: Track?,
+    isPlaying: Boolean,
+    onVkMixClick: () -> Unit,
+    onRadioClick: (RadioStation) -> Unit,
     onTopTracksClick: () -> Unit,
     onTopArtistsClick: () -> Unit,
     onTopGenresClick: () -> Unit,
     onSettingsClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val vkMixBlock = mixBlocks.firstOrNull { it.id == "section_vk_mix" || it.title.contains("VK mix", ignoreCase = true) }
-    val artistMixesBlock = mixBlocks.firstOrNull { it.id == "section_artist_mixes" || it.title.contains("артист", ignoreCase = true) }
-    val genreMixesBlock = mixBlocks.firstOrNull { it.id == "section_genre_mixes" || it.title.contains("жанр", ignoreCase = true) }
-
     LazyColumn(
         modifier = modifier
             .fillMaxSize()
@@ -65,7 +55,7 @@ fun ListenNowScreen(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(
-                    text = "Миксы",
+                    text = "Слушать",
                     fontSize = 34.sp,
                     fontWeight = FontWeight.Bold,
                     color = MaterialTheme.colorScheme.onBackground
@@ -80,7 +70,7 @@ fun ListenNowScreen(
             }
         }
 
-        // 1. Секция VK MIX (Скриншот 1)
+        // 1. Секция VK MIX
         item {
             Box(
                 modifier = Modifier
@@ -131,7 +121,7 @@ fun ListenNowScreen(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Button(
-                            onClick = onRadioClick,
+                            onClick = onVkMixClick,
                             colors = ButtonDefaults.buttonColors(
                                 containerColor = Color.White.copy(alpha = 0.15f),
                                 contentColor = Color.White
@@ -156,7 +146,7 @@ fun ListenNowScreen(
                         Spacer(modifier = Modifier.width(12.dp))
 
                         IconButton(
-                            onClick = onRadioClick,
+                            onClick = onVkMixClick,
                             modifier = Modifier
                                 .size(44.dp)
                                 .clip(RoundedCornerShape(12.dp))
@@ -201,53 +191,158 @@ fun ListenNowScreen(
             }
         }
 
-        // 2. Секция: Миксы по артистам (Скриншот 1)
-        if (artistMixesBlock != null && artistMixesBlock.mixes.isNotEmpty()) {
-            item {
-                Spacer(modifier = Modifier.height(24.dp))
-                Text(
-                    text = artistMixesBlock.title.ifBlank { "Миксы по артистам" },
-                    fontSize = 22.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.onBackground,
-                    modifier = Modifier.padding(horizontal = 20.dp, vertical = 6.dp)
-                )
-            }
-
-            item {
-                LazyRow(
-                    contentPadding = PaddingValues(horizontal = 16.dp),
-                    horizontalArrangement = Arrangement.spacedBy(14.dp)
-                ) {
-                    items(artistMixesBlock.mixes) { mix ->
-                        ArtistMixCard(mix = mix, onPlayClick = { onPlayMix(mix) })
-                    }
-                }
-            }
+        // 2. Секция: Онлайн-радио (Studio 21 и Radio Record)
+        item {
+            Spacer(modifier = Modifier.height(24.dp))
+            Text(
+                text = "Прямой эфир",
+                fontSize = 22.sp,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.onBackground,
+                modifier = Modifier.padding(horizontal = 20.dp, vertical = 6.dp)
+            )
         }
 
-        // 3. Секция: Миксы по жанрам (Скриншот 2)
-        if (genreMixesBlock != null && genreMixesBlock.mixes.isNotEmpty()) {
-            item {
-                Spacer(modifier = Modifier.height(24.dp))
-                Text(
-                    text = genreMixesBlock.title.ifBlank { "Миксы по жанрам" },
-                    fontSize = 22.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.onBackground,
-                    modifier = Modifier.padding(horizontal = 20.dp, vertical = 6.dp)
+        item {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                // Баннер Studio 21
+                val isS21 = currentTrack?.streamUrl == RadioStation.STUDIO_21.streamUrl
+                RadioBannerCard(
+                    station = RadioStation.STUDIO_21,
+                    isCurrent = isS21,
+                    isPlaying = isS21 && isPlaying,
+                    currentLiveTrack = if (isS21) currentTrack?.title else null,
+                    gradient = listOf(Color(0xFF1F1F24), Color(0xFF141416)),
+                    accentColor = Color(0xFFFF5722),
+                    onClick = { onRadioClick(RadioStation.STUDIO_21) }
+                )
+
+                // Баннер Radio Record
+                val isRecord = currentTrack?.streamUrl == RadioStation.RADIO_RECORD.streamUrl
+                RadioBannerCard(
+                    station = RadioStation.RADIO_RECORD,
+                    isCurrent = isRecord,
+                    isPlaying = isRecord && isPlaying,
+                    currentLiveTrack = if (isRecord) currentTrack?.title else null,
+                    gradient = listOf(Color(0xFF381216), Color(0xFF1C090B)),
+                    accentColor = AppleRed,
+                    onClick = { onRadioClick(RadioStation.RADIO_RECORD) }
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun RadioBannerCard(
+    station: RadioStation,
+    isCurrent: Boolean,
+    isPlaying: Boolean,
+    currentLiveTrack: String?,
+    gradient: List<Color>,
+    accentColor: Color,
+    onClick: () -> Unit
+) {
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(90.dp)
+            .shadow(8.dp, RoundedCornerShape(20.dp))
+            .clip(RoundedCornerShape(20.dp))
+            .background(Brush.horizontalGradient(gradient))
+            .clickable(onClick = onClick)
+            .padding(14.dp)
+    ) {
+        Row(
+            modifier = Modifier.fillMaxSize(),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            // Логотип станции
+            Box(
+                modifier = Modifier
+                    .size(62.dp)
+                    .clip(RoundedCornerShape(14.dp))
+                    .background(Color.White.copy(alpha = 0.08f)),
+                contentAlignment = Alignment.Center
+            ) {
+                AsyncImage(
+                    model = station.logoUrl,
+                    contentDescription = station.title,
+                    modifier = Modifier.fillMaxSize(),
+                    contentScale = ContentScale.Crop
                 )
             }
 
-            item {
-                LazyRow(
-                    contentPadding = PaddingValues(horizontal = 16.dp),
-                    horizontalArrangement = Arrangement.spacedBy(14.dp)
-                ) {
-                    items(genreMixesBlock.mixes) { mix ->
-                        GenreMixCard(mix = mix, onPlayClick = { onPlayMix(mix) })
+            Spacer(modifier = Modifier.width(14.dp))
+
+            // Текстовая информация
+            Column(
+                modifier = Modifier.weight(1f),
+                verticalArrangement = Arrangement.Center
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        text = station.title,
+                        fontSize = 17.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = Color.White
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    // Бейдж LIVE
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(6.dp))
+                            .background(accentColor)
+                            .padding(horizontal = 6.dp, vertical = 2.dp)
+                    ) {
+                        Text(
+                            text = "LIVE",
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.ExtraBold,
+                            color = Color.White
+                        )
                     }
                 }
+
+                Spacer(modifier = Modifier.height(3.dp))
+
+                val subtitleText = if (isCurrent && !currentLiveTrack.isNullOrBlank() && currentLiveTrack != station.title) {
+                    currentLiveTrack
+                } else {
+                    station.subtitle
+                }
+
+                Text(
+                    text = subtitleText,
+                    fontSize = 13.sp,
+                    color = if (isCurrent) accentColor else Color.White.copy(alpha = 0.7f),
+                    fontWeight = if (isCurrent) FontWeight.SemiBold else FontWeight.Normal,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+
+            Spacer(modifier = Modifier.width(8.dp))
+
+            // Кнопка Play / Pause
+            Box(
+                modifier = Modifier
+                    .size(42.dp)
+                    .clip(CircleShape)
+                    .background(if (isCurrent && isPlaying) accentColor else Color.White),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = if (isCurrent && isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
+                    contentDescription = if (isCurrent && isPlaying) "Пауза" else "Слушать",
+                    tint = if (isCurrent && isPlaying) Color.White else Color.Black,
+                    modifier = Modifier.size(24.dp)
+                )
             }
         }
     }
@@ -278,195 +373,5 @@ private fun MixMenuItem(
             tint = Color.White.copy(alpha = 0.5f),
             modifier = Modifier.size(14.dp)
         )
-    }
-}
-
-@Composable
-private fun ArtistMixCard(
-    mix: StreamMix,
-    onPlayClick: () -> Unit
-) {
-    Box(
-        modifier = Modifier
-            .width(165.dp)
-            .height(185.dp)
-            .clip(RoundedCornerShape(20.dp))
-            .background(
-                Brush.radialGradient(
-                    listOf(
-                        Color(0xFF8B2B36),
-                        Color(0xFF42151B)
-                    )
-                )
-            )
-            .clickable(onClick = onPlayClick)
-            .padding(14.dp)
-    ) {
-        Column(modifier = Modifier.fillMaxSize()) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.Top
-            ) {
-                // Круглое фото артиста
-                Box(
-                    modifier = Modifier
-                        .size(52.dp)
-                        .clip(CircleShape)
-                        .background(Color.White.copy(alpha = 0.2f)),
-                    contentAlignment = Alignment.Center
-                ) {
-                    if (!mix.imageUrl.isNullOrEmpty()) {
-                        AsyncImage(
-                            model = mix.imageUrl,
-                            contentDescription = mix.title,
-                            modifier = Modifier.fillMaxSize(),
-                            contentScale = ContentScale.Crop
-                        )
-                    } else {
-                        Icon(
-                            imageVector = Icons.Default.Person,
-                            contentDescription = null,
-                            tint = Color.White,
-                            modifier = Modifier.size(28.dp)
-                        )
-                    }
-                }
-
-                // Круглая кнопка Play
-                Box(
-                    modifier = Modifier
-                        .size(38.dp)
-                        .clip(CircleShape)
-                        .background(Color.White),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.PlayArrow,
-                        contentDescription = "Слушать",
-                        tint = Color.Black,
-                        modifier = Modifier.size(24.dp)
-                    )
-                }
-            }
-
-            Spacer(modifier = Modifier.weight(1f))
-
-            Text(
-                text = mix.title,
-                fontSize = 17.sp,
-                fontWeight = FontWeight.Bold,
-                color = Color.White,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
-
-            if (!mix.subtitle.isNullOrEmpty()) {
-                Spacer(modifier = Modifier.height(2.dp))
-                Text(
-                    text = mix.subtitle,
-                    fontSize = 12.sp,
-                    color = Color.White.copy(alpha = 0.75f),
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis,
-                    lineHeight = 15.sp
-                )
-            }
-        }
-    }
-}
-
-@Composable
-private fun GenreMixCard(
-    mix: StreamMix,
-    onPlayClick: () -> Unit
-) {
-    Box(
-        modifier = Modifier
-            .width(165.dp)
-            .height(185.dp)
-            .clip(RoundedCornerShape(20.dp))
-            .background(
-                Brush.radialGradient(
-                    listOf(
-                        Color(0xFF8B4D2B),
-                        Color(0xFF3E1F11)
-                    )
-                )
-            )
-            .clickable(onClick = onPlayClick)
-            .padding(14.dp)
-    ) {
-        Column(modifier = Modifier.fillMaxSize()) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.Top
-            ) {
-                // Коллаж обложек альбомов соответствующего жанра
-                Box(
-                    modifier = Modifier
-                        .size(52.dp)
-                        .clip(RoundedCornerShape(10.dp))
-                        .background(Color.White.copy(alpha = 0.2f)),
-                    contentAlignment = Alignment.Center
-                ) {
-                    if (!mix.imageUrl.isNullOrEmpty()) {
-                        AsyncImage(
-                            model = mix.imageUrl,
-                            contentDescription = mix.title,
-                            modifier = Modifier.fillMaxSize(),
-                            contentScale = ContentScale.Crop
-                        )
-                    } else {
-                        Icon(
-                            imageVector = Icons.Default.Album,
-                            contentDescription = null,
-                            tint = Color.White,
-                            modifier = Modifier.size(30.dp)
-                        )
-                    }
-                }
-
-                // Круглая кнопка Play
-                Box(
-                    modifier = Modifier
-                        .size(38.dp)
-                        .clip(CircleShape)
-                        .background(Color.White),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.PlayArrow,
-                        contentDescription = "Слушать",
-                        tint = Color.Black,
-                        modifier = Modifier.size(24.dp)
-                    )
-                }
-            }
-
-            Spacer(modifier = Modifier.weight(1f))
-
-            Text(
-                text = mix.title,
-                fontSize = 17.sp,
-                fontWeight = FontWeight.Bold,
-                color = Color.White,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
-
-            if (!mix.subtitle.isNullOrEmpty()) {
-                Spacer(modifier = Modifier.height(2.dp))
-                Text(
-                    text = mix.subtitle,
-                    fontSize = 12.sp,
-                    color = Color.White.copy(alpha = 0.75f),
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis,
-                    lineHeight = 15.sp
-                )
-            }
-        }
     }
 }

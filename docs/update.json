@@ -1,6 +1,6 @@
 ﻿{
-  "versionCode": 12,
-  "versionName": "1.0.11",
-  "downloadUrl": "https://github.com/ntvampire/vk-tracks/releases/download/v1.0.11/VK-Tracks-1.0.11.apk",
-  "changelog": "Нативный каталог VK Музыки: переход на официальный протокол catalog.getAudio + catalog.getSection (v5.155) с динамическими секциями и связыванием заголовков блоков; гарантированная карточка плеера в шторке/блокировке (foreground service notification fix в Media3); горизонтальные 3-строчные карусели треков в «Обзоре»; устранение любых фиктивных данных"
+  "versionCode": 13,
+  "versionName": "1.0.12",
+  "downloadUrl": "https://github.com/ntvampire/vk-tracks/releases/download/v1.0.12/VK-Tracks-1.0.12.apk",
+  "changelog": "3 вкладки (Слушать, Медиатека, Поиск); запуск VK Mix; радио Studio 21 и Record с живыми метаданными; табы Избранное/Плейлисты/Альбомы/Скачанное; авто-фокус и табы Треки/Плейлисты/Альбомы/Исполнители"
 }

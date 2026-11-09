@@ -1,7 +1,12 @@
 package com.vktracks.player.data.downloader
 
+import android.content.ContentValues
 import android.content.Context
+import android.media.MediaScannerConnection
+import android.net.Uri
+import android.os.Build
 import android.os.Environment
+import android.provider.MediaStore
 import com.vktracks.player.data.local.AppDatabase
 import com.vktracks.player.data.local.TrackEntity
 import com.vktracks.player.data.model.Track
@@ -14,6 +19,7 @@ import okhttp3.OkHttpClient
 import okhttp3.Request
 import java.io.File
 import java.io.FileOutputStream
+import java.io.IOException
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.TimeUnit
 
@@ -36,23 +42,15 @@ class TrackDownloader(
         val flow = _downloadProgress.getOrPut(track.fullId) { MutableStateFlow(0) }
         flow.value = 0
 
-        try {
-            val baseMusicDir = getMusicDirectory()
-            val targetDir = if (!subfolder.isNullOrBlank()) {
-                val safeSub = subfolder.replace(Regex("""[\\/:*?"<>|]"""), "_").trim()
-                File(baseMusicDir, safeSub).apply { if (!exists()) mkdirs() }
-            } else {
-                baseMusicDir
-            }
+        val tempFile = File(context.cacheDir, "temp_dl_${track.fullId}.tmp")
+        if (tempFile.exists()) tempFile.delete()
 
+        try {
             val safeArtist = track.artist.replace(Regex("""[\\/:*?"<>|]"""), "_").trim()
             val safeTitle = track.title.replace(Regex("""[\\/:*?"<>|]"""), "_").trim()
-            val targetFile = File(targetDir, "$safeArtist - $safeTitle.mp3")
+            val fileName = "$safeArtist - $safeTitle.mp3"
 
-            val tempFile = File(context.cacheDir, "temp_dl_${track.fullId}.tmp")
-            if (tempFile.exists()) tempFile.delete()
-
-            // Проверяем тип потока: прямой MP3 или HLS m3u8
+            // 1. Проверяем тип потока: прямой MP3 или HLS m3u8
             if (track.streamUrl.contains(".m3u8")) {
                 downloadHlsStream(track.streamUrl, tempFile) { progress ->
                     flow.value = progress
@@ -63,21 +61,20 @@ class TrackDownloader(
                 }
             }
 
-            // Скачиваем обложку для прошивки в ID3
+            // 2. Скачиваем обложку для прошивки в ID3
             val coverBytes = if (!track.coverUrl.isNullOrEmpty()) {
                 downloadBytes(track.coverUrl)
             } else {
                 null
             }
 
-            // Вшиваем ID3v2 теги
+            // 3. Вшиваем ID3v2 теги
             Id3Tagger.tagMp3(tempFile, track.title, track.artist, track.albumTitle, coverBytes)
 
-            // Перемещаем в целевую папку
-            if (targetFile.exists()) targetFile.delete()
-            tempFile.renameTo(targetFile)
+            // 4. Перемещаем в целевое хранилище (MediaStore на Android 10+ или файловую систему)
+            val savedFile = saveToStorage(tempFile, fileName, subfolder, track)
 
-            // Сохраняем в локальную базу
+            // 5. Сохраняем в локальную базу данных Room
             val entity = TrackEntity(
                 id = track.fullId,
                 trackId = track.id,
@@ -92,16 +89,116 @@ class TrackDownloader(
                 lyricsId = track.lyricsId,
                 accessKey = track.accessKey,
                 isLiked = track.isLiked,
-                localFilePath = targetFile.absolutePath,
+                localFilePath = savedFile.absolutePath,
                 isDownloaded = true
             )
             database.trackDao().insertOrUpdate(entity)
 
             flow.value = 100
-            Result.success(targetFile)
+            Result.success(savedFile)
         } catch (e: Exception) {
+            if (tempFile.exists()) tempFile.delete()
             flow.value = -1
             Result.failure(e)
+        }
+    }
+
+    private fun saveToStorage(
+        tempFile: File,
+        fileName: String,
+        subfolder: String?,
+        track: Track
+    ): File {
+        val prefs = context.getSharedPreferences("settings", Context.MODE_PRIVATE)
+        val customPath = prefs.getString("custom_download_path", null)
+
+        // Пользовательская папка сохранения
+        if (!customPath.isNullOrBlank()) {
+            val customDir = File(customPath)
+            if (customDir.exists() && customDir.canWrite()) {
+                val targetDir = if (!subfolder.isNullOrBlank()) {
+                    val safeSub = subfolder.replace(Regex("""[\\/:*?"<>|]"""), "_").trim()
+                    File(customDir, safeSub).apply { if (!exists()) mkdirs() }
+                } else customDir
+                val targetFile = File(targetDir, fileName)
+                if (targetFile.exists()) targetFile.delete()
+                tempFile.copyTo(targetFile, overwrite = true)
+                tempFile.delete()
+                MediaScannerConnection.scanFile(context, arrayOf(targetFile.absolutePath), arrayOf("audio/mpeg"), null)
+                return targetFile
+            }
+        }
+
+        // Стандартное сохранение на Android 10+ (API 29+) через официальный MediaStore API в общедоступную папку Music/VK Tracks
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            val relativePath = if (!subfolder.isNullOrBlank()) {
+                val safeSub = subfolder.replace(Regex("""[\\/:*?"<>|]"""), "_").trim()
+                "Music/VK Tracks/$safeSub"
+            } else {
+                "Music/VK Tracks"
+            }
+
+            val resolver = context.contentResolver
+            val contentValues = ContentValues().apply {
+                put(MediaStore.Audio.Media.DISPLAY_NAME, fileName)
+                put(MediaStore.Audio.Media.TITLE, track.title)
+                put(MediaStore.Audio.Media.ARTIST, track.artist)
+                if (!track.albumTitle.isNullOrBlank()) {
+                    put(MediaStore.Audio.Media.ALBUM, track.albumTitle)
+                }
+                put(MediaStore.Audio.Media.MIME_TYPE, "audio/mpeg")
+                put(MediaStore.Audio.Media.RELATIVE_PATH, relativePath)
+                put(MediaStore.Audio.Media.IS_PENDING, 1)
+            }
+
+            // Удаляем старую запись в MediaStore с таким именем и путем, если она уже существовала
+            try {
+                val selection = "${MediaStore.Audio.Media.DISPLAY_NAME} = ? AND ${MediaStore.Audio.Media.RELATIVE_PATH} LIKE ?"
+                val selectionArgs = arrayOf(fileName, "$relativePath%")
+                resolver.delete(MediaStore.Audio.Media.EXTERNAL_CONTENT_URI, selection, selectionArgs)
+            } catch (_: Exception) {}
+
+            val uri = resolver.insert(MediaStore.Audio.Media.EXTERNAL_CONTENT_URI, contentValues)
+                ?: throw IOException("Не удалось создать запись MediaStore для $fileName")
+
+            resolver.openOutputStream(uri).use { output ->
+                if (output == null) throw IOException("Не удалось открыть выходной поток MediaStore")
+                tempFile.inputStream().use { input ->
+                    input.copyTo(output)
+                }
+            }
+
+            contentValues.clear()
+            contentValues.put(MediaStore.Audio.Media.IS_PENDING, 0)
+            resolver.update(uri, contentValues, null, null)
+
+            // Физический путь к сохранённому файлу: /storage/emulated/0/Music/VK Tracks/...
+            val externalMusic = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_MUSIC)
+            val subPart = relativePath.removePrefix("Music/").removePrefix("Music")
+            val targetDir = if (subPart.isNotBlank()) File(externalMusic, subPart) else externalMusic
+            val physicalFile = File(targetDir, fileName)
+
+            tempFile.delete()
+
+            // Оповещаем системный MediaScanner для немедленного отображения файла в проводниках
+            MediaScannerConnection.scanFile(context, arrayOf(physicalFile.absolutePath), arrayOf("audio/mpeg"), null)
+
+            return physicalFile
+        } else {
+            // Android 9 и ниже: прямая запись в общедоступную папку Music
+            val baseMusic = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_MUSIC)
+            val targetDir = if (!subfolder.isNullOrBlank()) {
+                val safeSub = subfolder.replace(Regex("""[\\/:*?"<>|]"""), "_").trim()
+                File(File(baseMusic, "VK Tracks"), safeSub).apply { if (!exists()) mkdirs() }
+            } else {
+                File(baseMusic, "VK Tracks").apply { if (!exists()) mkdirs() }
+            }
+            val targetFile = File(targetDir, fileName)
+            if (targetFile.exists()) targetFile.delete()
+            tempFile.copyTo(targetFile, overwrite = true)
+            tempFile.delete()
+            MediaScannerConnection.scanFile(context, arrayOf(targetFile.absolutePath), arrayOf("audio/mpeg"), null)
+            return targetFile
         }
     }
 
@@ -134,10 +231,28 @@ class TrackDownloader(
     suspend fun deleteDownloadedTrack(track: Track): Boolean = withContext(Dispatchers.IO) {
         try {
             val entity = database.trackDao().getTrackById(track.fullId)
-            if (entity?.localFilePath != null) {
-                val file = File(entity.localFilePath)
-                if (file.exists()) {
-                    file.delete()
+            val path = entity?.localFilePath
+            if (!path.isNullOrBlank()) {
+                if (path.startsWith("content://")) {
+                    try {
+                        context.contentResolver.delete(Uri.parse(path), null, null)
+                    } catch (_: Exception) {}
+                } else {
+                    val file = File(path)
+                    if (file.exists()) {
+                        file.delete()
+                    }
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                        try {
+                            val selection = "${MediaStore.Audio.Media.DATA} = ?"
+                            context.contentResolver.delete(
+                                MediaStore.Audio.Media.EXTERNAL_CONTENT_URI,
+                                selection,
+                                arrayOf(path)
+                            )
+                        } catch (_: Exception) {}
+                    }
+                    MediaScannerConnection.scanFile(context, arrayOf(path), arrayOf("audio/mpeg"), null)
                 }
             }
             database.trackDao().removeDownload(track.fullId)
@@ -210,18 +325,12 @@ class TrackDownloader(
         val customPath = prefs.getString("custom_download_path", null)
         if (!customPath.isNullOrBlank()) {
             val customDir = File(customPath)
-            if (customDir.exists() && customDir.canWrite()) {
+            if (customDir.exists()) {
                 return customDir
             }
         }
         val publicMusic = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_MUSIC)
-        val defaultDir = File(publicMusic, "VK Tracks")
-        if (!defaultDir.exists()) defaultDir.mkdirs()
-        return if (defaultDir.exists() && defaultDir.canWrite()) {
-            defaultDir
-        } else {
-            File(context.getExternalFilesDir(Environment.DIRECTORY_MUSIC), "VK Tracks").apply { mkdirs() }
-        }
+        return File(publicMusic, "VK Tracks")
     }
 
     fun setCustomDownloadPath(path: String?) {

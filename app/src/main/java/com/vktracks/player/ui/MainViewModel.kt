@@ -39,6 +39,7 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import okhttp3.WebSocket
+import java.io.File
 import java.util.concurrent.ConcurrentHashMap
 
 class MainViewModel(application: Application) : AndroidViewModel(application) {
@@ -134,9 +135,35 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     val isShuffle = PlaybackService.isShuffle
     val repeatMode = PlaybackService.repeatMode
 
-    // Офлайн треки из локальной базы Room
+    // Полноэкранный плеер
+    private val _showFullPlayer = MutableStateFlow(false)
+    val showFullPlayer: StateFlow<Boolean> = _showFullPlayer.asStateFlow()
+
+    fun openFullPlayer() {
+        if (PlaybackService.currentTrack.value != null) {
+            _showFullPlayer.value = true
+        }
+    }
+
+    fun closeFullPlayer() {
+        _showFullPlayer.value = false
+    }
+
+    // Офлайн треки из локальной базы Room (с проверкой физического наличия файла на диске)
     val downloadedTracks: StateFlow<List<Track>> = database.trackDao().getDownloadedTracks()
-        .map { list -> list.map { it.toTrack() } }
+        .map { list ->
+            list.mapNotNull { entity ->
+                val path = entity.localFilePath
+                if (!path.isNullOrBlank() && (path.startsWith("content://") || File(path).exists())) {
+                    entity.toTrack()
+                } else {
+                    viewModelScope.launch(Dispatchers.IO) {
+                        database.trackDao().removeDownload(entity.id)
+                    }
+                    null
+                }
+            }
+        }
         .stateIn(viewModelScope, SharingStarted.Lazily, emptyList())
 
     val downloadedTrackIds: StateFlow<Set<String>> = downloadedTracks

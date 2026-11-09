@@ -3,6 +3,7 @@ package com.vktracks.player.ui
 import android.app.Application
 import android.content.ComponentName
 import android.content.Intent
+import android.widget.Toast
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
@@ -11,6 +12,7 @@ import androidx.media3.session.MediaController
 import androidx.media3.session.SessionToken
 import com.vktracks.player.data.api.VkApiClient
 import com.vktracks.player.data.api.VkAuthManager
+import com.vktracks.player.data.cache.MediaCacheManager
 import com.vktracks.player.data.cover.CoverArtResolver
 import com.vktracks.player.data.downloader.TrackDownloader
 import com.vktracks.player.data.local.AppDatabase
@@ -136,6 +138,19 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     val downloadedTracks: StateFlow<List<Track>> = database.trackDao().getDownloadedTracks()
         .map { list -> list.map { it.toTrack() } }
         .stateIn(viewModelScope, SharingStarted.Lazily, emptyList())
+
+    val downloadedTrackIds: StateFlow<Set<String>> = downloadedTracks
+        .map { list -> list.map { it.fullId }.toSet() }
+        .stateIn(viewModelScope, SharingStarted.Lazily, emptySet())
+
+    // Кэш-менеджер потоков (VKX & Murglar)
+    val cacheManager = MediaCacheManager.getInstance(application)
+    private val _cacheSizeDisplay = MutableStateFlow(cacheManager.getFormattedCacheSize())
+    val cacheSizeDisplay: StateFlow<String> = _cacheSizeDisplay.asStateFlow()
+    private val _isCacheEnabled = MutableStateFlow(cacheManager.isCacheEnabled())
+    val isCacheEnabled: StateFlow<Boolean> = _isCacheEnabled.asStateFlow()
+    private val _maxCacheMb = MutableStateFlow(cacheManager.getMaxCacheMb())
+    val maxCacheMb: StateFlow<Int> = _maxCacheMb.asStateFlow()
 
     // История прослушивания
     val historyTracks: StateFlow<List<Track>> = database.trackDao().getHistoryTracks()
@@ -570,16 +585,83 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun downloadTrack(track: Track, subfolder: String? = null) {
         viewModelScope.launch {
-            downloader.downloadTrack(track, subfolder)
+            val isAlreadyDownloaded = downloadedTrackIds.value.contains(track.fullId) || track.isLocal
+            if (isAlreadyDownloaded) {
+                val deleted = downloader.deleteDownloadedTrack(track)
+                if (deleted) {
+                    Toast.makeText(getApplication(), "Удалено из скачанных: ${track.title}", Toast.LENGTH_SHORT).show()
+                }
+                return@launch
+            }
+
+            var targetTrack = track
+            if (targetTrack.streamUrl.isEmpty() && !targetTrack.isLocal) {
+                val resolvedUrl = apiClient.resolveTrackUrl(targetTrack)
+                if (!resolvedUrl.isNullOrEmpty()) {
+                    targetTrack = targetTrack.copy(streamUrl = resolvedUrl)
+                } else {
+                    Toast.makeText(getApplication(), "Не удалось получить аудиопоток трека", Toast.LENGTH_SHORT).show()
+                    return@launch
+                }
+            }
+
+            Toast.makeText(getApplication(), "Скачивание: ${targetTrack.artist} — ${targetTrack.title}", Toast.LENGTH_SHORT).show()
+            val result = downloader.downloadTrack(targetTrack, subfolder)
+            if (result.isSuccess) {
+                Toast.makeText(getApplication(), "Трек сохранён: ${targetTrack.title}", Toast.LENGTH_SHORT).show()
+            } else {
+                Toast.makeText(getApplication(), "Ошибка скачивания: ${result.exceptionOrNull()?.message}", Toast.LENGTH_SHORT).show()
+            }
         }
     }
 
     fun downloadAllInPlaylist(tracks: List<Track>, playlistTitle: String = "Playlist") {
+        if (tracks.isEmpty()) return
         viewModelScope.launch {
+            Toast.makeText(getApplication(), "Начата загрузка плейлиста «$playlistTitle» (${tracks.size} треков)", Toast.LENGTH_SHORT).show()
+            var count = 0
             for (track in tracks) {
-                downloader.downloadTrack(track, playlistTitle)
+                if (downloadedTrackIds.value.contains(track.fullId) || track.isLocal) {
+                    count++
+                    continue
+                }
+                var targetTrack = track
+                if (targetTrack.streamUrl.isEmpty()) {
+                    val resolved = apiClient.resolveTrackUrl(targetTrack)
+                    if (!resolved.isNullOrEmpty()) {
+                        targetTrack = targetTrack.copy(streamUrl = resolved)
+                    } else {
+                        continue
+                    }
+                }
+                val res = downloader.downloadTrack(targetTrack, playlistTitle)
+                if (res.isSuccess) {
+                    count++
+                }
             }
+            Toast.makeText(getApplication(), "Загрузка завершена: сохранено $count из ${tracks.size} треков", Toast.LENGTH_LONG).show()
         }
+    }
+
+    fun refreshCacheSize() {
+        _cacheSizeDisplay.value = cacheManager.getFormattedCacheSize()
+    }
+
+    fun clearCache() {
+        cacheManager.clearCache()
+        refreshCacheSize()
+        Toast.makeText(getApplication(), "Кэш треков очищен", Toast.LENGTH_SHORT).show()
+    }
+
+    fun setCacheMaxMb(mb: Int) {
+        cacheManager.setMaxCacheMb(mb)
+        _maxCacheMb.value = mb
+        refreshCacheSize()
+    }
+
+    fun setCacheEnabled(enabled: Boolean) {
+        cacheManager.setCacheEnabled(enabled)
+        _isCacheEnabled.value = enabled
     }
 
     fun playTrack(track: Track, queue: List<Track>) {

@@ -120,6 +120,10 @@ fun MainAppScreen(viewModel: MainViewModel) {
     val searchPlaylists by viewModel.searchPlaylists.collectAsState()
     val searchArtists by viewModel.searchArtists.collectAsState()
     val likedTrackIds by viewModel.likedTrackIds.collectAsState()
+    val downloadedTrackIds by viewModel.downloadedTrackIds.collectAsState()
+    val cacheSizeDisplay by viewModel.cacheSizeDisplay.collectAsState()
+    val isCacheEnabled by viewModel.isCacheEnabled.collectAsState()
+    val maxCacheMb by viewModel.maxCacheMb.collectAsState()
     val isSearching by viewModel.isSearching.collectAsState()
 
     val selectedPlaylist by viewModel.selectedPlaylist.collectAsState()
@@ -217,6 +221,7 @@ fun MainAppScreen(viewModel: MainViewModel) {
                             currentTrack = currentTrack,
                             isPlaying = isPlaying,
                             likedTrackIds = likedTrackIds,
+                            downloadedTrackIds = downloadedTrackIds,
                             onTrackClick = { track, list -> viewModel.playTrack(track, list) },
                             onPlaylistClick = { playlist -> viewModel.openPlaylist(playlist) },
                             onLikeClick = { viewModel.toggleTrackLike(it) },
@@ -236,6 +241,7 @@ fun MainAppScreen(viewModel: MainViewModel) {
                             currentTrack = currentTrack,
                             isPlaying = isPlaying,
                             likedTrackIds = likedTrackIds,
+                            downloadedTrackIds = downloadedTrackIds,
                             onSearch = { viewModel.search(it) },
                             onTrackClick = { track, list -> viewModel.playTrack(track, list) },
                             onPlaylistClick = { playlist -> viewModel.openPlaylist(playlist) },
@@ -253,6 +259,7 @@ fun MainAppScreen(viewModel: MainViewModel) {
                             artistDetail = artistDetail,
                             isLoading = isLoadingArtistDetail,
                             likedTrackIds = likedTrackIds,
+                            downloadedTrackIds = downloadedTrackIds,
                             currentTrack = currentTrack,
                             isPlaying = isPlaying,
                             onTrackClick = { track, list -> viewModel.playTrack(track, list) },
@@ -273,6 +280,7 @@ fun MainAppScreen(viewModel: MainViewModel) {
                             isLoading = isLoadingPlaylistTracks,
                             isFollowed = playlists.any { it.id == playlist.id && it.ownerId == playlist.ownerId },
                             likedTrackIds = likedTrackIds,
+                            downloadedTrackIds = downloadedTrackIds,
                             currentTrack = currentTrack,
                             isPlaying = isPlaying,
                             onTrackClick = { track, list -> viewModel.playTrack(track, list) },
@@ -299,6 +307,9 @@ fun MainAppScreen(viewModel: MainViewModel) {
             val isCurrentLiked = currentTrack?.let {
                 likedTrackIds.contains(it.fullId) || it.isLiked
             } ?: false
+            val isCurrentDownloaded = currentTrack?.let {
+                downloadedTrackIds.contains(it.fullId) || it.isLocal
+            } ?: false
 
             FullPlayerSheet(
                 track = currentTrack,
@@ -310,6 +321,7 @@ fun MainAppScreen(viewModel: MainViewModel) {
                 lyrics = lyrics,
                 queue = currentQueue,
                 isLiked = isCurrentLiked,
+                isDownloaded = isCurrentDownloaded,
                 onLikeClick = {
                     val track = currentTrack
                     if (track != null) {
@@ -358,6 +370,12 @@ fun MainAppScreen(viewModel: MainViewModel) {
             SettingsScreen(
                 authManager = viewModel.authManager,
                 downloader = viewModel.downloader,
+                cacheSizeDisplay = cacheSizeDisplay,
+                isCacheEnabled = isCacheEnabled,
+                maxCacheMb = maxCacheMb,
+                onToggleCacheEnabled = { viewModel.setCacheEnabled(it) },
+                onSelectMaxCacheMb = { viewModel.setCacheMaxMb(it) },
+                onClearCache = { viewModel.clearCache() },
                 onLoginClick = {
                     showSettings = false
                     showAuthDialog = true

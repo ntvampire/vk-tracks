@@ -1,7 +1,7 @@
 ﻿{
-    "versionCode":  17,
-    "versionName":  "1.0.16",
-    "downloadUrl":  "https://github.com/ntvampire/vk-tracks/releases/download/v1.0.16/VK-Tracks-1.0.16.apk",
-    "mirrorUrl":  "https://ntvampire.github.io/vk-tracks/VK-Tracks-1.0.16.apk",
-    "changelog":  "Fix playback buttons across app (MediaController binding \u0026 service lifecycle), separate playlists vs albums in Library and Search, direct official Studio 21 live metadata"
+    "versionCode":  18,
+    "versionName":  "1.0.17",
+    "downloadUrl":  "https://github.com/ntvampire/vk-tracks/releases/download/v1.0.17/VK-Tracks-1.0.17.apk",
+    "mirrorUrl":  "https://ntvampire.github.io/vk-tracks/VK-Tracks-1.0.17.apk",
+    "changelog":  "Studio 21 metadata: official EMG WebSocket restored as authoritative real-time source"
 }

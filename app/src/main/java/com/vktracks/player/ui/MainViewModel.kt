@@ -424,31 +424,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 }
             }
         } else if (station == RadioStation.STUDIO_21) {
-            // Регулярный опрос трека Studio 21 через российский веб-источник
-            radioMetadataJob = viewModelScope.launch(Dispatchers.IO) {
-                while (isActive) {
-                    try {
-                        val trackInfo = apiClient.getStudio21CurrentTrack()
-                        if (trackInfo != null) {
-                            val (title, artist, cover) = trackInfo
-                            withContext(Dispatchers.Main) {
-                                PlaybackService.instance?.updateLiveMetadata(
-                                    title = title,
-                                    artist = if (artist.isNotBlank()) artist else station.subtitle,
-                                    coverUrl = cover ?: station.logoUrl
-                                )
-                            }
-                        }
-                    } catch (_: Exception) {}
-                    delay(12000)
-                }
-            }
-
-            // WebSocket для push-обновлений
+            // Прямой официальный WebSocket холдинга Европейской медиагруппы (EMG)
             studio21WebSocket = apiClient.connectStudio21WebSocket { title, artist, coverUrl ->
                 viewModelScope.launch(Dispatchers.Main) {
                     val art = if (artist.isNotBlank()) artist else station.subtitle
-                    val cov = coverUrl ?: station.logoUrl
+                    val cov = coverUrl ?: coverArtResolver.resolveCover(art, title) ?: station.logoUrl
                     PlaybackService.instance?.updateLiveMetadata(
                         title = title,
                         artist = art,

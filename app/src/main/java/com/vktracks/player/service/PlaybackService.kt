@@ -128,6 +128,9 @@ class PlaybackService : MediaSessionService() {
                 builder: NotificationCompat.Builder,
                 actionFactory: MediaNotification.ActionFactory
             ): IntArray {
+                mediaSession.sessionActivity?.let { pendingIntent ->
+                    builder.setContentIntent(pendingIntent)
+                }
                 val track = _currentTrack.value
                 if (track != null) {
                     builder.setTicker("${track.artist} — ${track.title}")
@@ -159,10 +162,16 @@ class PlaybackService : MediaSessionService() {
             .setWakeMode(C.WAKE_MODE_LOCAL)
             .build()
 
+        val sessionIntent = Intent(this, MainActivity::class.java).apply {
+            action = ACTION_OPEN_PLAYER
+            putExtra(EXTRA_OPEN_FULL_PLAYER, true)
+            flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
+        }
+
         val sessionActivityIntent = PendingIntent.getActivity(
             this,
             0,
-            Intent(this, MainActivity::class.java),
+            sessionIntent,
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
         )
 
@@ -522,6 +531,8 @@ class PlaybackService : MediaSessionService() {
 
     companion object {
         const val ACTION_TOGGLE_LIKE = "ACTION_TOGGLE_LIKE"
+        const val ACTION_OPEN_PLAYER = "com.vktracks.player.ACTION_OPEN_PLAYER"
+        const val EXTRA_OPEN_FULL_PLAYER = "extra_open_full_player"
 
         var instance: PlaybackService? = null
             private set

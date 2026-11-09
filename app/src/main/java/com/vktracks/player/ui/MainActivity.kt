@@ -56,6 +56,8 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
 
+        handleIntent(intent)
+
         // Запрос разрешения на показ уведомлений для Android 13+
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             if (ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
@@ -79,6 +81,20 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        handleIntent(intent)
+    }
+
+    private fun handleIntent(intent: Intent?) {
+        val shouldOpen = intent?.getBooleanExtra(PlaybackService.EXTRA_OPEN_FULL_PLAYER, false) == true ||
+                intent?.action == PlaybackService.ACTION_OPEN_PLAYER
+        if (shouldOpen) {
+            viewModel.openFullPlayer()
+        }
+    }
+
     override fun onRequestPermissionsResult(
         requestCode: Int,
         permissions: Array<String>,
@@ -94,7 +110,7 @@ class MainActivity : ComponentActivity() {
 @Composable
 fun MainAppScreen(viewModel: MainViewModel) {
     var selectedTab by remember { mutableStateOf(MainTab.LISTEN_NOW) }
-    var showFullPlayer by remember { mutableStateOf(false) }
+    val showFullPlayer by viewModel.showFullPlayer.collectAsState()
     var showAuthDialog by remember { mutableStateOf(false) }
     var showSettings by remember { mutableStateOf(false) }
 
@@ -147,7 +163,7 @@ fun MainAppScreen(viewModel: MainViewModel) {
     // Обработка кнопки назад (сворачивание плеера, настроек, открытого альбома/плейлиста или карточки артиста)
     BackHandler(enabled = showFullPlayer || showSettings || selectedPlaylist != null || selectedArtist != null) {
         if (showFullPlayer) {
-            showFullPlayer = false
+            viewModel.closeFullPlayer()
         } else if (showSettings) {
             showSettings = false
         } else if (selectedPlaylist != null) {
@@ -168,7 +184,7 @@ fun MainAppScreen(viewModel: MainViewModel) {
                             isPlaying = isPlaying,
                             onPlayPauseClick = { viewModel.togglePlayPause() },
                             onNextClick = { viewModel.playNext() },
-                            onClick = { showFullPlayer = true }
+                            onClick = { viewModel.openFullPlayer() }
                         )
                     }
 
@@ -326,7 +342,7 @@ fun MainAppScreen(viewModel: MainViewModel) {
                     val track = currentTrack
                     if (track != null) {
                         if (track.duration == 0) {
-                            showFullPlayer = false
+                            viewModel.closeFullPlayer()
                             selectedTab = MainTab.SEARCH
                             val query = if (track.artist.isNotBlank() && track.title.isNotBlank()) {
                                 "${track.artist} - ${track.title}"
@@ -347,7 +363,7 @@ fun MainAppScreen(viewModel: MainViewModel) {
                 onToggleRepeat = { viewModel.toggleRepeat() },
                 onDownloadClick = { currentTrack?.let { viewModel.downloadTrack(it) } },
                 onTrackClick = { track, list -> viewModel.playTrack(track, list) },
-                onDismiss = { showFullPlayer = false }
+                onDismiss = { viewModel.closeFullPlayer() }
             )
         }
 

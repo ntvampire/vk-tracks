@@ -7,6 +7,7 @@ import android.net.Uri
 import android.os.Build
 import android.os.Environment
 import android.provider.MediaStore
+import com.vktracks.player.data.cover.CoverArtResolver
 import com.vktracks.player.data.local.AppDatabase
 import com.vktracks.player.data.local.TrackEntity
 import com.vktracks.player.data.model.Track
@@ -62,8 +63,10 @@ class TrackDownloader(
             }
 
             // 2. Скачиваем обложку для прошивки в ID3
-            val coverBytes = if (!track.coverUrl.isNullOrEmpty()) {
-                downloadBytes(track.coverUrl)
+            val coverUrlToUse = track.coverUrl?.takeIf { it.isNotBlank() }
+                ?: CoverArtResolver.instance?.resolveCover(track.artist, track.title, track.albumTitle)
+            val coverBytes = if (!coverUrlToUse.isNullOrEmpty()) {
+                downloadBytes(coverUrlToUse)
             } else {
                 null
             }
@@ -83,7 +86,7 @@ class TrackDownloader(
                 artist = track.artist,
                 duration = track.duration,
                 streamUrl = track.streamUrl,
-                coverUrl = track.coverUrl,
+                coverUrl = coverUrlToUse ?: track.coverUrl,
                 albumTitle = track.albumTitle,
                 isExplicit = track.isExplicit,
                 lyricsId = track.lyricsId,

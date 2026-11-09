@@ -140,6 +140,7 @@ class PlaybackService : MediaSessionService() {
                 _isPlaying.value = isPlaying
                 if (isPlaying) startProgressUpdates() else stopProgressUpdates()
                 updateNotificationLikeButton()
+                mediaSession?.let { onUpdateNotification(it, isPlaying) }
             }
 
             override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
@@ -172,7 +173,9 @@ class PlaybackService : MediaSessionService() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        mediaSession?.let { onUpdateNotification(it) }
+        if (player.playWhenReady) {
+            mediaSession?.let { onUpdateNotification(it, true) }
+        }
         return super.onStartCommand(intent, flags, startId)
     }
 
@@ -225,7 +228,11 @@ class PlaybackService : MediaSessionService() {
         _currentTrack.value = validTrack
         loadArtworkAsync(validTrack)
         updateNotificationLikeButton()
-        mediaSession?.let { onUpdateNotification(it) }
+        mediaSession?.let { onUpdateNotification(it, true) }
+    }
+
+    fun refreshNotification() {
+        mediaSession?.let { onUpdateNotification(it, player.playWhenReady) }
     }
 
     fun togglePlayPause() {

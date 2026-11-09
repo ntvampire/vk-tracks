@@ -1,6 +1,6 @@
 ﻿{
-  "versionCode": 11,
-  "versionName": "1.0.10",
-  "downloadUrl": "https://github.com/ntvampire/vk-tracks/releases/download/v1.0.10/VK-Tracks-1.0.10.apk",
-  "changelog": "Шторка и экран блокировки (addSession fix), экран Слушать (VK mix, Миксы по артистам, Миксы по жанрам), экран Обзор (Собрано алгоритмами, Жанры 2x2, Настроения 2x2, Собрано редакцией, Чарты)"
+  "versionCode": 12,
+  "versionName": "1.0.11",
+  "downloadUrl": "https://github.com/ntvampire/vk-tracks/releases/download/v1.0.11/VK-Tracks-1.0.11.apk",
+  "changelog": "Нативный каталог VK Музыки: переход на официальный протокол catalog.getAudio + catalog.getSection (v5.155) с динамическими секциями и связыванием заголовков блоков; гарантированная карточка плеера в шторке/блокировке (foreground service notification fix в Media3); горизонтальные 3-строчные карусели треков в «Обзоре»; устранение любых фиктивных данных"
 }

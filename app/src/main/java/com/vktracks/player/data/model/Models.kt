@@ -90,5 +90,6 @@ data class CatalogBlock(
     val mixes: List<StreamMix> = emptyList(),
     val buttons: List<CatalogButtonItem> = emptyList(),
     val playlists: List<Playlist> = emptyList(),
-    val tracks: List<Track> = emptyList()
+    val tracks: List<Track> = emptyList(),
+    val nextFrom: String? = null
 )

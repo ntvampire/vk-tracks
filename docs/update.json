@@ -1,7 +1,7 @@
 ﻿{
-    "versionCode":  27,
-    "versionName":  "1.0.26",
-    "downloadUrl":  "https://github.com/ntvampire/vk-tracks/releases/download/v1.0.26/VK-Tracks-1.0.26.apk",
-    "mirrorUrl":  "https://ntvampire.github.io/vk-tracks/VK-Tracks-1.0.26.apk",
-    "changelog":  "Быстрый поиск по звуку и вставка: кнопка запуска Google Sound Search в строке поиска + смарт-вставка из буфера обмена."
+    "versionCode":  28,
+    "versionName":  "1.0.27",
+    "downloadUrl":  "https://github.com/ntvampire/vk-tracks/releases/download/v1.0.27/VK-Tracks-1.0.27.apk",
+    "mirrorUrl":  "https://ntvampire.github.io/vk-tracks/VK-Tracks-1.0.27.apk",
+    "changelog":  "Восстановление трансляции метаданных и обложек радио в шторку уведомлений (Android Media Controls): немедленное обновление MediaMetadata и передача artworkData в MediaSession."
 }

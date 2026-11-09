@@ -346,10 +346,24 @@ class PlaybackService : MediaSessionService() {
                 coverUrl = coverUrl ?: current.coverUrl
             )
             _currentTrack.value = updated
+            currentQueue = currentQueue.map { if (it.fullId == current.fullId) updated else it }
+            _currentQueueFlow.value = currentQueue
 
-            if (!coverUrl.isNullOrEmpty() && coverUrl != current.coverUrl) {
-                loadArtworkAsync(updated)
+            val currentIndex = player.currentMediaItemIndex
+            val currentItem = player.currentMediaItem
+            if (currentItem != null && currentIndex in currentQueue.indices) {
+                val newMeta = currentItem.mediaMetadata.buildUpon()
+                    .setTitle(cleanTitle)
+                    .setArtist(cleanArtist)
+                    .setDisplayTitle(cleanTitle)
+                    .build()
+                val newItem = currentItem.buildUpon()
+                    .setMediaMetadata(newMeta)
+                    .build()
+                player.replaceMediaItem(currentIndex, newItem)
             }
+
+            loadArtworkAsync(updated)
 
             mediaSession?.let { onUpdateNotification(it, player.playWhenReady) }
         }
@@ -458,7 +472,10 @@ class PlaybackService : MediaSessionService() {
             if (!coverUrl.isNullOrEmpty()) {
                 val updated = track.copy(coverUrl = coverUrl)
                 withContext(Dispatchers.Main) {
-                    if (_currentTrack.value?.fullId == track.fullId) {
+                    val isCurrent = _currentTrack.value?.let {
+                        it.fullId == track.fullId && (it.duration != 0 || it.title == track.title)
+                    } ?: false
+                    if (isCurrent) {
                         _currentTrack.value = _currentTrack.value?.copy(coverUrl = coverUrl)
                     }
                     currentQueue = currentQueue.map { if (it.fullId == track.fullId) updated else it }
@@ -477,10 +494,32 @@ class PlaybackService : MediaSessionService() {
                         val drawable = result.drawable
                         val bitmap = (drawable as? BitmapDrawable)?.bitmap
                         if (bitmap != null) {
+                            val stream = ByteArrayOutputStream()
+                            bitmap.compress(Bitmap.CompressFormat.JPEG, 85, stream)
+                            val bytes = stream.toByteArray()
+
                             withContext(Dispatchers.Main) {
-                                if (_currentTrack.value?.fullId == track.fullId) {
-                                    currentNotificationBitmap = bitmap
-                                    mediaSession?.let { onUpdateNotification(it, player.playWhenReady) }
+                                val isCurrent = _currentTrack.value?.let {
+                                    it.fullId == track.fullId && (it.duration != 0 || it.title == track.title)
+                                } ?: false
+                                if (isCurrent && player.currentMediaItemIndex in currentQueue.indices) {
+                                    val currentIndex = player.currentMediaItemIndex
+                                    val currentItem = player.currentMediaItem
+                                    if (currentItem != null) {
+                                        val currentLive = _currentTrack.value
+                                        val newMetadata = currentItem.mediaMetadata.buildUpon()
+                                            .setTitle(currentLive?.title ?: track.title)
+                                            .setArtist(currentLive?.artist ?: track.artist)
+                                            .setDisplayTitle(currentLive?.title ?: track.title)
+                                            .setArtworkData(bytes, MediaMetadata.PICTURE_TYPE_FRONT_COVER)
+                                            .build()
+                                        val newItem = currentItem.buildUpon()
+                                            .setMediaMetadata(newMetadata)
+                                            .build()
+                                        player.replaceMediaItem(currentIndex, newItem)
+                                        currentNotificationBitmap = bitmap
+                                        mediaSession?.let { onUpdateNotification(it, player.playWhenReady) }
+                                    }
                                 }
                             }
                         }

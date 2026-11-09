@@ -11,3 +11,4 @@ scratch/
 decompiled_manifest/
 VKX_*/
 local_docs/
+.kotlin/

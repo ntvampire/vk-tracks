@@ -53,6 +53,7 @@ fun SearchScreen(
     onSearch: (String) -> Unit,
     onTrackClick: (Track, List<Track>) -> Unit,
     onPlaylistClick: (Playlist) -> Unit = {},
+    onArtistClick: (Artist) -> Unit = {},
     onLikeClick: (Track) -> Unit = {},
     onDownloadClick: (Track) -> Unit,
     modifier: Modifier = Modifier
@@ -255,9 +256,7 @@ fun SearchScreen(
                                     )
                                 },
                                 modifier = Modifier.clickable {
-                                    query = artist.name
-                                    onSearch(artist.name)
-                                    selectedTab = SearchTab.TRACKS
+                                    onArtistClick(artist)
                                 }
                             )
                         }

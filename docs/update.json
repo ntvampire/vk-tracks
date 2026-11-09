@@ -1,7 +1,7 @@
 ﻿{
-    "versionCode":  15,
-    "versionName":  "1.0.14",
-    "downloadUrl":  "https://github.com/ntvampire/vk-tracks/releases/download/v1.0.14/VK-Tracks-1.0.14.apk",
-    "mirrorUrl":  "https://ntvampire.github.io/vk-tracks/VK-Tracks-1.0.14.apk",
-    "changelog":  "Восстановление OTA-автообновления: прямое CDN-зеркало APK на GitHub Pages (обход блокировок Azure Blob), увеличенные таймауты, Accept-Encoding: identity, fallback-кнопка скачивания через браузер, вывод ошибок в Toast"
+    "versionCode":  16,
+    "versionName":  "1.0.15",
+    "downloadUrl":  "https://github.com/ntvampire/vk-tracks/releases/download/v1.0.15/VK-Tracks-1.0.15.apk",
+    "mirrorUrl":  "https://ntvampire.github.io/vk-tracks/VK-Tracks-1.0.15.apk",
+    "changelog":  "Studio 21 metadata fix, Playlists vs Albums classification fix, Artist Card screen in Search, unified bottom bar and miniplayer layout"
 }

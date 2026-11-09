@@ -45,9 +45,6 @@ fun PlaylistDetailSheet(
     onDownloadTrackClick: (Track) -> Unit,
     onToggleFollow: (Playlist) -> Unit,
     onToggleLike: (Track) -> Unit,
-    onMiniPlayerPlayPause: () -> Unit,
-    onMiniPlayerNext: () -> Unit,
-    onMiniPlayerClick: () -> Unit,
     onDismiss: () -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -61,7 +58,6 @@ fun PlaylistDetailSheet(
             modifier = Modifier
                 .fillMaxSize()
                 .statusBarsPadding()
-                .navigationBarsPadding()
         ) {
             // Верхняя навигационная панель
             Row(
@@ -99,11 +95,10 @@ fun PlaylistDetailSheet(
                 }
             }
 
-            Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
-                LazyColumn(
-                    modifier = Modifier.fillMaxSize(),
-                    contentPadding = PaddingValues(bottom = if (currentTrack != null) 96.dp else 40.dp)
-                ) {
+            LazyColumn(
+                modifier = Modifier.fillMaxSize(),
+                contentPadding = PaddingValues(bottom = 24.dp)
+            ) {
                     // Заголовок плейлиста в стиле Apple Music
                     item {
                         Column(
@@ -351,21 +346,6 @@ fun PlaylistDetailSheet(
                         }
                     }
                 }
-
-                // Мини-плеер внизу окна плейлиста в стиле Apple Music
-                if (currentTrack != null) {
-                    MiniPlayer(
-                        track = currentTrack,
-                        isPlaying = isPlaying,
-                        onPlayPauseClick = onMiniPlayerPlayPause,
-                        onNextClick = onMiniPlayerNext,
-                        onClick = onMiniPlayerClick,
-                        modifier = Modifier
-                            .align(Alignment.BottomCenter)
-                            .padding(horizontal = 8.dp, vertical = 6.dp)
-                    )
-                }
             }
         }
     }
-}

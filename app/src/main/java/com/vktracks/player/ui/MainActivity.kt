@@ -31,6 +31,7 @@ import androidx.core.content.ContextCompat
 import com.vktracks.player.BuildConfig
 import com.vktracks.player.data.model.AppUpdateInfo
 import com.vktracks.player.service.PlaybackService
+import com.vktracks.player.ui.components.ArtistDetailScreen
 import com.vktracks.player.ui.components.AuthDialog
 import com.vktracks.player.ui.components.FullPlayerSheet
 import com.vktracks.player.ui.components.MiniPlayer
@@ -125,6 +126,10 @@ fun MainAppScreen(viewModel: MainViewModel) {
     val selectedPlaylistTracks by viewModel.selectedPlaylistTracks.collectAsState()
     val isLoadingPlaylistTracks by viewModel.isLoadingPlaylistTracks.collectAsState()
 
+    val selectedArtist by viewModel.selectedArtist.collectAsState()
+    val selectedArtistDetail by viewModel.selectedArtistDetail.collectAsState()
+    val isLoadingArtistDetail by viewModel.isLoadingArtistDetail.collectAsState()
+
     val availableUpdate by viewModel.availableUpdate.collectAsState()
     val vkMixSettings by viewModel.vkMixSettings.collectAsState()
     val updateProgress by viewModel.updateProgress.collectAsState()
@@ -133,14 +138,16 @@ fun MainAppScreen(viewModel: MainViewModel) {
         PlaybackService.updateLikedTrackIds(likedTrackIds)
     }
 
-    // Обработка кнопки назад (сворачивание плеера, настроек и открытого плейлиста)
-    BackHandler(enabled = showFullPlayer || showSettings || selectedPlaylist != null) {
+    // Обработка кнопки назад (сворачивание плеера, настроек, открытого альбома/плейлиста или карточки артиста)
+    BackHandler(enabled = showFullPlayer || showSettings || selectedPlaylist != null || selectedArtist != null) {
         if (showFullPlayer) {
             showFullPlayer = false
         } else if (showSettings) {
             showSettings = false
         } else if (selectedPlaylist != null) {
             viewModel.closePlaylist()
+        } else if (selectedArtist != null) {
+            viewModel.closeArtist()
         }
     }
 
@@ -167,7 +174,13 @@ fun MainAppScreen(viewModel: MainViewModel) {
                         MainTab.values().forEach { tab ->
                             NavigationBarItem(
                                 selected = selectedTab == tab,
-                                onClick = { selectedTab = tab },
+                                onClick = {
+                                    if (selectedTab != tab) {
+                                        viewModel.closePlaylist()
+                                        viewModel.closeArtist()
+                                    }
+                                    selectedTab = tab
+                                },
                                 icon = { Icon(imageVector = tab.icon, contentDescription = tab.title) },
                                 label = { Text(tab.title) }
                             )
@@ -223,46 +236,66 @@ fun MainAppScreen(viewModel: MainViewModel) {
                             onSearch = { viewModel.search(it) },
                             onTrackClick = { track, list -> viewModel.playTrack(track, list) },
                             onPlaylistClick = { playlist -> viewModel.openPlaylist(playlist) },
+                            onArtistClick = { artist -> viewModel.openArtist(artist) },
                             onLikeClick = { viewModel.toggleTrackLike(it) },
                             onDownloadClick = { viewModel.downloadTrack(it) }
                         )
                     }
                 }
-            }
-        }
 
-        // Экран плейлиста в стиле Apple Music
-        AnimatedVisibility(
-            visible = selectedPlaylist != null,
-            enter = slideInVertically(initialOffsetY = { it }),
-            exit = slideOutVertically(targetOffsetY = { it })
-        ) {
-            selectedPlaylist?.let { playlist ->
-                PlaylistDetailSheet(
-                    playlist = playlist,
-                    tracks = selectedPlaylistTracks,
-                    isLoading = isLoadingPlaylistTracks,
-                    isFollowed = false,
-                    likedTrackIds = likedTrackIds,
-                    currentTrack = currentTrack,
-                    isPlaying = isPlaying,
-                    onTrackClick = { track, list -> viewModel.playTrack(track, list) },
-                    onPlayAllClick = { list -> if (list.isNotEmpty()) viewModel.playTrack(list.first(), list) },
-                    onShuffleClick = { list ->
-                        if (list.isNotEmpty()) {
-                            val shuffled = list.shuffled()
-                            viewModel.playTrack(shuffled.first(), shuffled)
-                        }
-                    },
-                    onDownloadAllClick = { list -> viewModel.downloadAllInPlaylist(list, playlist.title) },
-                    onDownloadTrackClick = { viewModel.downloadTrack(it, playlist.title) },
-                    onToggleFollow = { viewModel.togglePlaylistFollow(it) },
-                    onToggleLike = { viewModel.toggleTrackLike(it) },
-                    onMiniPlayerPlayPause = { viewModel.togglePlayPause() },
-                    onMiniPlayerNext = { viewModel.playNext() },
-                    onMiniPlayerClick = { showFullPlayer = true },
-                    onDismiss = { viewModel.closePlaylist() }
-                )
+                // Экран карточки артиста в стиле Apple Music (внутри контентной зоны, таб-бар и мини-плеер остаются на виду)
+                AnimatedVisibility(
+                    visible = selectedArtist != null,
+                    enter = slideInVertically(initialOffsetY = { it }),
+                    exit = slideOutVertically(targetOffsetY = { it })
+                ) {
+                    selectedArtistDetail?.let { artistDetail ->
+                        ArtistDetailScreen(
+                            artistDetail = artistDetail,
+                            isLoading = isLoadingArtistDetail,
+                            likedTrackIds = likedTrackIds,
+                            currentTrack = currentTrack,
+                            isPlaying = isPlaying,
+                            onTrackClick = { track, list -> viewModel.playTrack(track, list) },
+                            onAlbumClick = { album -> viewModel.openPlaylist(album) },
+                            onToggleLike = { viewModel.toggleTrackLike(it) },
+                            onDownloadTrackClick = { viewModel.downloadTrack(it) },
+                            onDismiss = { viewModel.closeArtist() }
+                        )
+                    }
+                }
+
+                // Экран плейлиста / альбома в стиле Apple Music (внутри контентной зоны, таб-бар и мини-плеер остаются на виду)
+                AnimatedVisibility(
+                    visible = selectedPlaylist != null,
+                    enter = slideInVertically(initialOffsetY = { it }),
+                    exit = slideOutVertically(targetOffsetY = { it })
+                ) {
+                    selectedPlaylist?.let { playlist ->
+                        PlaylistDetailSheet(
+                            playlist = playlist,
+                            tracks = selectedPlaylistTracks,
+                            isLoading = isLoadingPlaylistTracks,
+                            isFollowed = playlists.any { it.id == playlist.id && it.ownerId == playlist.ownerId },
+                            likedTrackIds = likedTrackIds,
+                            currentTrack = currentTrack,
+                            isPlaying = isPlaying,
+                            onTrackClick = { track, list -> viewModel.playTrack(track, list) },
+                            onPlayAllClick = { list -> if (list.isNotEmpty()) viewModel.playTrack(list.first(), list) },
+                            onShuffleClick = { list ->
+                                if (list.isNotEmpty()) {
+                                    val shuffled = list.shuffled()
+                                    viewModel.playTrack(shuffled.first(), shuffled)
+                                }
+                            },
+                            onDownloadAllClick = { list -> viewModel.downloadAllInPlaylist(list, playlist.title) },
+                            onDownloadTrackClick = { viewModel.downloadTrack(it, playlist.title) },
+                            onToggleFollow = { viewModel.togglePlaylistFollow(it) },
+                            onToggleLike = { viewModel.toggleTrackLike(it) },
+                            onDismiss = { viewModel.closePlaylist() }
+                        )
+                    }
+                }
             }
         }
 

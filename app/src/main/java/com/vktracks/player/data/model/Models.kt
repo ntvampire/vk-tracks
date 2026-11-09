@@ -61,6 +61,13 @@ data class Artist(
     val photoUrl: String? = null
 )
 
+data class ArtistDetail(
+    val artist: Artist,
+    val popularTracks: List<Track> = emptyList(),
+    val albums: List<Playlist> = emptyList(),
+    val bio: String? = null
+)
+
 data class SearchResult(
     val tracks: List<Track> = emptyList(),
     val playlists: List<Playlist> = emptyList(),

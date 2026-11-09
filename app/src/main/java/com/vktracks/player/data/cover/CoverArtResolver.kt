@@ -23,6 +23,8 @@ class CoverArtResolver(
     @Volatile
     var vkApiClient: VkApiClient? = null
 
+    private val memoryCache = java.util.concurrent.ConcurrentHashMap<String, String>()
+
     private val client = OkHttpClient.Builder()
         .connectTimeout(5, TimeUnit.SECONDS)
         .readTimeout(8, TimeUnit.SECONDS)
@@ -32,13 +34,34 @@ class CoverArtResolver(
         instance = this
     }
 
+    suspend fun preloadMemoryCache() = withContext(Dispatchers.IO) {
+        try {
+            val list = coverCacheDao.getAllRecentCovers()
+            for (item in list) {
+                memoryCache[item.queryKey] = item.coverUrl
+            }
+        } catch (_: Exception) {}
+    }
+
     suspend fun getCachedCover(rawArtist: String, rawTitle: String): String? {
         val cleanArtist = sanitizeArtist(rawArtist)
         val cleanTitle = sanitizeTitle(rawTitle)
         val trackKey = "$cleanArtist - $cleanTitle".lowercase()
         val artistKey = "artist:$cleanArtist".lowercase()
+
+        // 1. Мгновенная проверка в оперативной памяти (0 ms, без обращения к диску)
+        val inMem = memoryCache[trackKey] ?: memoryCache[artistKey]
+        if (!inMem.isNullOrEmpty()) return inMem
+
+        // 2. Проверка в локальной базе Room
         return try {
-            coverCacheDao.getCover(trackKey) ?: coverCacheDao.getCover(artistKey)
+            val fromDb = coverCacheDao.getCover(trackKey) ?: coverCacheDao.getCover(artistKey)
+            if (!fromDb.isNullOrEmpty()) {
+                memoryCache[trackKey] = fromDb
+                fromDb
+            } else {
+                null
+            }
         } catch (_: Exception) {
             null
         }
@@ -62,13 +85,23 @@ class CoverArtResolver(
         val trackKey = "$cleanArtist - $cleanTitle".lowercase()
         val artistKey = "artist:$cleanArtist".lowercase()
 
-        // 0. Проверяем локальный кэш Room
+        // 0. Проверяем оперативную память
+        val inMem = memoryCache[trackKey] ?: if (cleanTitle.isBlank()) memoryCache[artistKey] else null
+        if (!inMem.isNullOrEmpty()) return@withContext inMem
+
+        // 0.1. Проверяем локальный кэш Room
         try {
             val cachedTrack = coverCacheDao.getCover(trackKey)
-            if (!cachedTrack.isNullOrEmpty()) return@withContext cachedTrack
+            if (!cachedTrack.isNullOrEmpty()) {
+                memoryCache[trackKey] = cachedTrack
+                return@withContext cachedTrack
+            }
 
             val cachedArtist = coverCacheDao.getCover(artistKey)
-            if (!cachedArtist.isNullOrEmpty() && cleanTitle.isBlank()) return@withContext cachedArtist
+            if (!cachedArtist.isNullOrEmpty() && cleanTitle.isBlank()) {
+                memoryCache[artistKey] = cachedArtist
+                return@withContext cachedArtist
+            }
         } catch (_: Exception) {}
 
         // ЭТАП 1: Поиск обложки конкретного трека / сингла
@@ -271,7 +304,8 @@ class CoverArtResolver(
         }
     }
 
-    private suspend fun saveToCache(key: String, url: String) {
+    suspend fun saveToCache(key: String, url: String) {
+        memoryCache[key] = url
         try {
             coverCacheDao.insertCover(CoverCacheEntity(queryKey = key, coverUrl = url))
         } catch (_: Exception) {}

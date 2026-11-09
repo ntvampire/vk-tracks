@@ -60,6 +60,9 @@ interface CoverCacheDao {
     @Query("SELECT coverUrl FROM cover_cache WHERE queryKey = :key LIMIT 1")
     suspend fun getCover(key: String): String?
 
+    @Query("SELECT * FROM cover_cache ORDER BY timestamp DESC LIMIT 500")
+    suspend fun getAllRecentCovers(): List<CoverCacheEntity>
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertCover(entity: CoverCacheEntity)
 }

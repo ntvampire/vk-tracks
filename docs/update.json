@@ -1,7 +1,7 @@
 ﻿{
-    "versionCode":  24,
-    "versionName":  "1.0.23",
-    "downloadUrl":  "https://github.com/ntvampire/vk-tracks/releases/download/v1.0.23/VK-Tracks-1.0.23.apk",
-    "mirrorUrl":  "https://ntvampire.github.io/vk-tracks/VK-Tracks-1.0.23.apk",
-    "changelog":  "Трёхступенчатый каскадный резолвер обложек (iTunes + VK): 1. Поиск обложки трека/сингла с защитой от подмены (Strict Guard \u003e= 85%); 2. Поиск обложки альбома исполнителя; 3. Fallback: официальное фото исполнителя из VK/iTunes. Deezer исключен. Автоподгрузка в плеер, шторку, радио и загрузчик ID3."
+    "versionCode":  25,
+    "versionName":  "1.0.24",
+    "downloadUrl":  "https://github.com/ntvampire/vk-tracks/releases/download/v1.0.24/VK-Tracks-1.0.24.apk",
+    "mirrorUrl":  "https://ntvampire.github.io/vk-tracks/VK-Tracks-1.0.24.apk",
+    "changelog":  "1. Устранена рекурсивная петля в сервисе воспроизведения при подгрузке обложек треков (ликвидированы подтормаживания скролла и переключения табов). 2. Мгновенный In-Memory кэш обложек (0 ms). 3. Автоматическая плавная фоновая подгрузка и кэширование обложек для треков библиотеки профиля."
 }

@@ -779,8 +779,13 @@ class VkApiClient(
                     }
 
                     if (targetObj != null) {
-                        val artist = targetObj.optString("artist").ifEmpty { targetObj.optString("singer") }
-                        val title = targetObj.optString("title").ifEmpty { targetObj.optString("song") }
+                        var artist = targetObj.optString("artist").ifEmpty { targetObj.optString("singer") }.trim()
+                        var title = targetObj.optString("title").ifEmpty { targetObj.optString("song") }.trim()
+                        if (artist.isEmpty() && title.contains(" - ")) {
+                            val parts = title.split(" - ", limit = 2)
+                            artist = parts[0].trim()
+                            title = parts[1].trim()
+                        }
                         val rawCover = targetObj.optString("coverImageUrl600").takeIf { it.isNotEmpty() }
                             ?: targetObj.optString("coverImageUrl300").takeIf { it.isNotEmpty() }
                             ?: targetObj.optString("coverImageUrl100").takeIf { it.isNotEmpty() }

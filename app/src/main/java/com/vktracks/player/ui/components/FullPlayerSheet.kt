@@ -14,6 +14,8 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.QueueMusic
+import androidx.compose.material.icons.automirrored.filled.VolumeUp
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -37,6 +39,12 @@ import com.vktracks.player.service.PlaybackService
 import com.vktracks.player.ui.theme.AppleRed
 import kotlinx.coroutines.launch
 
+enum class PlayerCenterMode {
+    COVER,
+    LYRICS,
+    QUEUE
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun FullPlayerSheet(
@@ -47,6 +55,7 @@ fun FullPlayerSheet(
     isShuffle: Boolean,
     repeatMode: Int,
     lyrics: Lyrics?,
+    queue: List<Track> = emptyList(),
     isLiked: Boolean = false,
     onLikeClick: () -> Unit = {},
     onPlayPauseClick: () -> Unit,
@@ -56,12 +65,13 @@ fun FullPlayerSheet(
     onToggleShuffle: () -> Unit,
     onToggleRepeat: () -> Unit,
     onDownloadClick: () -> Unit,
+    onTrackClick: (Track, List<Track>) -> Unit = { _, _ -> },
     onDismiss: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     if (track == null) return
     val context = LocalContext.current
-    var isLyricsMode by remember { mutableStateOf(false) }
+    var centerMode by remember { mutableStateOf(PlayerCenterMode.COVER) }
 
     Surface(
         modifier = modifier.fillMaxSize(),
@@ -77,7 +87,7 @@ fun FullPlayerSheet(
                 .padding(horizontal = 24.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            // Верхняя плашка управления (закрытие и режим текста)
+            // Верхняя плашка управления (закрытие и режим очереди)
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -102,11 +112,13 @@ fun FullPlayerSheet(
                         .background(MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.3f))
                 )
 
-                IconButton(onClick = { isLyricsMode = !isLyricsMode }) {
+                IconButton(onClick = {
+                    centerMode = if (centerMode == PlayerCenterMode.QUEUE) PlayerCenterMode.COVER else PlayerCenterMode.QUEUE
+                }) {
                     Icon(
-                        imageVector = Icons.Default.FormatQuote,
-                        contentDescription = "Текст песни",
-                        tint = if (isLyricsMode) AppleRed else MaterialTheme.colorScheme.onSurfaceVariant,
+                        imageVector = Icons.AutoMirrored.Filled.QueueMusic,
+                        contentDescription = "Очередь воспроизведения",
+                        tint = if (centerMode == PlayerCenterMode.QUEUE) AppleRed else MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.size(26.dp)
                     )
                 }
@@ -114,46 +126,60 @@ fun FullPlayerSheet(
 
             Spacer(modifier = Modifier.height(8.dp))
 
-            // Основная область: либо большая обложка, либо синхронизированный текст
+            // Основная область: либо большая обложка, либо синхронизированный текст, либо очередь
             Box(
                 modifier = Modifier
                     .weight(1f)
                     .fillMaxWidth(),
                 contentAlignment = Alignment.Center
             ) {
-                if (!isLyricsMode) {
-                    // Большая обложка альбома (Apple Music стиль)
-                    Box(
-                        modifier = Modifier
-                            .size(280.dp)
-                            .shadow(24.dp, shape = RoundedCornerShape(20.dp), spotColor = Color.Black.copy(alpha = 0.4f))
-                            .clip(RoundedCornerShape(20.dp))
-                            .background(MaterialTheme.colorScheme.surfaceVariant),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        if (!track.coverUrl.isNullOrEmpty()) {
-                            AsyncImage(
-                                model = track.coverUrl,
-                                contentDescription = null,
-                                modifier = Modifier.fillMaxSize(),
-                                contentScale = ContentScale.Crop
-                            )
-                        } else {
-                            Icon(
-                                imageVector = Icons.Default.MusicNote,
-                                contentDescription = null,
-                                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
-                                modifier = Modifier.size(96.dp)
-                            )
+                when (centerMode) {
+                    PlayerCenterMode.COVER -> {
+                        // Большая обложка альбома (Apple Music стиль)
+                        Box(
+                            modifier = Modifier
+                                .size(280.dp)
+                                .shadow(24.dp, shape = RoundedCornerShape(20.dp), spotColor = Color.Black.copy(alpha = 0.4f))
+                                .clip(RoundedCornerShape(20.dp))
+                                .background(MaterialTheme.colorScheme.surfaceVariant),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            if (!track.coverUrl.isNullOrEmpty()) {
+                                AsyncImage(
+                                    model = track.coverUrl,
+                                    contentDescription = null,
+                                    modifier = Modifier.fillMaxSize(),
+                                    contentScale = ContentScale.Crop
+                                )
+                            } else {
+                                Icon(
+                                    imageVector = Icons.Default.MusicNote,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
+                                    modifier = Modifier.size(96.dp)
+                                )
+                            }
                         }
                     }
-                } else {
-                    // Караоке-текст (синхронизированные строки с автоскроллом)
-                    LyricsView(
-                        lyrics = lyrics,
-                        currentPosMs = currentPosMs,
-                        onLineClick = onSeekTo
-                    )
+                    PlayerCenterMode.LYRICS -> {
+                        // Караоке-текст (синхронизированные строки с автоскроллом)
+                        LyricsView(
+                            lyrics = lyrics,
+                            currentPosMs = currentPosMs,
+                            onLineClick = onSeekTo
+                        )
+                    }
+                    PlayerCenterMode.QUEUE -> {
+                        // Очередь воспроизведения
+                        PlayerQueueView(
+                            queue = queue,
+                            currentTrack = track,
+                            isPlaying = isPlaying,
+                            onTrackClick = { clickedTrack ->
+                                onTrackClick(clickedTrack, queue)
+                            }
+                        )
+                    }
                 }
             }
 
@@ -202,14 +228,16 @@ fun FullPlayerSheet(
                     )
                 }
 
+                val isLiveStream = track.duration == 0
+
                 IconButton(
                     onClick = onLikeClick,
                     modifier = Modifier.size(44.dp)
                 ) {
                     Icon(
-                        imageVector = if (isLiked) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
-                        contentDescription = if (isLiked) "В медиатеке" else "Добавить в медиатеку",
-                        tint = if (isLiked) AppleRed else MaterialTheme.colorScheme.onSurfaceVariant,
+                        imageVector = if (!isLiveStream && isLiked) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
+                        contentDescription = if (isLiveStream) "Найти в поиске" else if (isLiked) "В медиатеке" else "Добавить в медиатеку",
+                        tint = if (!isLiveStream && isLiked) AppleRed else MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.size(28.dp)
                     )
                 }
@@ -369,11 +397,13 @@ fun FullPlayerSheet(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 // Текст песни
-                IconButton(onClick = { isLyricsMode = !isLyricsMode }) {
+                IconButton(onClick = {
+                    centerMode = if (centerMode == PlayerCenterMode.LYRICS) PlayerCenterMode.COVER else PlayerCenterMode.LYRICS
+                }) {
                     Icon(
                         imageVector = Icons.Default.FormatQuote,
                         contentDescription = "Текст песни",
-                        tint = if (isLyricsMode) AppleRed else MaterialTheme.colorScheme.onSurfaceVariant,
+                        tint = if (centerMode == PlayerCenterMode.LYRICS) AppleRed else MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.size(26.dp)
                     )
                 }
@@ -470,4 +500,124 @@ fun formatMs(ms: Long): String {
     val minutes = totalSeconds / 60
     val seconds = totalSeconds % 60
     return String.format("%d:%02d", minutes, seconds)
+}
+
+@Composable
+fun PlayerQueueView(
+    queue: List<Track>,
+    currentTrack: Track?,
+    isPlaying: Boolean,
+    onTrackClick: (Track) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    if (queue.isEmpty()) {
+        Box(modifier = modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            Text(
+                text = "Очередь воспроизведения пуста",
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                fontSize = 16.sp
+            )
+        }
+        return
+    }
+
+    val listState = rememberLazyListState()
+    val activeIndex = remember(queue, currentTrack) {
+        queue.indexOfFirst { it.id == currentTrack?.id }
+    }
+
+    LaunchedEffect(activeIndex) {
+        if (activeIndex >= 0) {
+            listState.animateScrollToItem((activeIndex - 1).coerceAtLeast(0))
+        }
+    }
+
+    Column(modifier = modifier.fillMaxSize()) {
+        Text(
+            text = "Далее в очереди (${queue.size})",
+            fontSize = 15.sp,
+            fontWeight = FontWeight.SemiBold,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(start = 4.dp, bottom = 8.dp, top = 4.dp)
+        )
+        LazyColumn(
+            state = listState,
+            modifier = Modifier.fillMaxSize(),
+            contentPadding = PaddingValues(bottom = 16.dp)
+        ) {
+            itemsIndexed(queue, key = { index, item -> "${item.id}_$index" }) { index, item ->
+                val isCurrent = item.id == currentTrack?.id
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(10.dp))
+                        .clickable { onTrackClick(item) }
+                        .padding(horizontal = 4.dp, vertical = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(44.dp)
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(MaterialTheme.colorScheme.surfaceVariant),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        if (!item.coverUrl.isNullOrEmpty()) {
+                            AsyncImage(
+                                model = item.coverUrl,
+                                contentDescription = null,
+                                modifier = Modifier.fillMaxSize(),
+                                contentScale = ContentScale.Crop
+                            )
+                        } else {
+                            Icon(
+                                imageVector = Icons.Default.MusicNote,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
+                                modifier = Modifier.size(22.dp)
+                            )
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.width(12.dp))
+
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = item.title,
+                            fontSize = 15.sp,
+                            fontWeight = if (isCurrent) FontWeight.Bold else FontWeight.Medium,
+                            color = if (isCurrent) AppleRed else MaterialTheme.colorScheme.onBackground,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                        Spacer(modifier = Modifier.height(2.dp))
+                        Text(
+                            text = item.artist,
+                            fontSize = 13.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+
+                    if (isCurrent && isPlaying) {
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Filled.VolumeUp,
+                            contentDescription = "Играет",
+                            tint = AppleRed,
+                            modifier = Modifier.size(20.dp)
+                        )
+                    } else if (item.duration > 0) {
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = formatMs(item.duration * 1000L),
+                            fontSize = 12.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
+                        )
+                    }
+                }
+            }
+        }
+    }
 }

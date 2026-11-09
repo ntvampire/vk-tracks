@@ -1,6 +1,7 @@
 ﻿{
-  "versionCode": 14,
-  "versionName": "1.0.13",
-  "downloadUrl": "https://github.com/ntvampire/vk-tracks/releases/download/v1.0.13/VK-Tracks-1.0.13.apk",
-  "changelog": "Радио Studio 21: живой поток метаданных через официальный WebSocket; настройки VK Mix (модальный экран, настроение, узнаваемость, язык, жанр); исправление разделения альбомов и плейлистов; поиск артистов; фикс отступа наэкранных кнопок мини-плеера"
+    "versionCode":  15,
+    "versionName":  "1.0.14",
+    "downloadUrl":  "https://github.com/ntvampire/vk-tracks/releases/download/v1.0.14/VK-Tracks-1.0.14.apk",
+    "mirrorUrl":  "https://ntvampire.github.io/vk-tracks/VK-Tracks-1.0.14.apk",
+    "changelog":  "Восстановление OTA-автообновления: прямое CDN-зеркало APK на GitHub Pages (обход блокировок Azure Blob), увеличенные таймауты, Accept-Encoding: identity, fallback-кнопка скачивания через браузер, вывод ошибок в Toast"
 }

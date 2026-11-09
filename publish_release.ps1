@@ -62,15 +62,21 @@ if ($LASTEXITCODE -ne 0) {
     exit 1
 }
 
+# Копируем свежий APK в папку docs/ как прямое зеркало автообновления на GitHub Pages
+Write-Host "Размещение APK на зеркале GitHub Pages (docs/)..." -ForegroundColor Cyan
+Remove-Item "docs/*.apk" -ErrorAction SilentlyContinue
+$apkFileName = Split-Path $apkPath -Leaf
+Copy-Item $apkPath "docs/$apkFileName"
+
 # Обновляем docs/update.json для автообновления
-$updateJson = @"
-{
-  "versionCode": $code,
-  "versionName": "$Version",
-  "downloadUrl": "https://github.com/ntvampire/vk-tracks/releases/download/v$Version/$(Split-Path $apkPath -Leaf)",
-  "changelog": "$Changelog"
+$updateObj = [ordered]@{
+    versionCode = $code
+    versionName = $Version
+    downloadUrl = "https://github.com/ntvampire/vk-tracks/releases/download/v$Version/$apkFileName"
+    mirrorUrl   = "https://ntvampire.github.io/vk-tracks/$apkFileName"
+    changelog   = $Changelog
 }
-"@
+$updateJson = $updateObj | ConvertTo-Json -Depth 5
 Set-Content -Path "docs/update.json" -Value $updateJson -Encoding UTF8
 
 # Git commit и push

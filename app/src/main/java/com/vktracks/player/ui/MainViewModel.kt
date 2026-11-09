@@ -548,8 +548,20 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun installUpdate(info: AppUpdateInfo) {
         viewModelScope.launch {
             _updateProgress.value = 0
-            updateChecker.downloadAndInstallApk(info) { progress ->
+            val result = updateChecker.downloadAndInstallApk(info) { progress ->
                 _updateProgress.value = progress
+            }
+            if (result.isFailure) {
+                _updateProgress.value = -1
+                val err = result.exceptionOrNull()?.localizedMessage ?: "Сетевая ошибка"
+                android.util.Log.e("MainViewModel", "Update download failed: $err", result.exceptionOrNull())
+                withContext(Dispatchers.Main) {
+                    android.widget.Toast.makeText(
+                        getApplication(),
+                        "Ошибка автообновления: $err. Попробуйте скачать через браузер.",
+                        android.widget.Toast.LENGTH_LONG
+                    ).show()
+                }
             }
         }
     }

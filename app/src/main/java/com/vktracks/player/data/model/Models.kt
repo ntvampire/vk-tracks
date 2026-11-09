@@ -51,6 +51,7 @@ data class AppUpdateInfo(
     val versionCode: Int,
     val versionName: String,
     val downloadUrl: String,
+    val mirrorUrl: String? = null,
     val changelog: String
 )
 

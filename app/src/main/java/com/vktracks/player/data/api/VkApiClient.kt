@@ -2,9 +2,9 @@ package com.vktracks.player.data.api
 
 import android.util.Log
 import androidx.core.text.HtmlCompat
-import com.vktracks.player.data.cover.CoverArtResolver
 import com.vktracks.player.data.model.Artist
 import com.vktracks.player.data.model.ArtistDetail
+import com.vktracks.player.data.model.AudiosPage
 import com.vktracks.player.data.model.CatalogBlock
 import com.vktracks.player.data.model.CatalogButtonItem
 import com.vktracks.player.data.model.LyricLine
@@ -31,8 +31,7 @@ import java.util.concurrent.TimeUnit
 import java.util.zip.CRC32
 
 class VkApiClient(
-    private val authManager: VkAuthManager,
-    private val coverArtResolver: CoverArtResolver
+    private val authManager: VkAuthManager
 ) {
     private val client = OkHttpClient.Builder()
         .connectTimeout(12, TimeUnit.SECONDS)
@@ -103,7 +102,7 @@ class VkApiClient(
         false
     }
 
-    suspend fun getMyAudios(offset: Int = 0, count: Int = 50): List<Track> = withContext(Dispatchers.IO) {
+    suspend fun getMyAudios(offset: Int = 0, count: Int = 100): AudiosPage = withContext(Dispatchers.IO) {
         val userId = authManager.getUserId()
         val params = mutableMapOf(
             "offset" to offset.toString(),
@@ -112,8 +111,17 @@ class VkApiClient(
         if (userId > 0) {
             params["owner_id"] = userId.toString()
         }
-        val json = callVkApi("audio.get", params) ?: return@withContext emptyList()
-        parseTracksList(json)
+        val json = callVkApi("audio.get", params) ?: return@withContext AudiosPage()
+        val response = json.optJSONObject("response")
+        val items = response?.optJSONArray("items")
+            ?: response?.optJSONArray("audios")
+            ?: json.optJSONArray("response")
+            ?: json.optJSONArray("items")
+
+        val totalCount = response?.optInt("count", 0) ?: 0
+        val rawCount = items?.length() ?: 0
+        val tracks = if (items != null) parseTracksArray(items) else emptyList()
+        AudiosPage(tracks = tracks, totalCount = totalCount, rawCount = rawCount)
     }
 
     suspend fun getPlaylists(offset: Int = 0, count: Int = 30): List<Playlist> = withContext(Dispatchers.IO) {
@@ -1095,11 +1103,6 @@ class VkApiClient(
             coverUrl = thumb?.optString("photo_600")
                 ?: thumb?.optString("photo_300")
                 ?: thumb?.optString("photo_1200")
-        }
-
-        // Если в VK обложки нет, смотрим мгновенный кэш в оперативной памяти (0 ms, без дисковых блокировок)
-        if (coverUrl.isNullOrEmpty()) {
-            coverUrl = coverArtResolver.getCachedCover(artist, title)
         }
 
         return Track(

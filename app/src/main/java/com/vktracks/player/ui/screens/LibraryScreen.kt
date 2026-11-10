@@ -5,6 +5,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
@@ -67,7 +68,7 @@ fun LibraryScreen(
         derivedStateOf {
             val lastVisibleIndex = listState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: 0
             val totalCount = listState.layoutInfo.totalItemsCount
-            totalCount > 10 && lastVisibleIndex >= totalCount - 5
+            totalCount > 10 && lastVisibleIndex >= totalCount - 8
         }
     }
 
@@ -150,7 +151,12 @@ fun LibraryScreen(
                             EmptyLibraryMessage("В избранном пока нет треков")
                         }
                     } else {
-                        items(myTracks, key = { it.fullId }) { track ->
+                        itemsIndexed(myTracks, key = { _, track -> track.fullId }) { index, track ->
+                            if (index >= myTracks.size - 8) {
+                                LaunchedEffect(myTracks.size) {
+                                    onLoadMoreTracks()
+                                }
+                            }
                             TrackItem(
                                 track = track,
                                 isCurrent = currentTrack?.fullId == track.fullId,

@@ -36,6 +36,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
+import coil.compose.SubcomposeAsyncImage
 import com.vktracks.player.data.model.Artist
 import com.vktracks.player.data.model.Playlist
 import com.vktracks.player.data.model.Track
@@ -274,11 +275,31 @@ fun SearchScreen(
                                         contentAlignment = Alignment.Center
                                     ) {
                                         if (!artist.photoUrl.isNullOrEmpty()) {
-                                            AsyncImage(
+                                            SubcomposeAsyncImage(
                                                 model = artist.photoUrl,
                                                 contentDescription = artist.name,
                                                 modifier = Modifier.fillMaxSize(),
-                                                contentScale = ContentScale.Crop
+                                                contentScale = ContentScale.Crop,
+                                                loading = {
+                                                    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                                                        Icon(
+                                                            imageVector = Icons.Default.Person,
+                                                            contentDescription = null,
+                                                            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.35f),
+                                                            modifier = Modifier.size(28.dp)
+                                                        )
+                                                    }
+                                                },
+                                                error = {
+                                                    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                                                        Icon(
+                                                            imageVector = Icons.Default.Person,
+                                                            contentDescription = null,
+                                                            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
+                                                            modifier = Modifier.size(28.dp)
+                                                        )
+                                                    }
+                                                }
                                             )
                                         } else {
                                             Icon(

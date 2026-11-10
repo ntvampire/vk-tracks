@@ -1,7 +1,7 @@
 ﻿{
-    "versionCode":  42,
-    "versionName":  "1.0.41",
-    "downloadUrl":  "https://github.com/ntvampire/vk-tracks/releases/download/v1.0.41/VK-Tracks-1.0.41.apk",
-    "mirrorUrl":  "https://ntvampire.github.io/vk-tracks/VK-Tracks-1.0.41.apk",
-    "changelog":  "1. Нативное отображение обложек треков VK API (по подобию обложек альбомов, плейлистов и артистов): добавлен универсальный рекурсивный извлекатель extractCoverUrl (album.thumb, album.photo, album.cover, album.thumbs, album.sizes, photo_600, photo_300, photo_1200, photo_270). 2. Передача параметра extended=1 во все методы аудио (audio.get, audio.getPlaylistById, audio.getRecommendations, audio.search, audio.getById). 3. Автоматическое наследование родительской обложки альбомов и плейлистов: треки внутри audio.getPlaylistById и PlaylistDetailSheet мгновенно наследуют playlist.coverUrl. 4. Наследование фото артиста в ArtistDetailScreen для популярных треков. 5. Отказоустойчивый авто-фоллбэк профилей User-Agent/App-ID в callVkApi (при ошибках 3, 8, 15, 23, 27, 28). 6. Чистая векторная нота строго при реальном отсутствии обложки."
+    "versionCode":  43,
+    "versionName":  "1.0.42",
+    "downloadUrl":  "https://github.com/ntvampire/vk-tracks/releases/download/v1.0.42/VK-Tracks-1.0.42.apk",
+    "mirrorUrl":  "https://ntvampire.github.io/vk-tracks/VK-Tracks-1.0.42.apk",
+    "changelog":  "1. Полная ликвидация серых квадратов: заблокировано извлечение coverUrl из аудиопотоков .m3u8/.mp3 валидатором isValidImageUrl; внедрен SubcomposeAsyncImage с защитными слотами loading и error во всех компонентах интерфейса. 2. Нативное обогащение треков по эталону VKX и Murglar: audio.getById вызывается батчами по 100 треков с App ID 2274003 (VK Android), возвращая photo_600/photo_300 обложки в списки медиатеки, рекомендации и каталог. 3. Чистая векторная нота Icons.Default.MusicNote строго при реальном отсутствии обложки в ВК."
 }

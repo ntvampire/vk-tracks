@@ -12,38 +12,12 @@ import okhttp3.ConnectionPool
 import okhttp3.OkHttpClient
 import java.util.concurrent.TimeUnit
 
-class VKTracksApp : Application(), ImageLoaderFactory {
+class VKTracksApp : Application() {
 
     override fun onCreate() {
         super.onCreate()
         instance = this
         createNotificationChannels()
-    }
-
-    override fun newImageLoader(): ImageLoader {
-        val okHttpClient = OkHttpClient.Builder()
-            .connectionPool(ConnectionPool(12, 2, TimeUnit.MINUTES))
-            .connectTimeout(5, TimeUnit.SECONDS)
-            .readTimeout(10, TimeUnit.SECONDS)
-            .build()
-
-        return ImageLoader.Builder(this)
-            .okHttpClient(okHttpClient)
-            .memoryCache {
-                MemoryCache.Builder(this)
-                    .maxSizePercent(0.25)
-                    .strongReferencesEnabled(true)
-                    .build()
-            }
-            .diskCache {
-                DiskCache.Builder()
-                    .directory(cacheDir.resolve("image_cache"))
-                    .maxSizeBytes(250L * 1024 * 1024) // 250 МБ
-                    .build()
-            }
-            .crossfade(false)
-            .respectCacheHeaders(false)
-            .build()
     }
 
     private fun createNotificationChannels() {

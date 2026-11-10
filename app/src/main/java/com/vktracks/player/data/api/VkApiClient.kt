@@ -74,7 +74,7 @@ class VkApiClient(
         }
 
         // Проверяем токен через users.get
-        val url = "https://api.vk.com/method/users.get?v=$apiVersion&access_token=$token&fields=photo_100"
+        val url = "https://api.vk.com/method/users.get?v=5.131&access_token=$token&fields=photo_100"
         val request = Request.Builder()
             .url(url)
             .header("User-Agent", preferredUserAgent)
@@ -1015,12 +1015,15 @@ class VkApiClient(
     }
 
     private fun executeMethodCall(method: String, params: Map<String, String>, token: String, ua: String): JSONObject? {
+        val methodApiVersion = params["v"] ?: if (method.startsWith("catalog.")) "5.155" else "5.131"
         val formBuilder = FormBody.Builder()
             .add("access_token", token)
-            .add("v", apiVersion)
+            .add("v", methodApiVersion)
 
         for ((k, v) in params) {
-            formBuilder.add(k, v)
+            if (k != "v") {
+                formBuilder.add(k, v)
+            }
         }
 
         val requestBuilder = Request.Builder()
@@ -1095,15 +1098,14 @@ class VkApiClient(
         val accessKey = item.optString("access_key").takeIf { it.isNotEmpty() }
         val url = item.optString("url", "")
 
-        // Обложка из альбома
-        var coverUrl: String? = null
+        // Обложка из альбома / объекта трека (нативные данные VK)
         val album = item.optJSONObject("album")
-        if (album != null) {
-            val thumb = album.optJSONObject("thumb")
-            coverUrl = thumb?.optString("photo_600")?.takeIf { it.isNotEmpty() }
-                ?: thumb?.optString("photo_300")?.takeIf { it.isNotEmpty() }
-                ?: thumb?.optString("photo_1200")?.takeIf { it.isNotEmpty() }
-        }
+        val thumb = album?.optJSONObject("thumb") ?: item.optJSONObject("thumb")
+        val coverUrl = thumb?.optString("photo_600")?.takeIf { it.isNotEmpty() }
+            ?: thumb?.optString("photo_300")?.takeIf { it.isNotEmpty() }
+            ?: thumb?.optString("photo_1200")?.takeIf { it.isNotEmpty() }
+            ?: thumb?.optString("photo_270")?.takeIf { it.isNotEmpty() }
+            ?: thumb?.optString("photo_135")?.takeIf { it.isNotEmpty() }
 
         return Track(
             id = id,

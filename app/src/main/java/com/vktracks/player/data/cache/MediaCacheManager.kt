@@ -145,7 +145,11 @@ class MediaCacheManager private constructor(private val context: Context) {
                         val isLiveRadio = uriStr.contains("icecast", ignoreCase = true) ||
                                           uriStr.contains("radiorecord", ignoreCase = true) ||
                                           uriStr.contains("cdnvideo", ignoreCase = true) ||
-                                          uriStr.contains("hostingradio", ignoreCase = true)
+                                          uriStr.contains("hostingradio", ignoreCase = true) ||
+                                          uriStr.contains("studio21", ignoreCase = true) ||
+                                          uriStr.contains(".aacp", ignoreCase = true) ||
+                                          uriStr.contains("live", ignoreCase = true) ||
+                                          uriStr.contains("stream.", ignoreCase = true)
 
                         val source = if (isLiveRadio) {
                             httpFactory.createDataSource()

@@ -1,5 +1,20 @@
 package com.vktracks.player.data.model
 
+enum class TrackRestriction(val code: Int, val description: String) {
+    NONE(0, ""),
+    ARTIST_DECISION(1, "Изъято правообладателем"),
+    GEO(2, "Недоступно в регионе"),
+    SUBSCRIPTION(3, "Требуется подписка"),
+    REPLACEMENT(4, "Заменено"),
+    SOON(5, "Скоро появится"),
+    LABEL_DECISION(10, "Изъято лейблом"),
+    UNKNOWN(-1, "Недоступно");
+
+    companion object {
+        fun from(code: Int): TrackRestriction = entries.firstOrNull { it.code == code } ?: if (code > 0) UNKNOWN else NONE
+    }
+}
+
 data class Track(
     val id: Long,
     val ownerId: Long,
@@ -13,10 +28,14 @@ data class Track(
     val lyricsId: Long? = null,
     val accessKey: String? = null,
     val isLiked: Boolean = false,
-    val localFilePath: String? = null
+    val localFilePath: String? = null,
+    val restriction: TrackRestriction = TrackRestriction.NONE,
+    val restrictionText: String? = null
 ) {
     val fullId: String get() = "${ownerId}_${id}"
     val isLocal: Boolean get() = !localFilePath.isNullOrEmpty()
+    val isRestricted: Boolean get() = restriction != TrackRestriction.NONE || (streamUrl.isEmpty() && !isLocal && duration > 0)
+    val displayRestriction: String get() = restrictionText?.takeIf { it.isNotBlank() } ?: restriction.description.takeIf { it.isNotEmpty() } ?: "Недоступно"
 }
 
 data class Playlist(

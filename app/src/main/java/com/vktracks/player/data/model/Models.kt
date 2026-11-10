@@ -145,3 +145,9 @@ data class VkMixSettings(
     val language: String = "any", // "any", "russian", "foreign"
     val genre: String = "any" // "any", "pop", "rock", "hiphop", "electro", "indie", "metal"
 )
+
+data class AudiosPage(
+    val tracks: List<Track> = emptyList(),
+    val totalCount: Int = 0,
+    val rawCount: Int = 0
+)

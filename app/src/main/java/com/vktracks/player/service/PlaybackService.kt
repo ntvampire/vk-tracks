@@ -19,7 +19,6 @@ import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import com.vktracks.player.data.cache.MediaCacheManager
-import com.vktracks.player.data.cover.CoverArtResolver
 import androidx.core.app.NotificationCompat
 import androidx.media3.session.CommandButton
 import androidx.media3.session.DefaultMediaNotificationProvider
@@ -455,9 +454,7 @@ class PlaybackService : MediaSessionService() {
 
         artworkJob?.cancel()
         artworkJob = serviceScope.launch(Dispatchers.IO) {
-            var coverUrl = track.coverUrl?.takeIf { it.isNotBlank() } ?: run {
-                CoverArtResolver.instance?.getCachedCover(track.artist, track.title)
-            } ?: run {
+            val coverUrl = track.coverUrl?.takeIf { it.isNotBlank() } ?: run {
                 try {
                     val db = AppDatabase.getInstance(applicationContext)
                     db.trackDao().getTrackById(track.fullId)?.coverUrl?.takeIf { it.isNotBlank() }
@@ -466,25 +463,16 @@ class PlaybackService : MediaSessionService() {
                 }
             }
 
-            if (coverUrl.isNullOrEmpty()) {
-                coverUrl = CoverArtResolver.instance?.resolveCover(
-                    track.artist,
-                    track.title,
-                    track.albumTitle
-                )
-            }
-
             if (!coverUrl.isNullOrEmpty()) {
-                val updated = track.copy(coverUrl = coverUrl)
-                withContext(Dispatchers.Main) {
-                    val isCurrent = _currentTrack.value?.let {
-                        it.fullId == track.fullId && (it.duration != 0 || it.title == track.title)
-                    } ?: false
-                    if (isCurrent) {
-                        _currentTrack.value = _currentTrack.value?.copy(coverUrl = coverUrl)
+                if (track.coverUrl.isNullOrEmpty()) {
+                    withContext(Dispatchers.Main) {
+                        val isCurrent = _currentTrack.value?.let {
+                            it.fullId == track.fullId && (it.duration != 0 || it.title == track.title)
+                        } ?: false
+                        if (isCurrent) {
+                            _currentTrack.value = _currentTrack.value?.copy(coverUrl = coverUrl)
+                        }
                     }
-                    currentQueue = currentQueue.map { if (it.fullId == track.fullId) updated else it }
-                    _currentQueueFlow.value = currentQueue
                 }
 
                 try {

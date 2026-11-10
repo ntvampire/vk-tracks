@@ -2,6 +2,8 @@ package com.vktracks.player.data.local
 
 import android.content.Context
 import androidx.room.*
+import androidx.room.migration.Migration
+import androidx.sqlite.db.SupportSQLiteDatabase
 import kotlinx.coroutines.flow.Flow
 
 @Entity(tableName = "tracks")
@@ -22,13 +24,6 @@ data class TrackEntity(
     val localFilePath: String?,
     val isDownloaded: Boolean = false,
     val lastPlayedTimestamp: Long = 0
-)
-
-@Entity(tableName = "cover_cache")
-data class CoverCacheEntity(
-    @PrimaryKey val queryKey: String, // "artist - cleanTitle" lowercase
-    val coverUrl: String,
-    val timestamp: Long = System.currentTimeMillis()
 )
 
 @Dao
@@ -55,22 +50,15 @@ interface TrackDao {
     suspend fun updateLike(id: String, isLiked: Boolean)
 }
 
-@Dao
-interface CoverCacheDao {
-    @Query("SELECT coverUrl FROM cover_cache WHERE queryKey = :key LIMIT 1")
-    suspend fun getCover(key: String): String?
-
-    @Query("SELECT * FROM cover_cache ORDER BY timestamp DESC LIMIT 500")
-    suspend fun getAllRecentCovers(): List<CoverCacheEntity>
-
-    @Insert(onConflict = OnConflictStrategy.REPLACE)
-    suspend fun insertCover(entity: CoverCacheEntity)
+private val MIGRATION_1_2 = object : Migration(1, 2) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("DROP TABLE IF EXISTS cover_cache")
+    }
 }
 
-@Database(entities = [TrackEntity::class, CoverCacheEntity::class], version = 1, exportSchema = false)
+@Database(entities = [TrackEntity::class], version = 2, exportSchema = false)
 abstract class AppDatabase : RoomDatabase() {
     abstract fun trackDao(): TrackDao
-    abstract fun coverCacheDao(): CoverCacheDao
 
     companion object {
         @Volatile
@@ -82,7 +70,10 @@ abstract class AppDatabase : RoomDatabase() {
                     context.applicationContext,
                     AppDatabase::class.java,
                     "vk_tracks.db"
-                ).fallbackToDestructiveMigration().build()
+                )
+                    .addMigrations(MIGRATION_1_2)
+                    .fallbackToDestructiveMigration()
+                    .build()
                 INSTANCE = instance
                 instance
             }

@@ -1,7 +1,7 @@
 ﻿{
-    "versionCode":  31,
-    "versionName":  "1.0.30",
-    "downloadUrl":  "https://github.com/ntvampire/vk-tracks/releases/download/v1.0.30/VK-Tracks-1.0.30.apk",
-    "mirrorUrl":  "https://ntvampire.github.io/vk-tracks/VK-Tracks-1.0.30.apk",
-    "changelog":  "1. Устранение лагов при перелистывании треков в плеере: отмена предыдущих корутин обложек и текстов, 3-сек дебаунс сохранения истории Room, отключение сброса аудиобуфера ExoPlayer для обычных треков, изоляция медиатеки в табе Library. 2. Динамическая бесконечная пагинация избранного по 100 треков. 3. Исправление перемотки с первого клика."
+    "versionCode":  32,
+    "versionName":  "1.0.31",
+    "downloadUrl":  "https://github.com/ntvampire/vk-tracks/releases/download/v1.0.31/VK-Tracks-1.0.31.apk",
+    "mirrorUrl":  "https://ntvampire.github.io/vk-tracks/VK-Tracks-1.0.31.apk",
+    "changelog":  "1. Полное удаление внешней подгрузки обложек (удален CoverArtResolver, iTunes CDN, таблица cover_cache). Отображение строго нативных обложек (VK API, Record, Studio 21). 2. Полноценная динамическая подгрузка избранного: постраничная модель AudiosPage, точный учет смещения myAudiosOffset, двойной триггер в Compose."
 }

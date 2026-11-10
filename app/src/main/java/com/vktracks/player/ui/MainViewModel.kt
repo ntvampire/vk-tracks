@@ -13,7 +13,6 @@ import androidx.media3.session.SessionToken
 import com.vktracks.player.data.api.VkApiClient
 import com.vktracks.player.data.api.VkAuthManager
 import com.vktracks.player.data.cache.MediaCacheManager
-import com.vktracks.player.data.cover.CoverArtResolver
 import com.vktracks.player.data.downloader.TrackDownloader
 import com.vktracks.player.data.local.AppDatabase
 import com.vktracks.player.data.local.TrackEntity
@@ -46,8 +45,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     val database = AppDatabase.getInstance(application)
     val authManager = VkAuthManager(application)
-    val coverArtResolver = CoverArtResolver(database.coverCacheDao())
-    val apiClient = VkApiClient(authManager, coverArtResolver)
+    val apiClient = VkApiClient(authManager)
     val downloader = TrackDownloader(application, database)
     val updateChecker = UpdateChecker(application)
 
@@ -58,6 +56,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     private val _isLoadingMoreTracks = MutableStateFlow(false)
     val isLoadingMoreTracks: StateFlow<Boolean> = _isLoadingMoreTracks.asStateFlow()
+    private var myAudiosOffset = 0
     private var canLoadMoreTracks = true
     private var isLoadingMoreJob: Job? = null
 
@@ -194,13 +193,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         .stateIn(viewModelScope, SharingStarted.Lazily, emptyList())
 
     init {
-        coverArtResolver.vkApiClient = apiClient
-        CoverArtResolver.instance = coverArtResolver
         initMediaController()
-
-        viewModelScope.launch(Dispatchers.IO) {
-            coverArtResolver.preloadMemoryCache()
-        }
 
         viewModelScope.launch {
             authManager.authState.collect { auth ->
@@ -211,7 +204,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             }
         }
 
-        // Автоматическая подгрузка текста песни при смене трека и мгновенное обновление обложки в списках
+        // Автоматическая подгрузка текста песни при смене трека
         var lastLyricsTrackId: String? = null
         viewModelScope.launch {
             currentTrack.collect { track ->
@@ -219,9 +212,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     if (track.fullId != lastLyricsTrackId) {
                         lastLyricsTrackId = track.fullId
                         loadLyrics(track)
-                    }
-                    if (!track.coverUrl.isNullOrEmpty()) {
-                        updateCoverInDisplayedLists(track.fullId, track.coverUrl)
                     }
                 } else {
                     lastLyricsTrackId = null
@@ -297,14 +287,15 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun loadLibrary() {
         viewModelScope.launch {
             _isLoading.value = true
+            myAudiosOffset = 0
             canLoadMoreTracks = true
             try {
-                val audios = apiClient.getMyAudios(0, 100)
+                val page = apiClient.getMyAudios(0, 100)
+                val audios = page.tracks
+                myAudiosOffset = page.rawCount
+                canLoadMoreTracks = page.rawCount > 0 && (page.totalCount <= 0 || myAudiosOffset < page.totalCount)
                 _myTracks.value = audios
                 _likedTrackIds.value = audios.map { it.fullId }.toSet()
-                if (audios.size < 100) {
-                    canLoadMoreTracks = false
-                }
                 _playlists.value = apiClient.getPlaylists(0, 100)
                 _recommendations.value = apiClient.getRecommendations(0, 50)
 
@@ -486,7 +477,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                             if (rawSong.isNotBlank() || rawArtist.isNotBlank()) {
                                 val title = if (rawSong.isNotBlank()) rawSong else station.title
                                 val art = if (rawArtist.isNotBlank()) rawArtist else station.subtitle
-                                val cov = img ?: coverArtResolver.resolveCover(art, title) ?: station.logoUrl
+                                val cov = img ?: station.logoUrl
                                 withContext(Dispatchers.Main) {
                                     PlaybackService.instance?.updateLiveMetadata(
                                         title = title,
@@ -505,7 +496,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             studio21WebSocket = apiClient.connectStudio21WebSocket { title, artist, coverUrl ->
                 viewModelScope.launch(Dispatchers.Main) {
                     val art = if (artist.isNotBlank()) artist else station.subtitle
-                    val cov = coverUrl ?: coverArtResolver.resolveCover(art, title) ?: station.logoUrl
+                    val cov = coverUrl ?: station.logoUrl
                     PlaybackService.instance?.updateLiveMetadata(
                         title = title,
                         artist = art,
@@ -832,24 +823,32 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun loadMoreMyTracks() {
         if (!canLoadMoreTracks || _isLoadingMoreTracks.value || _isLoading.value) return
-        val currentCount = _myTracks.value.size
-        if (currentCount == 0) return
+        if (_myTracks.value.isEmpty()) return
 
         isLoadingMoreJob?.cancel()
         isLoadingMoreJob = viewModelScope.launch {
             _isLoadingMoreTracks.value = true
             try {
-                val newAudios = apiClient.getMyAudios(offset = currentCount, count = 100)
-                if (newAudios.isEmpty()) {
+                val offsetToFetch = myAudiosOffset
+                val page = apiClient.getMyAudios(offset = offsetToFetch, count = 100)
+                if (page.rawCount == 0) {
                     canLoadMoreTracks = false
                 } else {
-                    val currentIds = _myTracks.value.map { it.fullId }.toHashSet()
-                    val distinctNew = newAudios.filter { !currentIds.contains(it.fullId) }
-                    if (distinctNew.isEmpty() || newAudios.size < 100) {
+                    myAudiosOffset += page.rawCount
+                    if (page.totalCount > 0 && myAudiosOffset >= page.totalCount) {
                         canLoadMoreTracks = false
                     }
-                    _myTracks.value = _myTracks.value + distinctNew
-                    _likedTrackIds.value = _likedTrackIds.value + distinctNew.map { it.fullId }
+                    if (page.tracks.isNotEmpty()) {
+                        val currentIds = _myTracks.value.map { it.fullId }.toHashSet()
+                        val distinctNew = page.tracks.filter { !currentIds.contains(it.fullId) }
+                        if (distinctNew.isNotEmpty()) {
+                            _myTracks.value = _myTracks.value + distinctNew
+                            _likedTrackIds.value = _likedTrackIds.value + distinctNew.map { it.fullId }
+                        }
+                    }
+                    if (page.rawCount < 100) {
+                        canLoadMoreTracks = false
+                    }
                 }
             } catch (e: Exception) {
                 android.util.Log.e("MainViewModel", "Failed to load more tracks", e)
@@ -867,24 +866,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             _currentLyrics.value = null
             val lyrics = apiClient.getLyrics(track)
             _currentLyrics.value = lyrics
-        }
-    }
-
-    private fun updateCoverInDisplayedLists(fullId: String, coverUrl: String) {
-        if (_myTracks.value.any { it.fullId == fullId && it.coverUrl != coverUrl }) {
-            _myTracks.value = _myTracks.value.map {
-                if (it.fullId == fullId) it.copy(coverUrl = coverUrl) else it
-            }
-        }
-        if (_selectedPlaylistTracks.value.any { it.fullId == fullId && it.coverUrl != coverUrl }) {
-            _selectedPlaylistTracks.value = _selectedPlaylistTracks.value.map {
-                if (it.fullId == fullId) it.copy(coverUrl = coverUrl) else it
-            }
-        }
-        if (_radioTracks.value.any { it.fullId == fullId && it.coverUrl != coverUrl }) {
-            _radioTracks.value = _radioTracks.value.map {
-                if (it.fullId == fullId) it.copy(coverUrl = coverUrl) else it
-            }
         }
     }
 

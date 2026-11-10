@@ -6,7 +6,9 @@ import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
 import android.graphics.Bitmap
+import android.graphics.Canvas
 import android.graphics.drawable.BitmapDrawable
+import androidx.core.content.ContextCompat
 import android.media.audiofx.AudioEffect
 import android.net.Uri
 import android.os.Build
@@ -524,8 +526,34 @@ class PlaybackService : MediaSessionService() {
                 } catch (e: Exception) {
                     android.util.Log.w("PlaybackService", "Failed to load artwork for notification", e)
                 }
+            } else {
+                try {
+                    val placeholderBitmap = loadVectorBitmap(R.drawable.ic_vk_music_placeholder, 300, 300)
+                    if (placeholderBitmap != null) {
+                        withContext(Dispatchers.Main) {
+                            val isCurrent = _currentTrack.value?.let {
+                                it.fullId == track.fullId && (it.duration != 0 || it.title == track.title)
+                            } ?: false
+                            if (isCurrent) {
+                                currentNotificationBitmap = placeholderBitmap
+                                mediaSession?.let { onUpdateNotification(it, player.playWhenReady) }
+                            }
+                        }
+                    }
+                } catch (e: Exception) {
+                    android.util.Log.w("PlaybackService", "Failed to load placeholder for notification", e)
+                }
             }
         }
+    }
+
+    private fun loadVectorBitmap(resId: Int, width: Int, height: Int): Bitmap? {
+        val drawable = ContextCompat.getDrawable(this, resId) ?: return null
+        val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+        val canvas = Canvas(bitmap)
+        drawable.setBounds(0, 0, width, height)
+        drawable.draw(canvas)
+        return bitmap
     }
 
     private fun startProgressUpdates() {

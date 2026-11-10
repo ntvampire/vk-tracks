@@ -1,7 +1,7 @@
 ﻿{
-    "versionCode":  32,
-    "versionName":  "1.0.31",
-    "downloadUrl":  "https://github.com/ntvampire/vk-tracks/releases/download/v1.0.31/VK-Tracks-1.0.31.apk",
-    "mirrorUrl":  "https://ntvampire.github.io/vk-tracks/VK-Tracks-1.0.31.apk",
-    "changelog":  "1. Полное удаление внешней подгрузки обложек (удален CoverArtResolver, iTunes CDN, таблица cover_cache). Отображение строго нативных обложек (VK API, Record, Studio 21). 2. Полноценная динамическая подгрузка избранного: постраничная модель AudiosPage, точный учет смещения myAudiosOffset, двойной триггер в Compose."
+    "versionCode":  33,
+    "versionName":  "1.0.32",
+    "downloadUrl":  "https://github.com/ntvampire/vk-tracks/releases/download/v1.0.32/VK-Tracks-1.0.32.apk",
+    "mirrorUrl":  "https://ntvampire.github.io/vk-tracks/VK-Tracks-1.0.32.apk",
+    "changelog":  "Затененная иконка (логотип) сервиса \u0027ВК Музыка\u0027 в качестве заглушки обложек треков ВК во всех компонентах интерфейса и системной шторке Android."
 }

@@ -36,7 +36,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.media3.common.Player
 import coil.compose.AsyncImage
-import coil.compose.SubcomposeAsyncImage
 import coil.request.ImageRequest
 import com.vktracks.player.R
 import com.vktracks.player.data.model.Lyrics
@@ -151,39 +150,18 @@ fun FullPlayerSheet(
                                 .background(MaterialTheme.colorScheme.surfaceVariant),
                             contentAlignment = Alignment.Center
                         ) {
+                            Icon(
+                                imageVector = Icons.Default.MusicNote,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.45f),
+                                modifier = Modifier.size(80.dp)
+                            )
                             if (!track.coverUrl.isNullOrEmpty()) {
-                                SubcomposeAsyncImage(
+                                AsyncImage(
                                     model = track.coverUrl,
                                     contentDescription = track.title,
                                     modifier = Modifier.fillMaxSize(),
-                                    contentScale = ContentScale.Crop,
-                                    loading = {
-                                        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                                            Icon(
-                                                imageVector = Icons.Default.MusicNote,
-                                                contentDescription = null,
-                                                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.35f),
-                                                modifier = Modifier.size(80.dp)
-                                            )
-                                        }
-                                    },
-                                    error = {
-                                        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                                            Icon(
-                                                imageVector = Icons.Default.MusicNote,
-                                                contentDescription = null,
-                                                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
-                                                modifier = Modifier.size(80.dp)
-                                            )
-                                        }
-                                    }
-                                )
-                            } else {
-                                Icon(
-                                    imageVector = Icons.Default.MusicNote,
-                                    contentDescription = null,
-                                    tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
-                                    modifier = Modifier.size(80.dp)
+                                    contentScale = ContentScale.Crop
                                 )
                             }
                         }

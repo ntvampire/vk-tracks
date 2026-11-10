@@ -32,7 +32,6 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
-import coil.compose.SubcomposeAsyncImage
 import com.vktracks.player.data.model.CatalogBlock
 import com.vktracks.player.data.model.CatalogButtonItem
 import com.vktracks.player.data.model.Playlist
@@ -540,39 +539,18 @@ fun CuratedPlaylistCard(
                 .background(MaterialTheme.colorScheme.surfaceVariant),
             contentAlignment = Alignment.Center
         ) {
+            Icon(
+                imageVector = Icons.Default.Album,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.45f),
+                modifier = Modifier.size(56.dp)
+            )
             if (!playlist.coverUrl.isNullOrEmpty()) {
-                SubcomposeAsyncImage(
+                AsyncImage(
                     model = playlist.coverUrl,
                     contentDescription = playlist.title,
                     modifier = Modifier.fillMaxSize(),
-                    contentScale = ContentScale.Crop,
-                    loading = {
-                        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                            Icon(
-                                imageVector = Icons.Default.Album,
-                                contentDescription = null,
-                                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.35f),
-                                modifier = Modifier.size(56.dp)
-                            )
-                        }
-                    },
-                    error = {
-                        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                            Icon(
-                                imageVector = Icons.Default.Album,
-                                contentDescription = null,
-                                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
-                                modifier = Modifier.size(56.dp)
-                            )
-                        }
-                    }
-                )
-            } else {
-                Icon(
-                    imageVector = Icons.Default.Album,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
-                    modifier = Modifier.size(56.dp)
+                    contentScale = ContentScale.Crop
                 )
             }
         }
@@ -618,39 +596,18 @@ fun PlaylistCard(
                 .background(MaterialTheme.colorScheme.surfaceVariant),
             contentAlignment = Alignment.Center
         ) {
+            Icon(
+                imageVector = Icons.Default.Album,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.45f),
+                modifier = Modifier.size(48.dp)
+            )
             if (!playlist.coverUrl.isNullOrEmpty()) {
-                SubcomposeAsyncImage(
+                AsyncImage(
                     model = playlist.coverUrl,
                     contentDescription = playlist.title,
                     modifier = Modifier.fillMaxSize(),
-                    contentScale = ContentScale.Crop,
-                    loading = {
-                        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                            Icon(
-                                imageVector = Icons.Default.Album,
-                                contentDescription = null,
-                                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.35f),
-                                modifier = Modifier.size(56.dp)
-                            )
-                        }
-                    },
-                    error = {
-                        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                            Icon(
-                                imageVector = Icons.Default.Album,
-                                contentDescription = null,
-                                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
-                                modifier = Modifier.size(56.dp)
-                            )
-                        }
-                    }
-                )
-            } else {
-                Icon(
-                    imageVector = Icons.Default.Album,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
-                    modifier = Modifier.size(48.dp)
+                    contentScale = ContentScale.Crop
                 )
             }
         }

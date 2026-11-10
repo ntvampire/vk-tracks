@@ -42,7 +42,7 @@ class VkApiClient(
     // Официальные профили User-Agent (VK Музыка и VK Android)
     private val vkMusicUserAgent = "VKMusic/1.1.0 (Android 14; SDK 34; arm64-v8a; ru)"
     private val vkAndroidUserAgent = "VKAndroidApp/8.17-15376 (Android 9.0; SDK 28; armeabi-v7a; xiaomi Redmi Note 3; ru; 1920x1080)"
-    private val apiVersion = "5.131"
+    private val apiVersion = "5.155"
 
     @Volatile
     private var preferredUserAgent = vkMusicUserAgent
@@ -122,8 +122,7 @@ class VkApiClient(
 
         val totalCount = response?.optInt("count", 0) ?: 0
         val rawCount = items?.length() ?: 0
-        val rawTracks = if (items != null) parseTracksArray(items) else emptyList()
-        val tracks = enrichTracksWithVkDetails(rawTracks)
+        val tracks = if (items != null) parseTracksArray(items) else emptyList()
         AudiosPage(tracks = tracks, totalCount = totalCount, rawCount = rawCount)
     }
 
@@ -160,15 +159,10 @@ class VkApiClient(
             val audios = pResp?.optJSONArray("audios") ?: pResp?.optJSONArray("items")
             if (audios != null) {
                 val parsed = parseTracksArray(audios)
-                val enriched = if (playlistCover.isNullOrEmpty() && parsed.any { it.coverUrl.isNullOrEmpty() }) {
-                    enrichTracksWithVkDetails(parsed)
+                return@withContext if (!playlistCover.isNullOrEmpty()) {
+                    parsed.map { if (it.coverUrl.isNullOrEmpty()) it.copy(coverUrl = playlistCover) else it }
                 } else {
                     parsed
-                }
-                return@withContext if (!playlistCover.isNullOrEmpty()) {
-                    enriched.map { if (it.coverUrl.isNullOrEmpty()) it.copy(coverUrl = playlistCover) else it }
-                } else {
-                    enriched
                 }
             }
         }
@@ -300,7 +294,7 @@ class VkApiClient(
             }
         }
 
-        SearchResult(tracks = enrichTracksWithVkDetails(tracks), playlists = playlists, artists = artists)
+        SearchResult(tracks = tracks, playlists = playlists, artists = artists)
     }
 
     suspend fun searchAudios(query: String, offset: Int = 0, count: Int = 50): List<Track> = withContext(Dispatchers.IO) {
@@ -660,8 +654,7 @@ class VkApiClient(
             params["user_id"] = userId.toString()
         }
         val json = callVkApi("audio.getRecommendations", params) ?: return@withContext emptyList()
-        val raw = parseTracksList(json)
-        enrichTracksWithVkDetails(raw)
+        parseTracksList(json)
     }
 
     suspend fun getPersonalRadio(settings: VkMixSettings? = null): List<Track> = withContext(Dispatchers.IO) {
@@ -1091,16 +1084,15 @@ class VkApiClient(
     private fun callVkApi(method: String, params: Map<String, String>): JSONObject? {
         val token = authManager.getAccessToken() ?: return null
 
-        val primaryUa = if (method.startsWith("catalog.")) vkMusicUserAgent else vkAndroidUserAgent
-        val fallbackUa = if (primaryUa == vkAndroidUserAgent) vkMusicUserAgent else vkAndroidUserAgent
-
-        val result = executeMethodCall(method, params, token, primaryUa)
+        val result = executeMethodCall(method, params, token, preferredUserAgent)
         if (result != null) {
             val errCode = result.optJSONObject("error")?.optInt("error_code") ?: 0
             if (errCode in listOf(3, 8, 15, 23, 27, 28)) {
-                Log.w("VkApiClient", "VK API $method returned error $errCode with $primaryUa, retrying with $fallbackUa")
+                val fallbackUa = if (preferredUserAgent == vkAndroidUserAgent) vkMusicUserAgent else vkAndroidUserAgent
+                Log.w("VkApiClient", "VK API $method returned error $errCode with $preferredUserAgent, retrying with $fallbackUa")
                 val fallbackResult = executeMethodCall(method, params, token, fallbackUa)
                 if (fallbackResult != null && !fallbackResult.has("error")) {
+                    preferredUserAgent = fallbackUa
                     return fallbackResult
                 }
             }
@@ -1109,7 +1101,7 @@ class VkApiClient(
     }
 
     private fun executeMethodCall(method: String, params: Map<String, String>, token: String, ua: String): JSONObject? {
-        val methodApiVersion = params["v"] ?: if (method.startsWith("catalog.")) "5.155" else "5.131"
+        val methodApiVersion = params["v"] ?: apiVersion
         val formBuilder = FormBody.Builder()
             .add("access_token", token)
             .add("v", methodApiVersion)

@@ -1,7 +1,7 @@
 ﻿{
-    "versionCode":  39,
-    "versionName":  "1.0.38",
-    "downloadUrl":  "https://github.com/ntvampire/vk-tracks/releases/download/v1.0.38/VK-Tracks-1.0.38.apk",
-    "mirrorUrl":  "https://ntvampire.github.io/vk-tracks/VK-Tracks-1.0.38.apk",
-    "changelog":  "1. Восстановление загрузки нативных обложек треков VK (по подходу Murglar): протокол API v5.155 для всех методов, полный парсинг структур album.thumb, album.photo, album.thumbs, item.thumb, item.cover. 2. Ликвидация артефактов, скрипов и спотыканий звука радио (Studio 21 и Record): отказ от вызовов replaceMediaItem на живом аудиопотоке в пользу бесшовного обновления playlistMetadata (устранены перезапуски декодера ExoPlayer и сбросы аудиобуфера); полный обход дискового кэша live-потоками в MediaCacheManager; замена недействительного 404 URL для Studio 21 в Android Auto на официальный CDN Icecast поток."
+    "versionCode":  40,
+    "versionName":  "1.0.39",
+    "downloadUrl":  "https://github.com/ntvampire/vk-tracks/releases/download/v1.0.39/VK-Tracks-1.0.39.apk",
+    "mirrorUrl":  "https://ntvampire.github.io/vk-tracks/VK-Tracks-1.0.39.apk",
+    "changelog":  "Fix native VK covers loading (Murglar audio.getById pattern), fix radio audio artifacts (Studio 21/Record Sonic catch-up \u0026 buffers), fix player seek slider jump to 0"
 }

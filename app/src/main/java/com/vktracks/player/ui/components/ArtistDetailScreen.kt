@@ -215,14 +215,13 @@ fun ArtistDetailScreen(
                             )
                         }
 
-                        itemsIndexed(artistDetail.popularTracks) { _, track ->
+                        itemsIndexed(artistDetail.popularTracks, key = { _, track -> track.fullId }) { _, track ->
                             val isCurrent = currentTrack?.id == track.id
                             val isLiked = likedTrackIds.contains(track.fullId)
 
                             TrackItem(
                                 track = track,
                                 isCurrent = isCurrent,
-                                isPlaying = isPlaying && isCurrent,
                                 isLiked = isLiked,
                                 isDownloaded = downloadedTrackIds.contains(track.fullId) || track.isLocal,
                                 onTrackClick = { onTrackClick(track, artistDetail.popularTracks) },

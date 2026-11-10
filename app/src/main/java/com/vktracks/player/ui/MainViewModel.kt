@@ -164,10 +164,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 }
             }
         }
+        .flowOn(Dispatchers.IO)
+        .distinctUntilChanged()
         .stateIn(viewModelScope, SharingStarted.Lazily, emptyList())
 
     val downloadedTrackIds: StateFlow<Set<String>> = downloadedTracks
         .map { list -> list.map { it.fullId }.toSet() }
+        .distinctUntilChanged()
         .stateIn(viewModelScope, SharingStarted.Lazily, emptySet())
 
     // Кэш-менеджер потоков (VKX & Murglar)
@@ -182,6 +185,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     // История прослушивания
     val historyTracks: StateFlow<List<Track>> = database.trackDao().getHistoryTracks()
         .map { list -> list.map { it.toTrack() } }
+        .distinctUntilChanged()
         .stateIn(viewModelScope, SharingStarted.Lazily, emptyList())
 
     init {

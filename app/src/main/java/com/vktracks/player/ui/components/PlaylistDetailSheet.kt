@@ -272,30 +272,12 @@ fun PlaylistDetailSheet(
                                     modifier = Modifier.width(28.dp)
                                 )
 
-                                // Обложка трека
-                                Box(
-                                    modifier = Modifier
-                                        .size(44.dp)
-                                        .clip(RoundedCornerShape(8.dp))
-                                        .background(MaterialTheme.colorScheme.surfaceVariant),
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    if (!track.coverUrl.isNullOrEmpty()) {
-                                        AsyncImage(
-                                            model = track.coverUrl,
-                                            contentDescription = null,
-                                            modifier = Modifier.fillMaxSize(),
-                                            contentScale = ContentScale.Crop
-                                        )
-                                    } else {
-                                        Icon(
-                                            imageVector = Icons.Default.MusicNote,
-                                            contentDescription = null,
-                                            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
-                                            modifier = Modifier.size(20.dp)
-                                        )
-                                    }
-                                }
+                                // Обложка трека (высокоскоростной кэш)
+                                TrackCoverThumbnail(
+                                    coverUrl = track.coverUrl,
+                                    sizeDp = 44.dp,
+                                    iconSizeDp = 20.dp
+                                )
 
                                 Spacer(modifier = Modifier.width(12.dp))
 

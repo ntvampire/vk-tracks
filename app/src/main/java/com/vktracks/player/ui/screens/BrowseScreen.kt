@@ -36,6 +36,7 @@ import com.vktracks.player.data.model.CatalogBlock
 import com.vktracks.player.data.model.CatalogButtonItem
 import com.vktracks.player.data.model.Playlist
 import com.vktracks.player.data.model.Track
+import com.vktracks.player.ui.components.TrackCoverThumbnail
 import com.vktracks.player.ui.theme.AppleRed
 
 @Composable
@@ -220,29 +221,11 @@ fun BrowseScreen(
                         modifier = Modifier.width(28.dp)
                     )
 
-                    Box(
-                        modifier = Modifier
-                            .size(48.dp)
-                            .clip(RoundedCornerShape(8.dp))
-                            .background(MaterialTheme.colorScheme.surfaceVariant),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        if (!track.coverUrl.isNullOrEmpty()) {
-                            AsyncImage(
-                                model = track.coverUrl,
-                                contentDescription = null,
-                                modifier = Modifier.fillMaxSize(),
-                                contentScale = ContentScale.Crop
-                            )
-                        } else {
-                            Icon(
-                                imageVector = Icons.Default.MusicNote,
-                                contentDescription = null,
-                                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
-                                modifier = Modifier.size(24.dp)
-                            )
-                        }
-                    }
+                    TrackCoverThumbnail(
+                        coverUrl = track.coverUrl,
+                        sizeDp = 48.dp,
+                        iconSizeDp = 24.dp
+                    )
 
                     Spacer(modifier = Modifier.width(14.dp))
 
@@ -360,29 +343,11 @@ fun BrowseScreen(
                                             .padding(vertical = 4.dp),
                                         verticalAlignment = Alignment.CenterVertically
                                     ) {
-                                        Box(
-                                            modifier = Modifier
-                                                .size(48.dp)
-                                                .clip(RoundedCornerShape(8.dp))
-                                                .background(MaterialTheme.colorScheme.surfaceVariant),
-                                            contentAlignment = Alignment.Center
-                                        ) {
-                                            if (!track.coverUrl.isNullOrEmpty()) {
-                                                AsyncImage(
-                                                    model = track.coverUrl,
-                                                    contentDescription = null,
-                                                    modifier = Modifier.fillMaxSize(),
-                                                    contentScale = ContentScale.Crop
-                                                )
-                                            } else {
-                                                Icon(
-                                                    imageVector = Icons.Default.MusicNote,
-                                                    contentDescription = null,
-                                                    tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
-                                                    modifier = Modifier.size(24.dp)
-                                                )
-                                            }
-                                        }
+                                        TrackCoverThumbnail(
+                                            coverUrl = track.coverUrl,
+                                            sizeDp = 48.dp,
+                                            iconSizeDp = 24.dp
+                                        )
 
                                         Spacer(modifier = Modifier.width(12.dp))
 

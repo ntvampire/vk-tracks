@@ -51,30 +51,12 @@ fun MiniPlayer(
                 .padding(horizontal = 12.dp, vertical = 8.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            // Обложка мини-плеера
-            Box(
-                modifier = Modifier
-                    .size(44.dp)
-                    .clip(RoundedCornerShape(8.dp))
-                    .background(MaterialTheme.colorScheme.surfaceVariant),
-                contentAlignment = Alignment.Center
-            ) {
-                if (!track.coverUrl.isNullOrEmpty()) {
-                    AsyncImage(
-                        model = track.coverUrl,
-                        contentDescription = null,
-                        modifier = Modifier.fillMaxSize(),
-                        contentScale = ContentScale.Crop
-                    )
-                } else {
-                    Icon(
-                        imageVector = Icons.Default.MusicNote,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
-                        modifier = Modifier.size(22.dp)
-                    )
-                }
-            }
+            // Обложка мини-плеера (высокоскоростной кэш)
+            TrackCoverThumbnail(
+                coverUrl = track.coverUrl,
+                sizeDp = 44.dp,
+                iconSizeDp = 22.dp
+            )
 
             Spacer(modifier = Modifier.width(12.dp))
 

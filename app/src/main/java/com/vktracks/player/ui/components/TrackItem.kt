@@ -28,14 +28,14 @@ import com.vktracks.player.ui.theme.AppleRed
 @Composable
 fun TrackItem(
     track: Track,
-    isPlaying: Boolean,
     isCurrent: Boolean,
     onTrackClick: () -> Unit,
     isLiked: Boolean = false,
     isDownloaded: Boolean = false,
     onLikeClick: (() -> Unit)? = null,
     onDownloadClick: (() -> Unit)? = null,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    isPlaying: Boolean = false
 ) {
     Row(
         modifier = modifier
@@ -44,30 +44,12 @@ fun TrackItem(
             .padding(horizontal = 16.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        // Обложка
-        Box(
-            modifier = Modifier
-                .size(48.dp)
-                .clip(RoundedCornerShape(8.dp))
-                .background(MaterialTheme.colorScheme.surfaceVariant),
-            contentAlignment = Alignment.Center
-        ) {
-            if (!track.coverUrl.isNullOrEmpty()) {
-                AsyncImage(
-                    model = track.coverUrl,
-                    contentDescription = null,
-                    modifier = Modifier.fillMaxSize(),
-                    contentScale = ContentScale.Crop
-                )
-            } else {
-                Icon(
-                    imageVector = Icons.Default.MusicNote,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
-                    modifier = Modifier.size(24.dp)
-                )
-            }
-        }
+        // Миниатюра обложки (выделяет ~80 КБ в RAM вместо 4 МБ)
+        TrackCoverThumbnail(
+            coverUrl = track.coverUrl,
+            sizeDp = 48.dp,
+            iconSizeDp = 24.dp
+        )
 
         Spacer(modifier = Modifier.width(14.dp))
 

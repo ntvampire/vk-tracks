@@ -31,40 +31,44 @@ class UpdateChecker(private val context: Context) {
     private val userAgent = "Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36"
 
     suspend fun checkForUpdates(): AppUpdateInfo? = withContext(Dispatchers.IO) {
-        try {
-            val request = Request.Builder()
-                .url(UPDATE_URL)
-                .header("User-Agent", userAgent)
-                .header("Cache-Control", "no-cache")
-                .build()
+        val urls = listOf(UPDATE_URL, RAW_UPDATE_URL)
+        for (url in urls) {
+            try {
+                val request = Request.Builder()
+                    .url(url)
+                    .header("User-Agent", userAgent)
+                    .header("Cache-Control", "no-cache")
+                    .build()
 
-            client.newCall(request).execute().use { response ->
-                if (!response.isSuccessful) return@withContext null
-                val body = response.body?.string() ?: return@withContext null
-                val json = JSONObject(body)
+                val info = client.newCall(request).execute().use { response ->
+                    if (!response.isSuccessful) return@use null
+                    val body = response.body?.string() ?: return@use null
+                    val json = JSONObject(body)
 
-                val remoteCode = json.optInt("versionCode")
-                val remoteName = json.optString("versionName")
-                val downloadUrl = json.optString("downloadUrl")
-                val mirrorUrl = json.optString("mirrorUrl").takeIf { it.isNotEmpty() }
-                val changelog = json.optString("changelog")
+                    val remoteCode = json.optInt("versionCode")
+                    val remoteName = json.optString("versionName")
+                    val downloadUrl = json.optString("downloadUrl")
+                    val mirrorUrl = json.optString("mirrorUrl").takeIf { it.isNotEmpty() }
+                    val changelog = json.optString("changelog")
 
-                if (remoteCode > BuildConfig.VERSION_CODE) {
-                    AppUpdateInfo(
-                        versionCode = remoteCode,
-                        versionName = remoteName,
-                        downloadUrl = downloadUrl,
-                        mirrorUrl = mirrorUrl,
-                        changelog = changelog
-                    )
-                } else {
-                    null
+                    if (remoteCode > BuildConfig.VERSION_CODE) {
+                        AppUpdateInfo(
+                            versionCode = remoteCode,
+                            versionName = remoteName,
+                            downloadUrl = downloadUrl,
+                            mirrorUrl = mirrorUrl,
+                            changelog = changelog
+                        )
+                    } else {
+                        null
+                    }
                 }
+                if (info != null) return@withContext info
+            } catch (e: Exception) {
+                Log.w("UpdateChecker", "Failed to check update from $url", e)
             }
-        } catch (e: Exception) {
-            Log.w("UpdateChecker", "Failed to check for updates", e)
-            null
         }
+        null
     }
 
     suspend fun downloadAndInstallApk(updateInfo: AppUpdateInfo, onProgress: (Int) -> Unit): Result<Unit> = withContext(Dispatchers.IO) {
@@ -177,5 +181,6 @@ class UpdateChecker(private val context: Context) {
 
     companion object {
         const val UPDATE_URL = "https://ntvampire.github.io/vk-tracks/update.json"
+        const val RAW_UPDATE_URL = "https://raw.githubusercontent.com/ntvampire/vk-tracks/main/docs/update.json"
     }
 }

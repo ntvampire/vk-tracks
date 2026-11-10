@@ -13,6 +13,7 @@ import com.vktracks.player.data.model.Playlist
 import com.vktracks.player.data.model.SearchResult
 import com.vktracks.player.data.model.StreamMix
 import com.vktracks.player.data.model.Track
+import com.vktracks.player.data.model.TrackRestriction
 import com.vktracks.player.data.model.VkMixSettings
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
@@ -1107,6 +1108,22 @@ class VkApiClient(
             ?: thumb?.optString("photo_270")?.takeIf { it.isNotEmpty() }
             ?: thumb?.optString("photo_135")?.takeIf { it.isNotEmpty() }
 
+        // Ограничения трека (Murglar RestrictionStatus: правообладатель, геоблок, подписка)
+        val contentRestrictedObj = item.optJSONObject("content_restricted")
+        val contentRestrictedInt = item.optInt("content_restricted", 0)
+        val restrictionStatusInt = item.optInt("restriction_status", 0)
+
+        val restrictionCode = when {
+            restrictionStatusInt > 0 -> restrictionStatusInt
+            contentRestrictedInt > 0 -> contentRestrictedInt
+            contentRestrictedObj != null -> 1
+            else -> 0
+        }
+
+        val restriction = TrackRestriction.from(restrictionCode)
+        val restrictionText = contentRestrictedObj?.optString("text")?.takeIf { it.isNotEmpty() }
+            ?: contentRestrictedObj?.optString("title")?.takeIf { it.isNotEmpty() }
+
         return Track(
             id = id,
             ownerId = ownerId,
@@ -1118,7 +1135,9 @@ class VkApiClient(
             albumTitle = album?.optString("title"),
             isExplicit = isExplicit,
             lyricsId = lyricsId,
-            accessKey = accessKey
+            accessKey = accessKey,
+            restriction = restriction,
+            restrictionText = restrictionText
         )
     }
 

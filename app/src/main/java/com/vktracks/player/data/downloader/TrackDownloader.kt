@@ -23,6 +23,34 @@ import java.io.IOException
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.TimeUnit
 
+// Санитаризация имен файлов (Murglar & VKX: замена недопустимых символов на читаемые аналоги)
+object FileSanitizer {
+    private val REPLACEMENTS = mapOf(
+        '"' to '\'',
+        '<' to '[',
+        '>' to ']',
+        ':' to '-',
+        '*' to '+',
+        '?' to '_',
+        '/' to '_',
+        '\\' to '_',
+        '|' to '_'
+    )
+
+    fun sanitize(input: String): String {
+        val sb = StringBuilder(input.length)
+        for (ch in input.trim()) {
+            val rep = REPLACEMENTS[ch]
+            if (rep != null) {
+                sb.append(rep)
+            } else if (ch.code >= 32) {
+                sb.append(ch)
+            }
+        }
+        return sb.toString().trim().ifEmpty { "Unknown" }
+    }
+}
+
 class TrackDownloader(
     private val context: Context,
     private val database: AppDatabase
@@ -38,6 +66,38 @@ class TrackDownloader(
         return _downloadProgress.getOrPut(fullId) { MutableStateFlow(-1) }.asStateFlow()
     }
 
+    fun getFileNameTemplate(): String {
+        val prefs = context.getSharedPreferences("settings", Context.MODE_PRIVATE)
+        return prefs.getString("download_file_template", "ARTIST_TITLE") ?: "ARTIST_TITLE"
+    }
+
+    fun setFileNameTemplate(template: String) {
+        val prefs = context.getSharedPreferences("settings", Context.MODE_PRIVATE)
+        prefs.edit().putString("download_file_template", template).apply()
+    }
+
+    fun buildTargetPaths(track: Track, subfolder: String?): Pair<String?, String> {
+        val template = getFileNameTemplate()
+        val safeArtist = FileSanitizer.sanitize(track.artist)
+        val safeTitle = FileSanitizer.sanitize(track.title)
+        val safeAlbum = track.albumTitle?.let { FileSanitizer.sanitize(it) } ?: "Single"
+
+        return when (template) {
+            "ALBUM_ARTIST_TITLE" -> {
+                val fullSub = if (!subfolder.isNullOrBlank()) "$subfolder/$safeAlbum" else safeAlbum
+                Pair(fullSub, "$safeArtist - $safeTitle.mp3")
+            }
+            "ARTIST_ALBUM_TITLE" -> {
+                val fullSub = if (!subfolder.isNullOrBlank()) "$subfolder/$safeArtist/$safeAlbum" else "$safeArtist/$safeAlbum"
+                Pair(fullSub, "$safeTitle.mp3")
+            }
+            else -> {
+                // "ARTIST_TITLE"
+                Pair(subfolder, "$safeArtist - $safeTitle.mp3")
+            }
+        }
+    }
+
     suspend fun downloadTrack(track: Track, subfolder: String? = null): Result<File> = withContext(Dispatchers.IO) {
         val flow = _downloadProgress.getOrPut(track.fullId) { MutableStateFlow(0) }
         flow.value = 0
@@ -46,9 +106,7 @@ class TrackDownloader(
         if (tempFile.exists()) tempFile.delete()
 
         try {
-            val safeArtist = track.artist.replace(Regex("""[\\/:*?"<>|]"""), "_").trim()
-            val safeTitle = track.title.replace(Regex("""[\\/:*?"<>|]"""), "_").trim()
-            val fileName = "$safeArtist - $safeTitle.mp3"
+            val (effectiveSubfolder, fileName) = buildTargetPaths(track, subfolder)
 
             // 1. Проверяем тип потока: прямой MP3 или HLS m3u8
             if (track.streamUrl.contains(".m3u8")) {
@@ -73,7 +131,7 @@ class TrackDownloader(
             Id3Tagger.tagMp3(tempFile, track.title, track.artist, track.albumTitle, coverBytes)
 
             // 4. Перемещаем в целевое хранилище (MediaStore на Android 10+ или файловую систему)
-            val savedFile = saveToStorage(tempFile, fileName, subfolder, track)
+            val savedFile = saveToStorage(tempFile, fileName, effectiveSubfolder, track)
 
             // 5. Сохраняем в локальную базу данных Room
             val entity = TrackEntity(
@@ -264,6 +322,8 @@ class TrackDownloader(
         }
     }
 
+    private data class HlsVariant(val bandwidth: Long, val url: String)
+
     private fun fetchMediaPlaylist(m3u8Url: String): Pair<String, List<String>> {
         val playlistRequest = Request.Builder().url(m3u8Url).build()
         val playlistText = client.newCall(playlistRequest).execute().use { response ->
@@ -273,6 +333,28 @@ class TrackDownloader(
 
         val baseUrl = m3u8Url.substringBeforeLast("/") + "/"
         val lines = playlistText.lines().map { it.trim() }.filter { it.isNotEmpty() }
+
+        // Murglar HlsBitrateEstimator: поиск мастер-плейлиста с несколькими потоками качества
+        val variants = mutableListOf<HlsVariant>()
+        var currentBandwidth: Long? = null
+
+        for (line in lines) {
+            if (line.startsWith("#EXT-X-STREAM-INF", ignoreCase = true)) {
+                val match = Regex("""BANDWIDTH=(\d+)""", RegexOption.IGNORE_CASE).find(line)
+                currentBandwidth = match?.groupValues?.get(1)?.toLongOrNull() ?: 0L
+            } else if (!line.startsWith("#") && line.contains(".m3u8")) {
+                val fullUrl = if (line.startsWith("http")) line else baseUrl + line
+                variants.add(HlsVariant(currentBandwidth ?: 0L, fullUrl))
+                currentBandwidth = null
+            }
+        }
+
+        // Если обнаружены варианты битрейта, выбираем поток с максимальным качеством (320 kbps)
+        if (variants.isNotEmpty()) {
+            val bestVariant = variants.maxByOrNull { it.bandwidth } ?: variants.first()
+            return fetchMediaPlaylist(bestVariant.url)
+        }
+
         val childM3u8 = lines.firstOrNull { !it.startsWith("#") && it.contains(".m3u8") }
         if (childM3u8 != null) {
             val childUrl = if (childM3u8.startsWith("http")) childM3u8 else baseUrl + childM3u8

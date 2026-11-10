@@ -26,7 +26,9 @@ import androidx.media3.session.CommandButton
 import androidx.media3.session.DefaultMediaNotificationProvider
 import androidx.media3.session.MediaNotification
 import androidx.media3.session.MediaSession
-import androidx.media3.session.MediaSessionService
+import androidx.media3.session.MediaLibraryService
+import androidx.media3.session.MediaLibraryService.MediaLibrarySession
+import androidx.media3.session.LibraryResult
 import androidx.media3.session.SessionCommand
 import androidx.media3.session.SessionResult
 import coil.Coil
@@ -39,7 +41,10 @@ import com.vktracks.player.R
 import com.vktracks.player.data.local.AppDatabase
 import com.vktracks.player.data.local.TrackEntity
 import com.vktracks.player.data.model.Track
+import com.vktracks.player.data.model.TrackRestriction
 import com.vktracks.player.ui.MainActivity
+import org.json.JSONArray
+import org.json.JSONObject
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -52,9 +57,9 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.ByteArrayOutputStream
 
-class PlaybackService : MediaSessionService() {
+class PlaybackService : MediaLibraryService() {
 
-    private var mediaSession: MediaSession? = null
+    private var mediaSession: MediaLibrarySession? = null
     private lateinit var player: ExoPlayer
     private val serviceScope = CoroutineScope(Dispatchers.Main + Job())
     private var progressJob: Job? = null
@@ -66,7 +71,7 @@ class PlaybackService : MediaSessionService() {
     private var lastSeekTimestamp: Long = 0L
     private var lastSeekPositionMs: Long = 0L
 
-    private val sessionCallback = object : MediaSession.Callback {
+    private val sessionCallback = object : MediaLibrarySession.Callback {
         override fun onConnect(
             session: MediaSession,
             controller: MediaSession.ControllerInfo
@@ -100,6 +105,145 @@ class PlaybackService : MediaSessionService() {
                 return Futures.immediateFuture(SessionResult(SessionResult.RESULT_SUCCESS))
             }
             return super.onCustomCommand(session, controller, customCommand, args)
+        }
+
+        // Поддержка Android Auto / MediaLibraryService (VKX стиль)
+        override fun onGetLibraryRoot(
+            session: MediaLibrarySession,
+            browser: MediaSession.ControllerInfo,
+            params: LibraryParams?
+        ): ListenableFuture<LibraryResult<MediaItem>> {
+            val rootItem = MediaItem.Builder()
+                .setMediaId("ROOT")
+                .setMediaMetadata(
+                    MediaMetadata.Builder()
+                        .setIsBrowsable(true)
+                        .setIsPlayable(false)
+                        .setTitle("VK Tracks")
+                        .build()
+                )
+                .build()
+            return Futures.immediateFuture(LibraryResult.ofItem(rootItem, params))
+        }
+
+        override fun onGetChildren(
+            session: MediaLibrarySession,
+            browser: MediaSession.ControllerInfo,
+            parentId: String,
+            page: Int,
+            pageSize: Int,
+            params: LibraryParams?
+        ): ListenableFuture<LibraryResult<ImmutableList<MediaItem>>> {
+            val items = mutableListOf<MediaItem>()
+            when (parentId) {
+                "ROOT" -> {
+                    items.add(
+                        MediaItem.Builder()
+                            .setMediaId("NODE_RADIO")
+                            .setMediaMetadata(
+                                MediaMetadata.Builder()
+                                    .setIsBrowsable(true)
+                                    .setIsPlayable(false)
+                                    .setTitle("Радио (Прямой эфир)")
+                                    .build()
+                            )
+                            .build()
+                    )
+                    items.add(
+                        MediaItem.Builder()
+                            .setMediaId("NODE_QUEUE")
+                            .setMediaMetadata(
+                                MediaMetadata.Builder()
+                                    .setIsBrowsable(true)
+                                    .setIsPlayable(false)
+                                    .setTitle("Текущая очередь")
+                                    .build()
+                            )
+                            .build()
+                    )
+                }
+                "NODE_RADIO" -> {
+                    items.add(
+                        MediaItem.Builder()
+                            .setMediaId("RADIO_STUDIO_21")
+                            .setUri(Uri.parse("https://stream.studio21.ru/live256.mp3"))
+                            .setMediaMetadata(
+                                MediaMetadata.Builder()
+                                    .setIsBrowsable(false)
+                                    .setIsPlayable(true)
+                                    .setTitle("Studio 21")
+                                    .setArtist("Прямой эфир")
+                                    .build()
+                            )
+                            .build()
+                    )
+                    items.add(
+                        MediaItem.Builder()
+                            .setMediaId("RADIO_RECORD")
+                            .setUri(Uri.parse("https://radiorecord.hostingradio.ru/rr_main96.aacp"))
+                            .setMediaMetadata(
+                                MediaMetadata.Builder()
+                                    .setIsBrowsable(false)
+                                    .setIsPlayable(true)
+                                    .setTitle("Радио Record")
+                                    .setArtist("Прямой эфир")
+                                    .build()
+                            )
+                            .build()
+                    )
+                }
+                "NODE_QUEUE" -> {
+                    currentQueue.forEach { track ->
+                        val uri = when {
+                            track.isLocal && !track.localFilePath.isNullOrEmpty() -> Uri.parse(track.localFilePath)
+                            track.streamUrl.isNotEmpty() -> Uri.parse(track.streamUrl)
+                            else -> Uri.EMPTY
+                        }
+                        if (uri != Uri.EMPTY) {
+                            items.add(
+                                MediaItem.Builder()
+                                    .setMediaId(track.fullId)
+                                    .setUri(uri)
+                                    .setMediaMetadata(
+                                        MediaMetadata.Builder()
+                                            .setIsBrowsable(false)
+                                            .setIsPlayable(true)
+                                            .setTitle(track.title)
+                                            .setArtist(track.artist)
+                                            .setArtworkUri(track.coverUrl?.let { Uri.parse(it) })
+                                            .build()
+                                    )
+                                    .build()
+                            )
+                        }
+                    }
+                }
+            }
+            return Futures.immediateFuture(LibraryResult.ofItemList(ImmutableList.copyOf(items), params))
+        }
+
+        override fun onGetItem(
+            session: MediaLibrarySession,
+            browser: MediaSession.ControllerInfo,
+            mediaId: String
+        ): ListenableFuture<LibraryResult<MediaItem>> {
+            val track = currentQueue.firstOrNull { it.fullId == mediaId }
+            if (track != null) {
+                val uri = if (track.isLocal && !track.localFilePath.isNullOrEmpty()) Uri.parse(track.localFilePath) else Uri.parse(track.streamUrl)
+                val item = MediaItem.Builder()
+                    .setMediaId(track.fullId)
+                    .setUri(uri)
+                    .setMediaMetadata(
+                        MediaMetadata.Builder()
+                            .setTitle(track.title)
+                            .setArtist(track.artist)
+                            .setArtworkUri(track.coverUrl?.let { Uri.parse(it) })
+                            .build()
+                    )
+                    .build()
+                return Futures.immediateFuture(LibraryResult.ofItem(item, null))
+            }
+            return Futures.immediateFuture(LibraryResult.ofError(LibraryResult.RESULT_ERROR_BAD_VALUE))
         }
     }
 
@@ -188,15 +332,19 @@ class PlaybackService : MediaSessionService() {
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
         )
 
-        mediaSession = MediaSession.Builder(this, player)
+        mediaSession = MediaLibrarySession.Builder(this, player, sessionCallback)
             .setSessionActivity(sessionActivityIntent)
-            .setCallback(sessionCallback)
             .build()
 
         player.addListener(object : Player.Listener {
             override fun onIsPlayingChanged(isPlaying: Boolean) {
                 _isPlaying.value = isPlaying
-                if (isPlaying) startProgressUpdates() else stopProgressUpdates()
+                if (isPlaying) {
+                    startProgressUpdates()
+                } else {
+                    stopProgressUpdates()
+                    saveQueueState()
+                }
                 updateNotificationLikeButton()
                 mediaSession?.let { onUpdateNotification(it, isPlaying) }
             }
@@ -214,6 +362,7 @@ class PlaybackService : MediaSessionService() {
                     saveHistory(track)
                     loadArtworkAsync(track)
                     updateNotificationLikeButton()
+                    saveQueueState()
                 }
             }
 
@@ -255,9 +404,12 @@ class PlaybackService : MediaSessionService() {
                 android.util.Log.e("PlaybackService", "ExoPlayer error: ${error.errorCodeName} (${error.errorCode}) - ${error.message}", error)
             }
         })
+
+        // Восстановление сохраненной очереди и позиции (VKX QueueSaveHolder)
+        restoreSavedQueue()
     }
 
-    override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaSession? {
+    override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaLibrarySession? {
         return mediaSession
     }
 
@@ -270,6 +422,7 @@ class PlaybackService : MediaSessionService() {
     }
 
     override fun onDestroy() {
+        saveQueueState()
         progressJob?.cancel()
         mediaSession?.run {
             player.release()
@@ -322,6 +475,7 @@ class PlaybackService : MediaSessionService() {
         loadArtworkAsync(validTrack)
         updateNotificationLikeButton()
         mediaSession?.let { onUpdateNotification(it, true) }
+        saveQueueState()
     }
 
     fun refreshNotification() {
@@ -588,6 +742,139 @@ class PlaybackService : MediaSessionService() {
                 )
                 db.trackDao().insertOrUpdate(entity)
             } catch (_: Exception) {}
+        }
+    }
+
+    // Сохранение состояния очереди и позиции (VKX QueueSaveHolder)
+    private fun saveQueueState() {
+        try {
+            val queue = currentQueue
+            if (queue.isEmpty()) return
+            val currentIndex = player.currentMediaItemIndex
+            val currentPos = player.currentPosition.coerceAtLeast(0)
+
+            val jsonArray = JSONArray()
+            queue.take(150).forEach { track ->
+                val obj = JSONObject().apply {
+                    put("id", track.id)
+                    put("ownerId", track.ownerId)
+                    put("title", track.title)
+                    put("artist", track.artist)
+                    put("duration", track.duration)
+                    put("streamUrl", track.streamUrl)
+                    put("coverUrl", track.coverUrl ?: "")
+                    put("albumTitle", track.albumTitle ?: "")
+                    put("isExplicit", track.isExplicit)
+                    put("lyricsId", track.lyricsId ?: 0L)
+                    put("accessKey", track.accessKey ?: "")
+                    put("isLiked", track.isLiked)
+                    put("localFilePath", track.localFilePath ?: "")
+                    put("restrictionCode", track.restriction.code)
+                    put("restrictionText", track.restrictionText ?: "")
+                }
+                jsonArray.put(obj)
+            }
+
+            val prefs = getSharedPreferences("playback_state_prefs", Context.MODE_PRIVATE)
+            prefs.edit()
+                .putString("saved_queue_json", jsonArray.toString())
+                .putInt("saved_queue_index", currentIndex)
+                .putLong("saved_position_ms", currentPos)
+                .apply()
+        } catch (e: Exception) {
+            android.util.Log.e("PlaybackService", "Error saving queue state", e)
+        }
+    }
+
+    // Восстановление состояния очереди и позиции при перезапуске (VKX QueueSaveHolder)
+    private fun restoreSavedQueue() {
+        try {
+            val prefs = getSharedPreferences("playback_state_prefs", Context.MODE_PRIVATE)
+            val jsonStr = prefs.getString("saved_queue_json", null) ?: return
+            if (jsonStr.isEmpty() || jsonStr == "[]") return
+
+            val jsonArray = JSONArray(jsonStr)
+            val restored = mutableListOf<Track>()
+            for (i in 0 until jsonArray.length()) {
+                val obj = jsonArray.optJSONObject(i) ?: continue
+                val id = obj.optLong("id")
+                if (id == 0L) continue
+                val ownerId = obj.optLong("ownerId")
+                val title = obj.optString("title", "Без названия")
+                val artist = obj.optString("artist", "Неизвестный исполнитель")
+                val duration = obj.optInt("duration", 0)
+                val streamUrl = obj.optString("streamUrl", "")
+                val coverUrl = obj.optString("coverUrl").takeIf { it.isNotEmpty() }
+                val albumTitle = obj.optString("albumTitle").takeIf { it.isNotEmpty() }
+                val isExplicit = obj.optBoolean("isExplicit", false)
+                val lyricsId = obj.optLong("lyricsId", 0L).takeIf { it > 0L }
+                val accessKey = obj.optString("accessKey").takeIf { it.isNotEmpty() }
+                val isLiked = obj.optBoolean("isLiked", false)
+                val localFilePath = obj.optString("localFilePath").takeIf { it.isNotEmpty() }
+                val restCode = obj.optInt("restrictionCode", 0)
+                val restText = obj.optString("restrictionText").takeIf { it.isNotEmpty() }
+
+                restored.add(
+                    Track(
+                        id = id,
+                        ownerId = ownerId,
+                        title = title,
+                        artist = artist,
+                        duration = duration,
+                        streamUrl = streamUrl,
+                        coverUrl = coverUrl,
+                        albumTitle = albumTitle,
+                        isExplicit = isExplicit,
+                        lyricsId = lyricsId,
+                        accessKey = accessKey,
+                        isLiked = isLiked,
+                        localFilePath = localFilePath,
+                        restriction = TrackRestriction.from(restCode),
+                        restrictionText = restText
+                    )
+                )
+            }
+
+            if (restored.isEmpty()) return
+            currentQueue = restored
+            _currentQueueFlow.value = restored
+
+            val savedIndex = prefs.getInt("saved_queue_index", 0).coerceIn(0, restored.lastIndex)
+            val savedPos = prefs.getLong("saved_position_ms", 0L).coerceAtLeast(0L)
+            val current = restored[savedIndex]
+
+            val mediaItems = restored.map { track ->
+                val uri = when {
+                    track.isLocal && !track.localFilePath.isNullOrEmpty() -> Uri.parse(track.localFilePath)
+                    track.streamUrl.isNotEmpty() -> Uri.parse(track.streamUrl)
+                    else -> Uri.parse(current.streamUrl)
+                }
+                val metadata = MediaMetadata.Builder()
+                    .setTitle(track.title)
+                    .setArtist(track.artist)
+                    .setDisplayTitle(track.title)
+                    .setAlbumTitle(track.albumTitle)
+                    .setArtworkUri(track.coverUrl?.let { Uri.parse(it) })
+                    .build()
+
+                MediaItem.Builder()
+                    .setMediaId(track.fullId)
+                    .setUri(uri)
+                    .setMediaMetadata(metadata)
+                    .build()
+            }
+
+            player.setMediaItems(mediaItems, savedIndex, savedPos)
+            player.prepare()
+            player.playWhenReady = false
+
+            _currentTrack.value = current
+            _currentPositionMs.value = savedPos
+            _durationMs.value = (current.duration.toLong() * 1000L).coerceAtLeast(0)
+            loadArtworkAsync(current)
+            updateNotificationLikeButton()
+        } catch (e: Exception) {
+            android.util.Log.e("PlaybackService", "Error restoring saved queue", e)
         }
     }
 

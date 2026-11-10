@@ -58,6 +58,16 @@ fun SettingsScreen(
     var downloadPathDisplay by remember { mutableStateOf(downloader.getDownloadPathDisplay()) }
     var showFolderDialog by remember { mutableStateOf(false) }
     var showCacheLimitDialog by remember { mutableStateOf(false) }
+    var showTemplateDialog by remember { mutableStateOf(false) }
+    var currentTemplate by remember { mutableStateOf(downloader.getFileNameTemplate()) }
+
+    val templateOptions = listOf(
+        "ARTIST_TITLE" to "{Исполнитель} - {Название}.mp3",
+        "ALBUM_ARTIST_TITLE" to "{Альбом}/{Исполнитель} - {Название}.mp3",
+        "ARTIST_ALBUM_TITLE" to "{Исполнитель}/{Альбом}/{Название}.mp3"
+    )
+
+    val currentTemplateDisplay = templateOptions.firstOrNull { it.first == currentTemplate }?.second ?: "{Исполнитель} - {Название}.mp3"
 
     val cacheLimitOptions = listOf(
         500 to "500 МБ",
@@ -186,6 +196,51 @@ fun SettingsScreen(
             },
             confirmButton = {
                 TextButton(onClick = { showCacheLimitDialog = false }) {
+                    Text("Закрыть")
+                }
+            }
+        )
+    }
+
+    if (showTemplateDialog) {
+        AlertDialog(
+            onDismissRequest = { showTemplateDialog = false },
+            title = { Text("Шаблон имени файлов") },
+            text = {
+                Column {
+                    templateOptions.forEach { (tmpl, label) ->
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable {
+                                    downloader.setFileNameTemplate(tmpl)
+                                    currentTemplate = tmpl
+                                    showTemplateDialog = false
+                                }
+                                .padding(vertical = 12.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            RadioButton(
+                                selected = currentTemplate == tmpl,
+                                onClick = {
+                                    downloader.setFileNameTemplate(tmpl)
+                                    currentTemplate = tmpl
+                                    showTemplateDialog = false
+                                },
+                                colors = RadioButtonDefaults.colors(selectedColor = AppleRed)
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = label,
+                                fontSize = 14.sp,
+                                fontWeight = if (currentTemplate == tmpl) FontWeight.Bold else FontWeight.Normal
+                            )
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { showTemplateDialog = false }) {
                     Text("Закрыть")
                 }
             }
@@ -333,6 +388,13 @@ fun SettingsScreen(
                         title = "Папка с сохраненными треками",
                         subtitle = downloadPathDisplay,
                         onClick = { showFolderDialog = true }
+                    )
+                    HorizontalDivider(color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
+                    SettingsItem(
+                        icon = Icons.Default.Description,
+                        title = "Шаблон имени файлов",
+                        subtitle = currentTemplateDisplay,
+                        onClick = { showTemplateDialog = true }
                     )
                 }
             }

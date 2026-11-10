@@ -1,7 +1,7 @@
 ﻿{
-    "versionCode":  37,
-    "versionName":  "1.0.36",
-    "downloadUrl":  "https://github.com/ntvampire/vk-tracks/releases/download/v1.0.36/VK-Tracks-1.0.36.apk",
-    "mirrorUrl":  "https://ntvampire.github.io/vk-tracks/VK-Tracks-1.0.36.apk",
-    "changelog":  "1. Восстановление загрузки нативных обложек VK API и пагинации избранного: v=5.131 для audio.* и users.* возвращает album.thumb и поддерживает offset; v=5.155 строго для catalog.*. 2. Исключение задержек и мигания: прямой AsyncImage(coverUrl) без тяжелых промежуточных плейсхолдеров, легкая векторная нота строго при отсутствии обложки. 3. Слайдер таймлайна в плеере: отмена предыдущих delay-джобов при повторных тапах и перетаскивании, исключение срыва позиции на 0:00."
+    "versionCode":  38,
+    "versionName":  "1.0.37",
+    "downloadUrl":  "https://github.com/ntvampire/vk-tracks/releases/download/v1.0.37/VK-Tracks-1.0.37.apk",
+    "mirrorUrl":  "https://ntvampire.github.io/vk-tracks/VK-Tracks-1.0.37.apk",
+    "changelog":  "VKX and Murglar Feature Pack: 1. Восстановление очереди и позиции воспроизведения при перезапуске (VKX QueueSaveHolder). 2. Интеграция с Android Auto через MediaLibraryService и automotive_app_desc (VKX CarApp). 3. Диагностика и индикация ограничений треков TrackRestriction (Murglar: правообладатель, геоблок, подписка). 4. Загрузчик HLS максимального качества 320 кбит/с с оценкой BANDWIDTH в мастер-манифесте (Murglar HlsBitrateEstimator). 5. Санитаризация имен файлов FileSanitizer и кастомные шаблоны путей сохранения в настройках."
 }

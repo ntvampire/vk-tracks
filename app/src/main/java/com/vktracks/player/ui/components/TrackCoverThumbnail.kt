@@ -14,13 +14,15 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
+import coil.request.ImageRequest
 
 /**
  * Высокопроизводительный компонент миниатюры обложки для списков, очередей и мини-плеера.
- * Использует стандартный Coil AsyncImage поверх легковесной векторной ноты.
+ * Использует стандартный Coil AsyncImage поверх легковесной векторной ноты с аппаратным даунсэмплингом Coil (144x144 px).
  * Обеспечивает 120 FPS плавную прокрутку LazyColumn без подкомпозиций и исключает появление серых квадратов.
  */
 @Composable
@@ -48,8 +50,14 @@ fun TrackCoverThumbnail(
 
         // Слой обложки: нативный аппаратный AsyncImage без подкомпозиций (быстрое декодирование Coil)
         if (!coverUrl.isNullOrEmpty()) {
+            val context = LocalContext.current
+            val request = ImageRequest.Builder(context)
+                .data(coverUrl)
+                .crossfade(true)
+                .size(144, 144)
+                .build()
             AsyncImage(
-                model = coverUrl,
+                model = request,
                 contentDescription = null,
                 modifier = Modifier.fillMaxSize(),
                 contentScale = ContentScale.Crop

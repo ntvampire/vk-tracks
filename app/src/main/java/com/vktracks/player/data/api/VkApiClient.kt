@@ -47,6 +47,10 @@ class VkApiClient(
     @Volatile
     private var preferredUserAgent = vkMusicUserAgent
 
+    // Быстрый In-Memory кэш обложек треков и альбомов (0 мс, по эталону VKX)
+    private val trackCoverCache = java.util.concurrent.ConcurrentHashMap<String, String>()
+    private val albumCoverCache = java.util.concurrent.ConcurrentHashMap<String, String>()
+
     suspend fun getUserProfile(): Pair<String, String>? = withContext(Dispatchers.IO) {
         val json = callVkApi("users.get", mapOf("fields" to "photo_100")) ?: return@withContext null
         val response = json.optJSONArray("response") ?: return@withContext null
@@ -122,8 +126,9 @@ class VkApiClient(
 
         val totalCount = response?.optInt("count", 0) ?: 0
         val rawCount = items?.length() ?: 0
-        val tracks = if (items != null) parseTracksArray(items) else emptyList()
-        AudiosPage(tracks = tracks, totalCount = totalCount, rawCount = rawCount)
+        val rawTracks = if (items != null) parseTracksArray(items) else emptyList()
+        val enrichedTracks = enrichTracksWithVkDetails(rawTracks)
+        AudiosPage(tracks = enrichedTracks, totalCount = totalCount, rawCount = rawCount)
     }
 
     suspend fun getPlaylists(offset: Int = 0, count: Int = 30): List<Playlist> = withContext(Dispatchers.IO) {
@@ -742,8 +747,22 @@ class VkApiClient(
      */
     suspend fun enrichTracksWithVkDetails(tracks: List<Track>): List<Track> = withContext(Dispatchers.IO) {
         if (tracks.isEmpty()) return@withContext emptyList()
-        val missing = tracks.filter { it.coverUrl.isNullOrEmpty() || !isValidImageUrl(it.coverUrl) }
-        if (missing.isEmpty()) return@withContext tracks
+
+        // 1. Моментальное заполнение из In-Memory кэша (0 мс, по подобию VKX)
+        val withCached = tracks.map { track ->
+            if (track.coverUrl.isNullOrEmpty() || !isValidImageUrl(track.coverUrl)) {
+                val cached = trackCoverCache[track.fullId]
+                    ?: track.albumTitle?.let { albumCoverCache[it] }
+                if (!cached.isNullOrEmpty()) track.copy(coverUrl = cached) else track
+            } else {
+                trackCoverCache[track.fullId] = track.coverUrl
+                track.albumTitle?.let { albumCoverCache[it] = track.coverUrl }
+                track
+            }
+        }
+
+        val missing = withCached.filter { it.coverUrl.isNullOrEmpty() || !isValidImageUrl(it.coverUrl) }
+        if (missing.isEmpty()) return@withContext withCached
 
         val enrichedMap = mutableMapOf<String, Track>()
         val chunks = missing.chunked(100)
@@ -758,7 +777,7 @@ class VkApiClient(
             }
 
             try {
-                val json = callVkApi("audio.getById", mapOf("audios" to audiosParam, "extended" to "1"))
+                val json = callVkApi("audio.getById", mapOf("audios" to audiosParam))
                 val items = json?.optJSONArray("response")
                     ?: json?.optJSONObject("response")?.optJSONArray("items")
                     ?: json?.optJSONObject("response")?.optJSONArray("audios")
@@ -767,6 +786,10 @@ class VkApiClient(
                         val item = items.optJSONObject(i) ?: continue
                         val parsed = parseTrackObject(item) ?: continue
                         enrichedMap[parsed.fullId] = parsed
+                        if (!parsed.coverUrl.isNullOrEmpty()) {
+                            trackCoverCache[parsed.fullId] = parsed.coverUrl
+                            parsed.albumTitle?.let { albumCoverCache[it] = parsed.coverUrl }
+                        }
                     }
                 }
             } catch (e: Exception) {
@@ -774,7 +797,7 @@ class VkApiClient(
             }
         }
 
-        tracks.map { track ->
+        withCached.map { track ->
             val enriched = enrichedMap[track.fullId]
             if (enriched != null) {
                 track.copy(
@@ -786,32 +809,47 @@ class VkApiClient(
                     restrictionText = enriched.restrictionText ?: track.restrictionText
                 )
             } else {
-                track
+                val fallbackCover = track.albumTitle?.let { albumCoverCache[it] }
+                if (!fallbackCover.isNullOrEmpty()) track.copy(coverUrl = fallbackCover) else track
             }
         }
     }
 
     suspend fun resolveTrack(track: Track): Track = withContext(Dispatchers.IO) {
-        if (track.streamUrl.isNotEmpty() && !track.coverUrl.isNullOrEmpty() && isValidImageUrl(track.coverUrl)) return@withContext track
-        val audiosParam = if (!track.accessKey.isNullOrEmpty()) {
-            "${track.ownerId}_${track.id}_${track.accessKey}"
-        } else {
-            "${track.ownerId}_${track.id}"
+        val cachedCover = trackCoverCache[track.fullId]
+            ?: track.albumTitle?.let { albumCoverCache[it] }
+        val trackWithCached = if (track.coverUrl.isNullOrEmpty() && !cachedCover.isNullOrEmpty()) {
+            track.copy(coverUrl = cachedCover)
+        } else track
+
+        if (trackWithCached.streamUrl.isNotEmpty() && !trackWithCached.coverUrl.isNullOrEmpty() && isValidImageUrl(trackWithCached.coverUrl)) {
+            return@withContext trackWithCached
         }
-        val json = callVkApi("audio.getById", mapOf("audios" to audiosParam, "extended" to "1")) ?: return@withContext track
+
+        val audiosParam = if (!trackWithCached.accessKey.isNullOrEmpty()) {
+            "${trackWithCached.ownerId}_${trackWithCached.id}_${trackWithCached.accessKey}"
+        } else {
+            "${trackWithCached.ownerId}_${trackWithCached.id}"
+        }
+        val json = callVkApi("audio.getById", mapOf("audios" to audiosParam)) ?: return@withContext trackWithCached
         val responseArray = json.optJSONArray("response")
         val item = responseArray?.optJSONObject(0)
             ?: json.optJSONObject("response")?.optJSONArray("items")?.optJSONObject(0)
             ?: json.optJSONObject("response")?.optJSONArray("audios")?.optJSONObject(0)
-            ?: return@withContext track
-        val parsed = parseTrackObject(item) ?: return@withContext track
-        track.copy(
-            streamUrl = if (parsed.streamUrl.isNotEmpty()) parsed.streamUrl else track.streamUrl,
-            coverUrl = parsed.coverUrl ?: track.coverUrl,
-            albumTitle = parsed.albumTitle ?: track.albumTitle,
-            lyricsId = parsed.lyricsId ?: track.lyricsId,
+            ?: return@withContext trackWithCached
+        val parsed = parseTrackObject(item) ?: return@withContext trackWithCached
+        val resolvedCover = parsed.coverUrl ?: trackWithCached.coverUrl
+        if (!resolvedCover.isNullOrEmpty()) {
+            trackCoverCache[trackWithCached.fullId] = resolvedCover
+            trackWithCached.albumTitle?.let { albumCoverCache[it] = resolvedCover }
+        }
+        trackWithCached.copy(
+            streamUrl = if (parsed.streamUrl.isNotEmpty()) parsed.streamUrl else trackWithCached.streamUrl,
+            coverUrl = resolvedCover,
+            albumTitle = parsed.albumTitle ?: trackWithCached.albumTitle,
+            lyricsId = parsed.lyricsId ?: trackWithCached.lyricsId,
             restriction = parsed.restriction,
-            restrictionText = parsed.restrictionText ?: track.restrictionText
+            restrictionText = parsed.restrictionText ?: trackWithCached.restrictionText
         )
     }
 
@@ -1084,15 +1122,20 @@ class VkApiClient(
     private fun callVkApi(method: String, params: Map<String, String>): JSONObject? {
         val token = authManager.getAccessToken() ?: return null
 
-        val result = executeMethodCall(method, params, token, preferredUserAgent)
+        val primaryUa = if (method.startsWith("catalog.")) vkMusicUserAgent else vkAndroidUserAgent
+        val fallbackUa = if (primaryUa == vkAndroidUserAgent) vkMusicUserAgent else vkAndroidUserAgent
+
+        // Попытка 1: С основным User-Agent (VK Android для audio.*, VK Музыка для catalog.*)
+        var result = executeMethodCall(method, params, token, primaryUa, "api.vk.com")
+            ?: executeMethodCall(method, params, token, primaryUa, "api.vk.ru")
+
         if (result != null) {
             val errCode = result.optJSONObject("error")?.optInt("error_code") ?: 0
             if (errCode in listOf(3, 8, 15, 23, 27, 28)) {
-                val fallbackUa = if (preferredUserAgent == vkAndroidUserAgent) vkMusicUserAgent else vkAndroidUserAgent
-                Log.w("VkApiClient", "VK API $method returned error $errCode with $preferredUserAgent, retrying with $fallbackUa")
-                val fallbackResult = executeMethodCall(method, params, token, fallbackUa)
+                Log.w("VkApiClient", "VK API $method returned error $errCode with $primaryUa, retrying with $fallbackUa")
+                val fallbackResult = executeMethodCall(method, params, token, fallbackUa, "api.vk.com")
+                    ?: executeMethodCall(method, params, token, fallbackUa, "api.vk.ru")
                 if (fallbackResult != null && !fallbackResult.has("error")) {
-                    preferredUserAgent = fallbackUa
                     return fallbackResult
                 }
             }
@@ -1100,7 +1143,7 @@ class VkApiClient(
         return result
     }
 
-    private fun executeMethodCall(method: String, params: Map<String, String>, token: String, ua: String): JSONObject? {
+    private fun executeMethodCall(method: String, params: Map<String, String>, token: String, ua: String, host: String = "api.vk.com"): JSONObject? {
         val methodApiVersion = params["v"] ?: apiVersion
         val formBuilder = FormBody.Builder()
             .add("access_token", token)
@@ -1113,35 +1156,26 @@ class VkApiClient(
         }
 
         val requestBuilder = Request.Builder()
-            .url("https://api.vk.com/method/$method")
+            .url("https://$host/method/$method")
             .header("User-Agent", ua)
             .post(formBuilder.build())
-
-        if (ua.contains("VKMusic")) {
-            requestBuilder.header("X-App-Id", "6767438")
-            requestBuilder.header("X-Client-Version", "10683")
-            requestBuilder.header("X-VK-Android-Client", "new")
-        } else if (ua.contains("VKAndroidApp")) {
-            requestBuilder.header("X-App-Id", "2274003")
-            requestBuilder.header("X-VK-Android-Client", "new")
-        }
 
         return try {
             client.newCall(requestBuilder.build()).execute().use { response ->
                 if (!response.isSuccessful) {
-                    Log.e("VkApiClient", "HTTP error ${response.code} for $method")
+                    Log.e("VkApiClient", "HTTP error ${response.code} for $method on $host")
                     return null
                 }
                 val body = response.body?.string() ?: return null
                 val json = JSONObject(body)
                 if (json.has("error")) {
                     val err = json.optJSONObject("error")
-                    Log.e("VkApiClient", "VK API error for $method: [${err?.optInt("error_code")}] ${err?.optString("error_msg")}")
+                    Log.e("VkApiClient", "VK API error for $method on $host: [${err?.optInt("error_code")}] ${err?.optString("error_msg")}")
                 }
                 json
             }
         } catch (e: Exception) {
-            Log.e("VkApiClient", "Network exception in callVkApi($method)", e)
+            Log.e("VkApiClient", "Network exception in callVkApi($method) on $host", e)
             null
         }
     }
@@ -1186,7 +1220,19 @@ class VkApiClient(
 
         // Обложка из альбома / объекта трека (нативные данные VK API v5.155 / Catalog / Boom)
         val album = item.optJSONObject("album")
-        val coverUrl = extractCoverUrl(item)
+        var coverUrl = extractCoverUrl(item)
+        val fullId = "${ownerId}_$id"
+
+        if (!coverUrl.isNullOrEmpty()) {
+            trackCoverCache[fullId] = coverUrl
+            val albumTitle = album?.optString("title")
+            if (!albumTitle.isNullOrEmpty()) {
+                albumCoverCache[albumTitle] = coverUrl
+            }
+        } else {
+            coverUrl = trackCoverCache[fullId]
+                ?: album?.optString("title")?.let { albumCoverCache[it] }
+        }
 
         // Ограничения трека (Murglar RestrictionStatus: правообладатель, геоблок, подписка)
         val contentRestrictedObj = item.optJSONObject("content_restricted")

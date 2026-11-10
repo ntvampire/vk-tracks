@@ -1146,6 +1146,11 @@ class VkApiClient(
                     ?: first?.optString("photo_270")?.takeIf { it.isNotEmpty() }
             }
         }
+        if (coverUrl.isNullOrEmpty()) {
+            val cover = item.optJSONObject("cover")
+            coverUrl = cover?.optString("uri")?.takeIf { it.isNotEmpty() }
+                ?: cover?.optString("url")?.takeIf { it.isNotEmpty() }
+        }
 
         return Track(
             id = id,

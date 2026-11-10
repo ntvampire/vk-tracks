@@ -151,19 +151,9 @@ fun FullPlayerSheet(
                             contentAlignment = Alignment.Center
                         ) {
                             if (!track.coverUrl.isNullOrEmpty()) {
-                                val context = LocalContext.current
-                                val coverReq = remember(track.coverUrl) {
-                                    ImageRequest.Builder(context)
-                                        .data(track.coverUrl)
-                                        .size(600, 600)
-                                        .crossfade(false)
-                                        .build()
-                                }
                                 AsyncImage(
-                                    model = coverReq,
-                                    contentDescription = null,
-                                    placeholder = painterResource(R.drawable.ic_vk_music_placeholder),
-                                    error = painterResource(R.drawable.ic_vk_music_placeholder),
+                                    model = track.coverUrl,
+                                    contentDescription = track.title,
                                     modifier = Modifier.fillMaxSize(),
                                     contentScale = ContentScale.Crop
                                 )

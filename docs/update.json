@@ -1,7 +1,7 @@
 ﻿{
-    "versionCode":  33,
-    "versionName":  "1.0.32",
-    "downloadUrl":  "https://github.com/ntvampire/vk-tracks/releases/download/v1.0.32/VK-Tracks-1.0.32.apk",
-    "mirrorUrl":  "https://ntvampire.github.io/vk-tracks/VK-Tracks-1.0.32.apk",
-    "changelog":  "Затененная иконка (логотип) сервиса \u0027ВК Музыка\u0027 в качестве заглушки обложек треков ВК во всех компонентах интерфейса и системной шторке Android."
+    "versionCode":  34,
+    "versionName":  "1.0.33",
+    "downloadUrl":  "https://github.com/ntvampire/vk-tracks/releases/download/v1.0.33/VK-Tracks-1.0.33.apk",
+    "mirrorUrl":  "https://ntvampire.github.io/vk-tracks/VK-Tracks-1.0.33.apk",
+    "changelog":  "1. Исправлено извлечение нативных обложек VK (устранена ошибка отсечения photo_300/photo_1200, заглушка ВК Музыка теперь отображается строго у треков без обложки). 2. Устранена перемотка на 0:00 при первом клике на таймлайн (тайм-лок перемотки в PlaybackService и реактивное удержание позиции в Slider)."
 }

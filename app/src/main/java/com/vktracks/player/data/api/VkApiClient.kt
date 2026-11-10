@@ -1095,14 +1095,56 @@ class VkApiClient(
         val accessKey = item.optString("access_key").takeIf { it.isNotEmpty() }
         val url = item.optString("url", "")
 
-        // Обложка из альбома
+        // Обложка из альбома / объекта трека (нативные данные VK)
         var coverUrl: String? = null
         val album = item.optJSONObject("album")
         if (album != null) {
-            val thumb = album.optJSONObject("thumb")
-            coverUrl = thumb?.optString("photo_600")
-                ?: thumb?.optString("photo_300")
-                ?: thumb?.optString("photo_1200")
+            val thumb = album.optJSONObject("thumb") ?: album.optJSONObject("photo")
+            if (thumb != null) {
+                coverUrl = thumb.optString("photo_600").takeIf { it.isNotEmpty() }
+                    ?: thumb.optString("photo_300").takeIf { it.isNotEmpty() }
+                    ?: thumb.optString("photo_1200").takeIf { it.isNotEmpty() }
+                    ?: thumb.optString("photo_270").takeIf { it.isNotEmpty() }
+                    ?: thumb.optString("photo_135").takeIf { it.isNotEmpty() }
+                    ?: thumb.optString("photo_68").takeIf { it.isNotEmpty() }
+            }
+            if (coverUrl.isNullOrEmpty()) {
+                val thumbs = album.optJSONArray("thumbs")
+                if (thumbs != null && thumbs.length() > 0) {
+                    val first = thumbs.optJSONObject(0)
+                    coverUrl = first?.optString("photo_600")?.takeIf { it.isNotEmpty() }
+                        ?: first?.optString("photo_300")?.takeIf { it.isNotEmpty() }
+                        ?: first?.optString("photo_1200")?.takeIf { it.isNotEmpty() }
+                        ?: first?.optString("photo_270")?.takeIf { it.isNotEmpty() }
+                }
+            }
+            if (coverUrl.isNullOrEmpty()) {
+                coverUrl = album.optString("photo_600").takeIf { it.isNotEmpty() }
+                    ?: album.optString("photo_300").takeIf { it.isNotEmpty() }
+                    ?: album.optString("photo_1200").takeIf { it.isNotEmpty() }
+                    ?: album.optString("photo_270").takeIf { it.isNotEmpty() }
+                    ?: album.optString("photo_135").takeIf { it.isNotEmpty() }
+            }
+        }
+        if (coverUrl.isNullOrEmpty()) {
+            val thumb = item.optJSONObject("thumb") ?: item.optJSONObject("photo")
+            if (thumb != null) {
+                coverUrl = thumb.optString("photo_600").takeIf { it.isNotEmpty() }
+                    ?: thumb.optString("photo_300").takeIf { it.isNotEmpty() }
+                    ?: thumb.optString("photo_1200").takeIf { it.isNotEmpty() }
+                    ?: thumb.optString("photo_270").takeIf { it.isNotEmpty() }
+                    ?: thumb.optString("photo_135").takeIf { it.isNotEmpty() }
+            }
+        }
+        if (coverUrl.isNullOrEmpty()) {
+            val thumbs = item.optJSONArray("thumbs")
+            if (thumbs != null && thumbs.length() > 0) {
+                val first = thumbs.optJSONObject(0)
+                coverUrl = first?.optString("photo_600")?.takeIf { it.isNotEmpty() }
+                    ?: first?.optString("photo_300")?.takeIf { it.isNotEmpty() }
+                    ?: first?.optString("photo_1200")?.takeIf { it.isNotEmpty() }
+                    ?: first?.optString("photo_270")?.takeIf { it.isNotEmpty() }
+            }
         }
 
         return Track(

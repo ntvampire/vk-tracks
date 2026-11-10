@@ -63,6 +63,8 @@ class PlaybackService : MediaSessionService() {
     private var lastLoadedArtworkKey: String? = null
     @Volatile
     private var currentNotificationBitmap: Bitmap? = null
+    private var lastSeekTimestamp: Long = 0L
+    private var lastSeekPositionMs: Long = 0L
 
     private val sessionCallback = object : MediaSession.Callback {
         override fun onConnect(
@@ -393,8 +395,10 @@ class PlaybackService : MediaSessionService() {
     }
 
     fun seekTo(positionMs: Long) {
-        player.seekTo(positionMs)
+        lastSeekTimestamp = System.currentTimeMillis()
+        lastSeekPositionMs = positionMs
         _currentPositionMs.value = positionMs
+        player.seekTo(positionMs)
     }
 
     fun toggleShuffle() {
@@ -560,16 +564,27 @@ class PlaybackService : MediaSessionService() {
         progressJob?.cancel()
         progressJob = serviceScope.launch {
             while (isActive) {
-                _currentPositionMs.value = player.currentPosition.coerceAtLeast(0)
-                _durationMs.value = player.duration.coerceAtLeast(0)
-                delay(400)
+                val now = System.currentTimeMillis()
+                if (now - lastSeekTimestamp >= 1200L) {
+                    _currentPositionMs.value = player.currentPosition.coerceAtLeast(0)
+                } else {
+                    _currentPositionMs.value = lastSeekPositionMs
+                }
+                val dur = player.duration
+                if (dur > 0) {
+                    _durationMs.value = dur
+                }
+                delay(300)
             }
         }
     }
 
     private fun stopProgressUpdates() {
         progressJob?.cancel()
-        _currentPositionMs.value = player.currentPosition.coerceAtLeast(0)
+        val now = System.currentTimeMillis()
+        if (now - lastSeekTimestamp >= 1200L) {
+            _currentPositionMs.value = player.currentPosition.coerceAtLeast(0)
+        }
     }
 
     private fun saveHistory(track: Track) {

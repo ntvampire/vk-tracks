@@ -75,7 +75,7 @@ class VkApiClient(
         }
 
         // Проверяем токен через users.get
-        val url = "https://api.vk.com/method/users.get?v=5.131&access_token=$token&fields=photo_100"
+        val url = "https://api.vk.com/method/users.get?v=$apiVersion&access_token=$token&fields=photo_100"
         val request = Request.Builder()
             .url(url)
             .header("User-Agent", preferredUserAgent)
@@ -1016,7 +1016,7 @@ class VkApiClient(
     }
 
     private fun executeMethodCall(method: String, params: Map<String, String>, token: String, ua: String): JSONObject? {
-        val methodApiVersion = params["v"] ?: if (method.startsWith("catalog.")) "5.155" else "5.131"
+        val methodApiVersion = params["v"] ?: apiVersion
         val formBuilder = FormBody.Builder()
             .add("access_token", token)
             .add("v", methodApiVersion)
@@ -1099,14 +1099,26 @@ class VkApiClient(
         val accessKey = item.optString("access_key").takeIf { it.isNotEmpty() }
         val url = item.optString("url", "")
 
-        // Обложка из альбома / объекта трека (нативные данные VK)
+        // Обложка из альбома / объекта трека (нативные данные VK API v5.155, подход Murglar)
         val album = item.optJSONObject("album")
-        val thumb = album?.optJSONObject("thumb") ?: item.optJSONObject("thumb")
-        val coverUrl = thumb?.optString("photo_600")?.takeIf { it.isNotEmpty() }
-            ?: thumb?.optString("photo_300")?.takeIf { it.isNotEmpty() }
-            ?: thumb?.optString("photo_1200")?.takeIf { it.isNotEmpty() }
-            ?: thumb?.optString("photo_270")?.takeIf { it.isNotEmpty() }
-            ?: thumb?.optString("photo_135")?.takeIf { it.isNotEmpty() }
+        val thumbObj = album?.optJSONObject("thumb")
+            ?: album?.optJSONObject("photo")
+            ?: item.optJSONObject("thumb")
+            ?: item.optJSONObject("photo")
+            ?: run {
+                val thumbs = album?.optJSONArray("thumbs") ?: item.optJSONArray("thumbs")
+                thumbs?.optJSONObject(0)
+            }
+
+        val coverUrl = thumbObj?.optString("photo_600")?.takeIf { it.isNotEmpty() }
+            ?: thumbObj?.optString("photo_300")?.takeIf { it.isNotEmpty() }
+            ?: thumbObj?.optString("photo_1200")?.takeIf { it.isNotEmpty() }
+            ?: thumbObj?.optString("photo_270")?.takeIf { it.isNotEmpty() }
+            ?: thumbObj?.optString("photo_135")?.takeIf { it.isNotEmpty() }
+            ?: thumbObj?.optString("photo_68")?.takeIf { it.isNotEmpty() }
+            ?: thumbObj?.optString("url")?.takeIf { it.isNotEmpty() }
+            ?: item.optJSONObject("cover")?.optString("uri")?.takeIf { it.isNotEmpty() }
+            ?: item.optJSONObject("cover")?.optString("url")?.takeIf { it.isNotEmpty() }
 
         // Ограничения трека (Murglar RestrictionStatus: правообладатель, геоблок, подписка)
         val contentRestrictedObj = item.optJSONObject("content_restricted")

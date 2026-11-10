@@ -166,13 +166,14 @@ class PlaybackService : MediaLibraryService() {
                     items.add(
                         MediaItem.Builder()
                             .setMediaId("RADIO_STUDIO_21")
-                            .setUri(Uri.parse("https://stream.studio21.ru/live256.mp3"))
+                            .setUri(Uri.parse(com.vktracks.player.data.model.RadioStation.STUDIO_21.streamUrl))
                             .setMediaMetadata(
                                 MediaMetadata.Builder()
                                     .setIsBrowsable(false)
                                     .setIsPlayable(true)
                                     .setTitle("Studio 21")
                                     .setArtist("Прямой эфир")
+                                    .setArtworkUri(Uri.parse(com.vktracks.player.data.model.RadioStation.STUDIO_21.logoUrl))
                                     .build()
                             )
                             .build()
@@ -180,13 +181,14 @@ class PlaybackService : MediaLibraryService() {
                     items.add(
                         MediaItem.Builder()
                             .setMediaId("RADIO_RECORD")
-                            .setUri(Uri.parse("https://radiorecord.hostingradio.ru/rr_main96.aacp"))
+                            .setUri(Uri.parse(com.vktracks.player.data.model.RadioStation.RADIO_RECORD.streamUrl))
                             .setMediaMetadata(
                                 MediaMetadata.Builder()
                                     .setIsBrowsable(false)
                                     .setIsPlayable(true)
                                     .setTitle("Радио Record")
                                     .setArtist("Прямой эфир")
+                                    .setArtworkUri(Uri.parse(com.vktracks.player.data.model.RadioStation.RADIO_RECORD.logoUrl))
                                     .build()
                             )
                             .build()
@@ -227,6 +229,40 @@ class PlaybackService : MediaLibraryService() {
             browser: MediaSession.ControllerInfo,
             mediaId: String
         ): ListenableFuture<LibraryResult<MediaItem>> {
+            when (mediaId) {
+                "RADIO_STUDIO_21" -> {
+                    val item = MediaItem.Builder()
+                        .setMediaId("RADIO_STUDIO_21")
+                        .setUri(Uri.parse(com.vktracks.player.data.model.RadioStation.STUDIO_21.streamUrl))
+                        .setMediaMetadata(
+                            MediaMetadata.Builder()
+                                .setTitle("Studio 21")
+                                .setArtist("Прямой эфир")
+                                .setArtworkUri(Uri.parse(com.vktracks.player.data.model.RadioStation.STUDIO_21.logoUrl))
+                                .setIsBrowsable(false)
+                                .setIsPlayable(true)
+                                .build()
+                        )
+                        .build()
+                    return Futures.immediateFuture(LibraryResult.ofItem(item, null))
+                }
+                "RADIO_RECORD" -> {
+                    val item = MediaItem.Builder()
+                        .setMediaId("RADIO_RECORD")
+                        .setUri(Uri.parse(com.vktracks.player.data.model.RadioStation.RADIO_RECORD.streamUrl))
+                        .setMediaMetadata(
+                            MediaMetadata.Builder()
+                                .setTitle("Радио Record")
+                                .setArtist("Прямой эфир")
+                                .setArtworkUri(Uri.parse(com.vktracks.player.data.model.RadioStation.RADIO_RECORD.logoUrl))
+                                .setIsBrowsable(false)
+                                .setIsPlayable(true)
+                                .build()
+                        )
+                        .build()
+                    return Futures.immediateFuture(LibraryResult.ofItem(item, null))
+                }
+            }
             val track = currentQueue.firstOrNull { it.fullId == mediaId }
             if (track != null) {
                 val uri = if (track.isLocal && !track.localFilePath.isNullOrEmpty()) Uri.parse(track.localFilePath) else Uri.parse(track.streamUrl)
@@ -510,19 +546,11 @@ class PlaybackService : MediaLibraryService() {
             currentQueue = currentQueue.map { if (it.fullId == current.fullId) updated else it }
             _currentQueueFlow.value = currentQueue
 
-            val currentIndex = player.currentMediaItemIndex
-            val currentItem = player.currentMediaItem
-            if (currentItem != null && currentIndex in currentQueue.indices) {
-                val newMeta = currentItem.mediaMetadata.buildUpon()
-                    .setTitle(cleanTitle)
-                    .setArtist(cleanArtist)
-                    .setDisplayTitle(cleanTitle)
-                    .build()
-                val newItem = currentItem.buildUpon()
-                    .setMediaMetadata(newMeta)
-                    .build()
-                player.replaceMediaItem(currentIndex, newItem)
-            }
+            player.playlistMetadata = MediaMetadata.Builder()
+                .setTitle(cleanTitle)
+                .setArtist(cleanArtist)
+                .setDisplayTitle(cleanTitle)
+                .build()
 
             loadArtworkAsync(updated)
 
@@ -647,36 +675,13 @@ class PlaybackService : MediaLibraryService() {
                         val drawable = result.drawable
                         val bitmap = (drawable as? BitmapDrawable)?.bitmap
                         if (bitmap != null) {
-                            val stream = ByteArrayOutputStream()
-                            bitmap.compress(Bitmap.CompressFormat.JPEG, 80, stream)
-                            val bytes = stream.toByteArray()
-
                             withContext(Dispatchers.Main) {
                                 val isCurrent = _currentTrack.value?.let {
                                     it.fullId == track.fullId && (it.duration != 0 || it.title == track.title)
                                 } ?: false
-                                if (isCurrent && player.currentMediaItemIndex in currentQueue.indices) {
-                                    val currentIndex = player.currentMediaItemIndex
-                                    val currentItem = player.currentMediaItem
-                                    if (currentItem != null) {
-                                        val currentLive = _currentTrack.value
-                                        // replaceMediaItem вызывается ТОЛЬКО для живого радио (без длительности),
-                                        // чтобы не сбрасывать аудиобуфер и кодеки ExoPlayer у обычных треков ВК
-                                        if (track.duration == 0) {
-                                            val newMetadata = currentItem.mediaMetadata.buildUpon()
-                                                .setTitle(currentLive?.title ?: track.title)
-                                                .setArtist(currentLive?.artist ?: track.artist)
-                                                .setDisplayTitle(currentLive?.title ?: track.title)
-                                                .setArtworkData(bytes, MediaMetadata.PICTURE_TYPE_FRONT_COVER)
-                                                .build()
-                                            val newItem = currentItem.buildUpon()
-                                                .setMediaMetadata(newMetadata)
-                                                .build()
-                                            player.replaceMediaItem(currentIndex, newItem)
-                                        }
-                                        currentNotificationBitmap = bitmap
-                                        mediaSession?.let { onUpdateNotification(it, player.playWhenReady) }
-                                    }
+                                if (isCurrent) {
+                                    currentNotificationBitmap = bitmap
+                                    mediaSession?.let { onUpdateNotification(it, player.playWhenReady) }
                                 }
                             }
                         }

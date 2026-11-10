@@ -34,6 +34,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.media3.common.Player
 import coil.compose.AsyncImage
+import coil.request.ImageRequest
 import com.vktracks.player.data.model.Lyrics
 import com.vktracks.player.data.model.Track
 import com.vktracks.player.service.PlaybackService
@@ -147,8 +148,16 @@ fun FullPlayerSheet(
                             contentAlignment = Alignment.Center
                         ) {
                             if (!track.coverUrl.isNullOrEmpty()) {
+                                val context = LocalContext.current
+                                val coverReq = remember(track.coverUrl) {
+                                    ImageRequest.Builder(context)
+                                        .data(track.coverUrl)
+                                        .size(600, 600)
+                                        .crossfade(false)
+                                        .build()
+                                }
                                 AsyncImage(
-                                    model = track.coverUrl,
+                                    model = coverReq,
                                     contentDescription = null,
                                     modifier = Modifier.fillMaxSize(),
                                     contentScale = ContentScale.Crop
@@ -307,15 +316,18 @@ fun FullPlayerSheet(
                 }
             } else {
                 // Таймлайн (Слайдер прогресса)
-                var sliderPosition by remember { mutableStateOf<Float?>(null) }
-                val currentSlider = sliderPosition ?: if (durationMs > 0) (currentPosMs.toFloat() / durationMs).coerceIn(0f, 1f) else 0f
+                val trackDurationMs = if (durationMs > 0) durationMs else ((track?.duration ?: 0).toLong() * 1000L)
+                var sliderPosition by remember(track?.id) { mutableStateOf<Float?>(null) }
+                val currentSlider = sliderPosition ?: if (trackDurationMs > 0) (currentPosMs.toFloat() / trackDurationMs).coerceIn(0f, 1f) else 0f
 
                 Slider(
                     value = currentSlider,
                     onValueChange = { sliderPosition = it },
                     onValueChangeFinished = {
                         sliderPosition?.let {
-                            onSeekTo((it * durationMs).toLong())
+                            if (trackDurationMs > 0) {
+                                onSeekTo((it * trackDurationMs).toLong())
+                            }
                             sliderPosition = null
                         }
                     },
@@ -340,7 +352,7 @@ fun FullPlayerSheet(
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                     Text(
-                        text = if (durationMs > 0) "-" + formatMs((durationMs - currentPosMs).coerceAtLeast(0)) else "--:--",
+                        text = if (trackDurationMs > 0) "-" + formatMs((trackDurationMs - currentPosMs).coerceAtLeast(0)) else "--:--",
                         fontSize = 12.sp,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )

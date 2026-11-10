@@ -5,6 +5,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.material.icons.Icons
@@ -25,6 +26,7 @@ import com.vktracks.player.data.model.Playlist
 import com.vktracks.player.data.model.Track
 import com.vktracks.player.ui.components.TrackCoverThumbnail
 import com.vktracks.player.ui.components.TrackItem
+import com.vktracks.player.ui.theme.AppleRed
 
 enum class LibraryTab(val title: String) {
     FAVORITES("Избранное"),
@@ -43,6 +45,8 @@ fun LibraryScreen(
     isPlaying: Boolean,
     likedTrackIds: Set<String> = emptySet(),
     downloadedTrackIds: Set<String> = emptySet(),
+    isLoadingMoreTracks: Boolean = false,
+    onLoadMoreTracks: () -> Unit = {},
     onTrackClick: (Track, List<Track>) -> Unit,
     onPlaylistClick: (Playlist) -> Unit,
     onLikeClick: (Track) -> Unit = {},
@@ -57,7 +61,24 @@ fun LibraryScreen(
     val userPlaylists = remember(playlists) { playlists.filter { !it.isAlbum } }
     val userAlbums = remember(playlists) { playlists.filter { it.isAlbum } }
 
+    val listState = rememberLazyListState()
+
+    val shouldLoadMore by remember {
+        derivedStateOf {
+            val lastVisibleIndex = listState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: 0
+            val totalCount = listState.layoutInfo.totalItemsCount
+            totalCount > 10 && lastVisibleIndex >= totalCount - 5
+        }
+    }
+
+    LaunchedEffect(shouldLoadMore, selectedTab) {
+        if (shouldLoadMore && selectedTab == LibraryTab.FAVORITES) {
+            onLoadMoreTracks()
+        }
+    }
+
     LazyColumn(
+        state = listState,
         modifier = modifier
             .fillMaxSize()
             .statusBarsPadding(),
@@ -139,6 +160,22 @@ fun LibraryScreen(
                                 onLikeClick = { onLikeClick(track) },
                                 onDownloadClick = { onDownloadClick(track, "Favorites") }
                             )
+                        }
+                        if (isLoadingMoreTracks) {
+                            item(key = "loading_more_favorites") {
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(16.dp),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    CircularProgressIndicator(
+                                        modifier = Modifier.size(28.dp),
+                                        color = AppleRed,
+                                        strokeWidth = 3.dp
+                                    )
+                                }
+                            }
                         }
                     }
                 }

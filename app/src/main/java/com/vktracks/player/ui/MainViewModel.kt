@@ -56,6 +56,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val _myTracks = MutableStateFlow<List<Track>>(emptyList())
     val myTracks: StateFlow<List<Track>> = _myTracks.asStateFlow()
 
+    private val _isLoadingMoreTracks = MutableStateFlow(false)
+    val isLoadingMoreTracks: StateFlow<Boolean> = _isLoadingMoreTracks.asStateFlow()
+    private var canLoadMoreTracks = true
+    private var isLoadingMoreJob: Job? = null
+
     private val _playlists = MutableStateFlow<List<Playlist>>(emptyList())
     val playlists: StateFlow<List<Playlist>> = _playlists.asStateFlow()
 
@@ -292,10 +297,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun loadLibrary() {
         viewModelScope.launch {
             _isLoading.value = true
+            canLoadMoreTracks = true
             try {
                 val audios = apiClient.getMyAudios(0, 100)
                 _myTracks.value = audios
                 _likedTrackIds.value = audios.map { it.fullId }.toSet()
+                if (audios.size < 100) {
+                    canLoadMoreTracks = false
+                }
                 _playlists.value = apiClient.getPlaylists(0, 100)
                 _recommendations.value = apiClient.getRecommendations(0, 50)
 
@@ -821,8 +830,40 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         _availableUpdate.value = null
     }
 
+    fun loadMoreMyTracks() {
+        if (!canLoadMoreTracks || _isLoadingMoreTracks.value || _isLoading.value) return
+        val currentCount = _myTracks.value.size
+        if (currentCount == 0) return
+
+        isLoadingMoreJob?.cancel()
+        isLoadingMoreJob = viewModelScope.launch {
+            _isLoadingMoreTracks.value = true
+            try {
+                val newAudios = apiClient.getMyAudios(offset = currentCount, count = 100)
+                if (newAudios.isEmpty()) {
+                    canLoadMoreTracks = false
+                } else {
+                    val currentIds = _myTracks.value.map { it.fullId }.toHashSet()
+                    val distinctNew = newAudios.filter { !currentIds.contains(it.fullId) }
+                    if (distinctNew.isEmpty() || newAudios.size < 100) {
+                        canLoadMoreTracks = false
+                    }
+                    _myTracks.value = _myTracks.value + distinctNew
+                    _likedTrackIds.value = _likedTrackIds.value + distinctNew.map { it.fullId }
+                }
+            } catch (e: Exception) {
+                android.util.Log.e("MainViewModel", "Failed to load more tracks", e)
+            } finally {
+                _isLoadingMoreTracks.value = false
+            }
+        }
+    }
+
+    private var lyricsJob: Job? = null
+
     private fun loadLyrics(track: Track) {
-        viewModelScope.launch {
+        lyricsJob?.cancel()
+        lyricsJob = viewModelScope.launch {
             _currentLyrics.value = null
             val lyrics = apiClient.getLyrics(track)
             _currentLyrics.value = lyrics

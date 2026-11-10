@@ -96,6 +96,14 @@ fun PlaylistDetailSheet(
                 }
             }
 
+            val tracksWithCovers = androidx.compose.runtime.remember(tracks, playlist.coverUrl) {
+                if (!playlist.coverUrl.isNullOrEmpty()) {
+                    tracks.map { if (it.coverUrl.isNullOrEmpty()) it.copy(coverUrl = playlist.coverUrl) else it }
+                } else {
+                    tracks
+                }
+            }
+
             LazyColumn(
                 modifier = Modifier.fillMaxSize(),
                 contentPadding = PaddingValues(bottom = 24.dp)
@@ -175,7 +183,7 @@ fun PlaylistDetailSheet(
                                 horizontalArrangement = Arrangement.spacedBy(12.dp)
                             ) {
                                 Button(
-                                    onClick = { if (tracks.isNotEmpty()) onPlayAllClick(tracks) },
+                                    onClick = { if (tracks.isNotEmpty()) onPlayAllClick(tracksWithCovers) },
                                     modifier = Modifier
                                         .weight(1f)
                                         .height(48.dp),
@@ -193,7 +201,7 @@ fun PlaylistDetailSheet(
                                 }
 
                                 FilledTonalButton(
-                                    onClick = { if (tracks.isNotEmpty()) onShuffleClick(tracks) },
+                                    onClick = { if (tracks.isNotEmpty()) onShuffleClick(tracksWithCovers) },
                                     modifier = Modifier
                                         .weight(1f)
                                         .height(48.dp),
@@ -259,7 +267,14 @@ fun PlaylistDetailSheet(
                             Row(
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .clickable { onTrackClick(track, tracks) }
+                                    .clickable {
+                                        val trackWithCover = if (track.coverUrl.isNullOrEmpty() && !playlist.coverUrl.isNullOrEmpty()) {
+                                            track.copy(coverUrl = playlist.coverUrl)
+                                        } else {
+                                            track
+                                        }
+                                        onTrackClick(trackWithCover, tracksWithCovers)
+                                    }
                                     .padding(horizontal = 20.dp, vertical = 10.dp),
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
@@ -272,9 +287,9 @@ fun PlaylistDetailSheet(
                                     modifier = Modifier.width(28.dp)
                                 )
 
-                                // Обложка трека (высокоскоростной кэш)
+                                // Обложка трека (нативная обложка трека либо обложка родительского альбома/плейлиста)
                                 TrackCoverThumbnail(
-                                    coverUrl = track.coverUrl,
+                                    coverUrl = track.coverUrl ?: playlist.coverUrl,
                                     sizeDp = 44.dp,
                                     iconSizeDp = 20.dp
                                 )

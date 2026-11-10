@@ -1,7 +1,7 @@
 ﻿{
-    "versionCode":  41,
-    "versionName":  "1.0.40",
-    "downloadUrl":  "https://github.com/ntvampire/vk-tracks/releases/download/v1.0.40/VK-Tracks-1.0.40.apk",
-    "mirrorUrl":  "https://ntvampire.github.io/vk-tracks/VK-Tracks-1.0.40.apk",
-    "changelog":  "Fix native VK track covers loading: restore VK API v5.131 for audio/user methods, remove heavy batch enrichment, direct resolveTrack in player"
+    "versionCode":  42,
+    "versionName":  "1.0.41",
+    "downloadUrl":  "https://github.com/ntvampire/vk-tracks/releases/download/v1.0.41/VK-Tracks-1.0.41.apk",
+    "mirrorUrl":  "https://ntvampire.github.io/vk-tracks/VK-Tracks-1.0.41.apk",
+    "changelog":  "1. Нативное отображение обложек треков VK API (по подобию обложек альбомов, плейлистов и артистов): добавлен универсальный рекурсивный извлекатель extractCoverUrl (album.thumb, album.photo, album.cover, album.thumbs, album.sizes, photo_600, photo_300, photo_1200, photo_270). 2. Передача параметра extended=1 во все методы аудио (audio.get, audio.getPlaylistById, audio.getRecommendations, audio.search, audio.getById). 3. Автоматическое наследование родительской обложки альбомов и плейлистов: треки внутри audio.getPlaylistById и PlaylistDetailSheet мгновенно наследуют playlist.coverUrl. 4. Наследование фото артиста в ArtistDetailScreen для популярных треков. 5. Отказоустойчивый авто-фоллбэк профилей User-Agent/App-ID в callVkApi (при ошибках 3, 8, 15, 23, 27, 28). 6. Чистая векторная нота строго при реальном отсутствии обложки."
 }

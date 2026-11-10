@@ -107,7 +107,8 @@ class VkApiClient(
         val userId = authManager.getUserId()
         val params = mutableMapOf(
             "offset" to offset.toString(),
-            "count" to count.toString()
+            "count" to count.toString(),
+            "extended" to "1"
         )
         if (userId > 0) {
             params["owner_id"] = userId.toString()
@@ -139,11 +140,39 @@ class VkApiClient(
     }
 
     suspend fun getPlaylistTracks(playlistId: Long, ownerId: Long, accessKey: String? = null): List<Track> = withContext(Dispatchers.IO) {
+        // Резервный вызов для официальных/редакционных плейлистов и альбомов VK (содержит объект playlist с нативной обложкой)
+        val pParams = mutableMapOf(
+            "playlist_id" to playlistId.toString(),
+            "owner_id" to ownerId.toString(),
+            "need_audios" to "1",
+            "count" to "150",
+            "extended" to "1"
+        )
+        if (!accessKey.isNullOrEmpty()) {
+            pParams["access_key"] = accessKey
+        }
+        val pJson = callVkApi("audio.getPlaylistById", pParams)
+        if (pJson != null && !pJson.has("error")) {
+            val pResp = pJson.optJSONObject("response")
+            val playlistObj = pResp?.optJSONObject("playlist") ?: pResp
+            val playlistCover = playlistObj?.let { extractCoverUrl(it) }
+            val audios = pResp?.optJSONArray("audios") ?: pResp?.optJSONArray("items")
+            if (audios != null) {
+                val parsed = parseTracksArray(audios)
+                return@withContext if (!playlistCover.isNullOrEmpty()) {
+                    parsed.map { if (it.coverUrl.isNullOrEmpty()) it.copy(coverUrl = playlistCover) else it }
+                } else {
+                    parsed
+                }
+            }
+        }
+
         val params = mutableMapOf(
             "playlist_id" to playlistId.toString(),
             "album_id" to playlistId.toString(),
             "owner_id" to ownerId.toString(),
-            "count" to "150"
+            "count" to "150",
+            "extended" to "1"
         )
         if (!accessKey.isNullOrEmpty()) {
             params["access_key"] = accessKey
@@ -152,25 +181,6 @@ class VkApiClient(
         if (json != null && !json.has("error")) {
             val tracks = parseTracksList(json)
             if (tracks.isNotEmpty()) return@withContext tracks
-        }
-
-        // Резервный вызов для официальных/редакционных плейлистов VK
-        val pParams = mutableMapOf(
-            "playlist_id" to playlistId.toString(),
-            "owner_id" to ownerId.toString(),
-            "need_audios" to "1",
-            "count" to "150"
-        )
-        if (!accessKey.isNullOrEmpty()) {
-            pParams["access_key"] = accessKey
-        }
-        val pJson = callVkApi("audio.getPlaylistById", pParams)
-        if (pJson != null && !pJson.has("error")) {
-            val pResp = pJson.optJSONObject("response")
-            val audios = pResp?.optJSONArray("audios") ?: pResp?.optJSONArray("items")
-            if (audios != null) {
-                return@withContext parseTracksArray(audios)
-            }
         }
 
         emptyList()
@@ -637,7 +647,8 @@ class VkApiClient(
         val userId = authManager.getUserId()
         val params = mutableMapOf(
             "offset" to offset.toString(),
-            "count" to count.toString()
+            "count" to count.toString(),
+            "extended" to "1"
         )
         if (userId > 0) {
             params["user_id"] = userId.toString()
@@ -747,7 +758,7 @@ class VkApiClient(
             }
 
             try {
-                val json = callVkApi("audio.getById", mapOf("audios" to audiosParam))
+                val json = callVkApi("audio.getById", mapOf("audios" to audiosParam, "extended" to "1"))
                 val items = json?.optJSONArray("response")
                     ?: json?.optJSONObject("response")?.optJSONArray("items")
                     ?: json?.optJSONObject("response")?.optJSONArray("audios")
@@ -787,10 +798,11 @@ class VkApiClient(
         } else {
             "${track.ownerId}_${track.id}"
         }
-        val json = callVkApi("audio.getById", mapOf("audios" to audiosParam)) ?: return@withContext track
+        val json = callVkApi("audio.getById", mapOf("audios" to audiosParam, "extended" to "1")) ?: return@withContext track
         val responseArray = json.optJSONArray("response")
         val item = responseArray?.optJSONObject(0)
             ?: json.optJSONObject("response")?.optJSONArray("items")?.optJSONObject(0)
+            ?: json.optJSONObject("response")?.optJSONArray("audios")?.optJSONObject(0)
             ?: return@withContext track
         val parsed = parseTrackObject(item) ?: return@withContext track
         track.copy(
@@ -972,9 +984,14 @@ class VkApiClient(
         }
 
         val updatedArtist = artist.copy(photoUrl = updatedPhotoUrl ?: artist.photoUrl)
+        val finalTracks = if (!updatedArtist.photoUrl.isNullOrEmpty()) {
+            popularTracks.map { if (it.coverUrl.isNullOrEmpty()) it.copy(coverUrl = updatedArtist.photoUrl) else it }
+        } else {
+            popularTracks
+        }
         ArtistDetail(
             artist = updatedArtist,
-            popularTracks = popularTracks,
+            popularTracks = finalTracks,
             albums = albums,
             bio = bio
         )
@@ -1071,8 +1088,8 @@ class VkApiClient(
         val result = executeMethodCall(method, params, token, preferredUserAgent)
         if (result != null) {
             val errCode = result.optJSONObject("error")?.optInt("error_code") ?: 0
-            if (errCode == 8 || errCode == 27) {
-                // Несоответствие User-Agent типу токена -> переключаем и пробуем второй профиль
+            if (errCode in listOf(3, 8, 15, 23, 27, 28)) {
+                // Несоответствие User-Agent типу токена или метода -> переключаем и пробуем второй профиль
                 val fallbackUa = if (preferredUserAgent == vkAndroidUserAgent) vkMusicUserAgent else vkAndroidUserAgent
                 Log.w("VkApiClient", "VK API $method returned error $errCode with $preferredUserAgent, retrying with $fallbackUa")
                 val fallbackResult = executeMethodCall(method, params, token, fallbackUa)
@@ -1169,29 +1186,9 @@ class VkApiClient(
         val accessKey = item.optString("access_key").takeIf { it.isNotEmpty() }
         val url = item.optString("url", "")
 
-        // Обложка из альбома / объекта трека (нативные данные VK API v5.155, подход Murglar)
+        // Обложка из альбома / объекта трека (нативные данные VK API v5.155 / Catalog / Boom)
         val album = item.optJSONObject("album")
-        val thumbObj = album?.optJSONObject("thumb")
-            ?: album?.optJSONObject("photo")
-            ?: item.optJSONObject("thumb")
-            ?: item.optJSONObject("photo")
-            ?: run {
-                val thumbs = album?.optJSONArray("thumbs") ?: item.optJSONArray("thumbs")
-                thumbs?.optJSONObject(0)
-            }
-
-        val coverUrl = thumbObj?.optString("photo_600")?.takeIf { it.isNotEmpty() }
-            ?: thumbObj?.optString("photo_300")?.takeIf { it.isNotEmpty() }
-            ?: thumbObj?.optString("photo_1200")?.takeIf { it.isNotEmpty() }
-            ?: thumbObj?.optString("photo_270")?.takeIf { it.isNotEmpty() }
-            ?: thumbObj?.optString("photo_135")?.takeIf { it.isNotEmpty() }
-            ?: thumbObj?.optString("photo_68")?.takeIf { it.isNotEmpty() }
-            ?: thumbObj?.optString("url")?.takeIf { it.isNotEmpty() }
-            ?: album?.optString("photo_600")?.takeIf { it.isNotEmpty() }
-            ?: album?.optString("photo_300")?.takeIf { it.isNotEmpty() }
-            ?: album?.optString("photo_1200")?.takeIf { it.isNotEmpty() }
-            ?: item.optJSONObject("cover")?.optString("uri")?.takeIf { it.isNotEmpty() }
-            ?: item.optJSONObject("cover")?.optString("url")?.takeIf { it.isNotEmpty() }
+        val coverUrl = extractCoverUrl(item)
 
         // Ограничения трека (Murglar RestrictionStatus: правообладатель, геоблок, подписка)
         val contentRestrictedObj = item.optJSONObject("content_restricted")
@@ -1224,6 +1221,104 @@ class VkApiClient(
             restriction = restriction,
             restrictionText = restrictionText
         )
+    }
+
+    /**
+     * Универсальный извлекатель нативных обложек VK API (v5.131 - v5.155).
+     * Обрабатывает вложенные объекты album, photo, thumb, thumbs, cover, sizes
+     * и прямые строковые ссылки с максимальным разрешением (600x600, 300x300, 1200x1200).
+     */
+    private fun extractCoverUrl(item: JSONObject): String? {
+        // 1. Из вложенного объекта альбома
+        val album = item.optJSONObject("album")
+        if (album != null) {
+            val fromAlbum = extractCoverFromContainer(album)
+            if (!fromAlbum.isNullOrEmpty()) return fromAlbum
+        }
+
+        // 2. Напрямую из контейнера объекта
+        val fromItem = extractCoverFromContainer(item)
+        if (!fromItem.isNullOrEmpty()) return fromItem
+
+        // 3. Прямые строковые поля
+        val direct = item.optString("photo_600").takeIf { it.isNotEmpty() }
+            ?: item.optString("photo_300").takeIf { it.isNotEmpty() }
+            ?: item.optString("photo_1200").takeIf { it.isNotEmpty() }
+            ?: item.optString("photo_270").takeIf { it.isNotEmpty() }
+            ?: item.optString("photo_135").takeIf { it.isNotEmpty() }
+            ?: item.optString("photo_68").takeIf { it.isNotEmpty() }
+            ?: item.optString("cover_url").takeIf { it.isNotEmpty() }
+            ?: item.optString("image").takeIf { it.isNotEmpty() }
+        if (!direct.isNullOrEmpty()) return direct
+
+        return null
+    }
+
+    private fun extractCoverFromContainer(container: JSONObject): String? {
+        // A. thumb (JSONObject)
+        val thumb = container.optJSONObject("thumb")
+        if (thumb != null) {
+            val u = extractCoverFromImageObject(thumb)
+            if (!u.isNullOrEmpty()) return u
+        }
+
+        // B. photo (JSONObject)
+        val photo = container.optJSONObject("photo")
+        if (photo != null) {
+            val u = extractCoverFromImageObject(photo)
+            if (!u.isNullOrEmpty()) return u
+        }
+
+        // C. cover (JSONObject)
+        val cover = container.optJSONObject("cover")
+        if (cover != null) {
+            val u = cover.optString("uri").takeIf { it.isNotEmpty() }
+                ?: cover.optString("url").takeIf { it.isNotEmpty() }
+                ?: extractCoverFromImageObject(cover)
+            if (!u.isNullOrEmpty()) return u
+        }
+
+        // D. thumbs или photo в виде массива
+        val thumbs = container.optJSONArray("thumbs") ?: container.optJSONArray("photo")
+        if (thumbs != null && thumbs.length() > 0) {
+            for (i in (thumbs.length() - 1) downTo 0) {
+                val tObj = thumbs.optJSONObject(i) ?: continue
+                val u = extractCoverFromImageObject(tObj)
+                if (!u.isNullOrEmpty()) return u
+            }
+        }
+
+        // E. sizes (стандартный формат размеров фото VK)
+        val sizes = container.optJSONArray("sizes")
+        if (sizes != null && sizes.length() > 0) {
+            val last = sizes.optJSONObject(sizes.length() - 1)
+            val u = last?.optString("url")?.takeIf { it.isNotEmpty() }
+                ?: last?.optString("src")?.takeIf { it.isNotEmpty() }
+            if (!u.isNullOrEmpty()) return u
+        }
+
+        // F. Прямые строковые поля внутри контейнера
+        return container.optString("photo_600").takeIf { it.isNotEmpty() }
+            ?: container.optString("photo_300").takeIf { it.isNotEmpty() }
+            ?: container.optString("photo_1200").takeIf { it.isNotEmpty() }
+            ?: container.optString("photo_270").takeIf { it.isNotEmpty() }
+            ?: container.optString("photo_135").takeIf { it.isNotEmpty() }
+            ?: container.optString("photo_68").takeIf { it.isNotEmpty() }
+            ?: container.optString("thumb").takeIf { it.startsWith("http") }
+            ?: container.optString("photo").takeIf { it.startsWith("http") }
+            ?: container.optString("url").takeIf { it.startsWith("http") && !it.contains(".mp3") }
+    }
+
+    private fun extractCoverFromImageObject(obj: JSONObject): String? {
+        return obj.optString("photo_600").takeIf { it.isNotEmpty() }
+            ?: obj.optString("photo_300").takeIf { it.isNotEmpty() }
+            ?: obj.optString("photo_1200").takeIf { it.isNotEmpty() }
+            ?: obj.optString("photo_270").takeIf { it.isNotEmpty() }
+            ?: obj.optString("photo_135").takeIf { it.isNotEmpty() }
+            ?: obj.optString("photo_68").takeIf { it.isNotEmpty() }
+            ?: obj.optString("url").takeIf { it.isNotEmpty() }
+            ?: obj.optString("uri").takeIf { it.isNotEmpty() }
+            ?: obj.optString("src").takeIf { it.isNotEmpty() }
     }
 
     private fun parseUmaTracks(json: JSONObject): List<Track> {
@@ -1458,43 +1553,7 @@ class VkApiClient(
             val description = item.optString("description", "")
             val count = item.optInt("count", 0)
             val accessKey = item.optString("access_key")
-
-            var coverUrl: String? = null
-
-            // 1. photo (VK API v5.131+ official)
-            val photo = item.optJSONObject("photo")
-            if (photo != null) {
-                coverUrl = photo.optString("photo_600").takeIf { it.isNotEmpty() }
-                    ?: photo.optString("photo_300").takeIf { it.isNotEmpty() }
-                    ?: photo.optString("photo_1200").takeIf { it.isNotEmpty() }
-                    ?: photo.optString("photo_270").takeIf { it.isNotEmpty() }
-                    ?: photo.optString("photo_135").takeIf { it.isNotEmpty() }
-            }
-
-            // 2. thumbs array
-            if (coverUrl.isNullOrEmpty()) {
-                val thumbs = item.optJSONArray("thumbs")
-                if (thumbs != null && thumbs.length() > 0) {
-                    val firstThumb = thumbs.optJSONObject(0)
-                    coverUrl = firstThumb?.optString("photo_600")?.takeIf { it.isNotEmpty() }
-                        ?: firstThumb?.optString("photo_300")?.takeIf { it.isNotEmpty() }
-                        ?: firstThumb?.optString("photo_1200")?.takeIf { it.isNotEmpty() }
-                        ?: firstThumb?.optString("photo_270")?.takeIf { it.isNotEmpty() }
-                }
-            }
-
-            // 3. thumb object
-            if (coverUrl.isNullOrEmpty()) {
-                val thumb = item.optJSONObject("thumb")
-                coverUrl = thumb?.optString("photo_600")?.takeIf { it.isNotEmpty() }
-                    ?: thumb?.optString("photo_300")?.takeIf { it.isNotEmpty() }
-                    ?: thumb?.optString("photo_1200")?.takeIf { it.isNotEmpty() }
-            }
-
-            // 4. cover.uri
-            if (coverUrl.isNullOrEmpty()) {
-                coverUrl = item.optJSONObject("cover")?.optString("uri")?.takeIf { it.isNotEmpty() }
-            }
+            val coverUrl = extractCoverUrl(item)
 
             val albumType = item.optString("album_type", "").trim().lowercase()
             val isExplicitAlbum = item.optBoolean("is_album", false) || item.optInt("is_album", 0) == 1

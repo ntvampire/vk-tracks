@@ -123,9 +123,6 @@ fun MainAppScreen(viewModel: MainViewModel) {
 
     val radioTracks by viewModel.radioTracks.collectAsState()
     val mixBlocks by viewModel.mixBlocks.collectAsState()
-    val myTracks by viewModel.myTracks.collectAsState()
-    val historyTracks by viewModel.historyTracks.collectAsState()
-    val downloadedTracks by viewModel.downloadedTracks.collectAsState()
     val recommendations by viewModel.recommendations.collectAsState()
     val playlists by viewModel.playlists.collectAsState()
     val catalogBlocks by viewModel.catalogBlocks.collectAsState()
@@ -223,6 +220,11 @@ fun MainAppScreen(viewModel: MainViewModel) {
                         )
                     }
                     MainTab.LIBRARY -> {
+                        val myTracks by viewModel.myTracks.collectAsState()
+                        val downloadedTracks by viewModel.downloadedTracks.collectAsState()
+                        val historyTracks by viewModel.historyTracks.collectAsState()
+                        val isLoadingMoreTracks by viewModel.isLoadingMoreTracks.collectAsState()
+
                         LibraryScreen(
                             myTracks = myTracks,
                             downloadedTracks = downloadedTracks,
@@ -232,6 +234,8 @@ fun MainAppScreen(viewModel: MainViewModel) {
                             isPlaying = isPlaying,
                             likedTrackIds = likedTrackIds,
                             downloadedTrackIds = downloadedTrackIds,
+                            isLoadingMoreTracks = isLoadingMoreTracks,
+                            onLoadMoreTracks = { viewModel.loadMoreMyTracks() },
                             onTrackClick = { track, list -> viewModel.playTrack(track, list) },
                             onPlaylistClick = { playlist -> viewModel.openPlaylist(playlist) },
                             onLikeClick = { viewModel.toggleTrackLike(it) },

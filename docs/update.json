@@ -1,7 +1,7 @@
 ﻿{
-    "versionCode":  30,
-    "versionName":  "1.0.29",
-    "downloadUrl":  "https://github.com/ntvampire/vk-tracks/releases/download/v1.0.29/VK-Tracks-1.0.29.apk",
-    "mirrorUrl":  "https://ntvampire.github.io/vk-tracks/VK-Tracks-1.0.29.apk",
-    "changelog":  "Ликвидация прогрессирующих утечек памяти и лагов скролла (GC Thrashing): включен largeHeap, центральный синглтон ImageLoaderFactory с кэшем 25% RAM и 250 МБ диска, устранены утечки ImageLoader в PlaybackService, принудительный аппаратный даунсэмплинг миниатюр TrackCoverThumbnail (80 КБ в RAM вместо 4 МБ на элемент — 50-кратная экономия), оптимизация 600x600 в iTunes и подавление холостых рекомпозиций."
+    "versionCode":  31,
+    "versionName":  "1.0.30",
+    "downloadUrl":  "https://github.com/ntvampire/vk-tracks/releases/download/v1.0.30/VK-Tracks-1.0.30.apk",
+    "mirrorUrl":  "https://ntvampire.github.io/vk-tracks/VK-Tracks-1.0.30.apk",
+    "changelog":  "1. Устранение лагов при перелистывании треков в плеере: отмена предыдущих корутин обложек и текстов, 3-сек дебаунс сохранения истории Room, отключение сброса аудиобуфера ExoPlayer для обычных треков, изоляция медиатеки в табе Library. 2. Динамическая бесконечная пагинация избранного по 100 треков. 3. Исправление перемотки с первого клика."
 }

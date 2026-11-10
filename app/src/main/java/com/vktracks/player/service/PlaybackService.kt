@@ -57,6 +57,8 @@ class PlaybackService : MediaSessionService() {
     private lateinit var player: ExoPlayer
     private val serviceScope = CoroutineScope(Dispatchers.Main + Job())
     private var progressJob: Job? = null
+    private var artworkJob: Job? = null
+    private var historyJob: Job? = null
     private var lastLoadedArtworkKey: String? = null
     @Volatile
     private var currentNotificationBitmap: Bitmap? = null
@@ -204,6 +206,7 @@ class PlaybackService : MediaSessionService() {
                 if (index in currentQueue.indices) {
                     val track = currentQueue[index]
                     _currentTrack.value = track
+                    _durationMs.value = (track.duration.toLong() * 1000L).coerceAtLeast(0)
                     currentNotificationBitmap = null
                     saveHistory(track)
                     loadArtworkAsync(track)
@@ -312,6 +315,7 @@ class PlaybackService : MediaSessionService() {
         player.prepare()
         player.play()
         _currentTrack.value = validTrack
+        _durationMs.value = (validTrack.duration.toLong() * 1000L).coerceAtLeast(0)
         loadArtworkAsync(validTrack)
         updateNotificationLikeButton()
         mediaSession?.let { onUpdateNotification(it, true) }
@@ -449,7 +453,8 @@ class PlaybackService : MediaSessionService() {
         }
         lastLoadedArtworkKey = currentKey
 
-        serviceScope.launch(Dispatchers.IO) {
+        artworkJob?.cancel()
+        artworkJob = serviceScope.launch(Dispatchers.IO) {
             var coverUrl = track.coverUrl?.takeIf { it.isNotBlank() } ?: run {
                 CoverArtResolver.instance?.getCachedCover(track.artist, track.title)
             } ?: run {
@@ -507,16 +512,20 @@ class PlaybackService : MediaSessionService() {
                                     val currentItem = player.currentMediaItem
                                     if (currentItem != null) {
                                         val currentLive = _currentTrack.value
-                                        val newMetadata = currentItem.mediaMetadata.buildUpon()
-                                            .setTitle(currentLive?.title ?: track.title)
-                                            .setArtist(currentLive?.artist ?: track.artist)
-                                            .setDisplayTitle(currentLive?.title ?: track.title)
-                                            .setArtworkData(bytes, MediaMetadata.PICTURE_TYPE_FRONT_COVER)
-                                            .build()
-                                        val newItem = currentItem.buildUpon()
-                                            .setMediaMetadata(newMetadata)
-                                            .build()
-                                        player.replaceMediaItem(currentIndex, newItem)
+                                        // replaceMediaItem вызывается ТОЛЬКО для живого радио (без длительности),
+                                        // чтобы не сбрасывать аудиобуфер и кодеки ExoPlayer у обычных треков ВК
+                                        if (track.duration == 0) {
+                                            val newMetadata = currentItem.mediaMetadata.buildUpon()
+                                                .setTitle(currentLive?.title ?: track.title)
+                                                .setArtist(currentLive?.artist ?: track.artist)
+                                                .setDisplayTitle(currentLive?.title ?: track.title)
+                                                .setArtworkData(bytes, MediaMetadata.PICTURE_TYPE_FRONT_COVER)
+                                                .build()
+                                            val newItem = currentItem.buildUpon()
+                                                .setMediaMetadata(newMetadata)
+                                                .build()
+                                            player.replaceMediaItem(currentIndex, newItem)
+                                        }
                                         currentNotificationBitmap = bitmap
                                         mediaSession?.let { onUpdateNotification(it, player.playWhenReady) }
                                     }
@@ -548,7 +557,10 @@ class PlaybackService : MediaSessionService() {
     }
 
     private fun saveHistory(track: Track) {
-        serviceScope.launch(Dispatchers.IO) {
+        if (track.duration == 0) return // Не сохранять радио в историю
+        historyJob?.cancel()
+        historyJob = serviceScope.launch(Dispatchers.IO) {
+            delay(3000) // Сохранять только если трек играет дольше 3 секунд (защита от частых скипов)
             try {
                 val db = AppDatabase.getInstance(applicationContext)
                 val entity = TrackEntity(

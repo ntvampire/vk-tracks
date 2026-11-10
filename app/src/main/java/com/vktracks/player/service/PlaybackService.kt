@@ -18,8 +18,11 @@ import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
 import androidx.media3.common.Player
+import androidx.media3.common.MimeTypes
 import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
+import androidx.media3.extractor.DefaultExtractorsFactory
 import com.vktracks.player.data.cache.MediaCacheManager
 import androidx.core.app.NotificationCompat
 import androidx.media3.session.CommandButton
@@ -167,6 +170,13 @@ class PlaybackService : MediaLibraryService() {
                         MediaItem.Builder()
                             .setMediaId("RADIO_STUDIO_21")
                             .setUri(Uri.parse(com.vktracks.player.data.model.RadioStation.STUDIO_21.streamUrl))
+                            .setMimeType(MimeTypes.AUDIO_MPEG)
+                            .setLiveConfiguration(
+                                MediaItem.LiveConfiguration.Builder()
+                                    .setMaxPlaybackSpeed(1.0f)
+                                    .setMinPlaybackSpeed(1.0f)
+                                    .build()
+                            )
                             .setMediaMetadata(
                                 MediaMetadata.Builder()
                                     .setIsBrowsable(false)
@@ -182,6 +192,13 @@ class PlaybackService : MediaLibraryService() {
                         MediaItem.Builder()
                             .setMediaId("RADIO_RECORD")
                             .setUri(Uri.parse(com.vktracks.player.data.model.RadioStation.RADIO_RECORD.streamUrl))
+                            .setMimeType(MimeTypes.AUDIO_AAC)
+                            .setLiveConfiguration(
+                                MediaItem.LiveConfiguration.Builder()
+                                    .setMaxPlaybackSpeed(1.0f)
+                                    .setMinPlaybackSpeed(1.0f)
+                                    .build()
+                            )
                             .setMediaMetadata(
                                 MediaMetadata.Builder()
                                     .setIsBrowsable(false)
@@ -234,6 +251,13 @@ class PlaybackService : MediaLibraryService() {
                     val item = MediaItem.Builder()
                         .setMediaId("RADIO_STUDIO_21")
                         .setUri(Uri.parse(com.vktracks.player.data.model.RadioStation.STUDIO_21.streamUrl))
+                        .setMimeType(MimeTypes.AUDIO_MPEG)
+                        .setLiveConfiguration(
+                            MediaItem.LiveConfiguration.Builder()
+                                .setMaxPlaybackSpeed(1.0f)
+                                .setMinPlaybackSpeed(1.0f)
+                                .build()
+                        )
                         .setMediaMetadata(
                             MediaMetadata.Builder()
                                 .setTitle("Studio 21")
@@ -250,6 +274,13 @@ class PlaybackService : MediaLibraryService() {
                     val item = MediaItem.Builder()
                         .setMediaId("RADIO_RECORD")
                         .setUri(Uri.parse(com.vktracks.player.data.model.RadioStation.RADIO_RECORD.streamUrl))
+                        .setMimeType(MimeTypes.AUDIO_AAC)
+                        .setLiveConfiguration(
+                            MediaItem.LiveConfiguration.Builder()
+                                .setMaxPlaybackSpeed(1.0f)
+                                .setMinPlaybackSpeed(1.0f)
+                                .build()
+                        )
                         .setMediaMetadata(
                             MediaMetadata.Builder()
                                 .setTitle("Радио Record")
@@ -345,11 +376,29 @@ class PlaybackService : MediaLibraryService() {
             .build()
 
         val cacheManager = MediaCacheManager.getInstance(this)
-        val mediaSourceFactory = DefaultMediaSourceFactory(this)
+
+        // Включаем CBR-поиск для MP3/AAC треков VK (исключает срыв таймлайна в 0:00)
+        val extractorsFactory = DefaultExtractorsFactory()
+            .setConstantBitrateSeekingEnabled(true)
+
+        val mediaSourceFactory = DefaultMediaSourceFactory(this, extractorsFactory)
             .setDataSourceFactory(cacheManager.getDataSourceFactory())
+
+        // Адаптивный LoadControl для живых потоков радио и треков:
+        // Устраняет спотыкания (buffer underrun) и буферные задержки
+        val loadControl = DefaultLoadControl.Builder()
+            .setBufferDurationsMs(
+                /* minBufferMs = */ 15_000,
+                /* maxBufferMs = */ 50_000,
+                /* bufferForPlaybackMs = */ 1_500,
+                /* bufferForPlaybackAfterRebufferMs = */ 2_500
+            )
+            .setPrioritizeTimeOverSizeThresholds(true)
+            .build()
 
         player = ExoPlayer.Builder(this)
             .setMediaSourceFactory(mediaSourceFactory)
+            .setLoadControl(loadControl)
             .setAudioAttributes(audioAttributes, true)
             .setHandleAudioBecomingNoisy(true)
             .setWakeMode(C.WAKE_MODE_LOCAL)
@@ -495,11 +544,28 @@ class PlaybackService : MediaLibraryService() {
                 .setArtworkUri(track.coverUrl?.let { Uri.parse(it) })
                 .build()
 
-            MediaItem.Builder()
+            val builder = MediaItem.Builder()
                 .setMediaId(track.fullId)
                 .setUri(uri)
                 .setMediaMetadata(metadata)
-                .build()
+
+            val uriStr = uri.toString()
+            if (track.duration == 0 || MediaCacheManager.getInstance(this).isLiveStreamUri(uriStr)) {
+                // Прямой эфир радио: фиксируем скорость 1.0x (запрет time-stretching артефактов / скрипов)
+                builder.setLiveConfiguration(
+                    MediaItem.LiveConfiguration.Builder()
+                        .setMaxPlaybackSpeed(1.0f)
+                        .setMinPlaybackSpeed(1.0f)
+                        .build()
+                )
+                if (uriStr.contains("studio21", ignoreCase = true) || uriStr.contains("s21", ignoreCase = true)) {
+                    builder.setMimeType(MimeTypes.AUDIO_MPEG)
+                } else if (uriStr.contains("radiorecord", ignoreCase = true) || uriStr.contains(".aacp", ignoreCase = true)) {
+                    builder.setMimeType(MimeTypes.AUDIO_AAC)
+                }
+            }
+
+            builder.build()
         }
 
         currentNotificationBitmap = null
@@ -642,7 +708,7 @@ class PlaybackService : MediaLibraryService() {
 
         artworkJob?.cancel()
         artworkJob = serviceScope.launch(Dispatchers.IO) {
-            val coverUrl = track.coverUrl?.takeIf { it.isNotBlank() } ?: run {
+            var coverUrl = track.coverUrl?.takeIf { it.isNotBlank() } ?: run {
                 try {
                     val db = AppDatabase.getInstance(applicationContext)
                     db.trackDao().getTrackById(track.fullId)?.coverUrl?.takeIf { it.isNotBlank() }
@@ -651,15 +717,48 @@ class PlaybackService : MediaLibraryService() {
                 }
             }
 
+            // Fallback обогащение через audio.getById для треков ВК если обложка еще не сохранена
+            if (coverUrl.isNullOrEmpty() && track.duration > 0 && !track.isLocal) {
+                try {
+                    val authManager = com.vktracks.player.data.api.VkAuthManager(applicationContext)
+                    val apiClient = com.vktracks.player.data.api.VkApiClient(authManager)
+                    val enrichedList = apiClient.enrichTracksWithVkDetails(listOf(track))
+                    val enrichedTrack = enrichedList.firstOrNull()
+                    if (enrichedTrack != null && !enrichedTrack.coverUrl.isNullOrEmpty()) {
+                        coverUrl = enrichedTrack.coverUrl
+                        try {
+                            val db = AppDatabase.getInstance(applicationContext)
+                            val entity = TrackEntity(
+                                id = enrichedTrack.fullId,
+                                trackId = enrichedTrack.id,
+                                ownerId = enrichedTrack.ownerId,
+                                title = enrichedTrack.title,
+                                artist = enrichedTrack.artist,
+                                duration = enrichedTrack.duration,
+                                streamUrl = enrichedTrack.streamUrl,
+                                coverUrl = enrichedTrack.coverUrl,
+                                albumTitle = enrichedTrack.albumTitle,
+                                isExplicit = enrichedTrack.isExplicit,
+                                lyricsId = enrichedTrack.lyricsId,
+                                accessKey = enrichedTrack.accessKey,
+                                isLiked = enrichedTrack.isLiked,
+                                localFilePath = enrichedTrack.localFilePath,
+                                isDownloaded = enrichedTrack.isLocal,
+                                lastPlayedTimestamp = System.currentTimeMillis()
+                            )
+                            db.trackDao().insertOrUpdate(entity)
+                        } catch (_: Exception) {}
+                    }
+                } catch (_: Exception) {}
+            }
+
             if (!coverUrl.isNullOrEmpty()) {
-                if (track.coverUrl.isNullOrEmpty()) {
-                    withContext(Dispatchers.Main) {
-                        val isCurrent = _currentTrack.value?.let {
-                            it.fullId == track.fullId && (it.duration != 0 || it.title == track.title)
-                        } ?: false
-                        if (isCurrent) {
-                            _currentTrack.value = _currentTrack.value?.copy(coverUrl = coverUrl)
-                        }
+                withContext(Dispatchers.Main) {
+                    val isCurrent = _currentTrack.value?.let {
+                        it.fullId == track.fullId && (it.duration != 0 || it.title == track.title)
+                    } ?: false
+                    if (isCurrent && _currentTrack.value?.coverUrl != coverUrl) {
+                        _currentTrack.value = _currentTrack.value?.copy(coverUrl = coverUrl)
                     }
                 }
 

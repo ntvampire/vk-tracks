@@ -106,6 +106,18 @@ class MediaCacheManager private constructor(private val context: Context) {
         }
     }
 
+    fun isLiveStreamUri(uriStr: String): Boolean {
+        if (uriStr.isBlank()) return false
+        return uriStr.contains("icecast", ignoreCase = true) ||
+               uriStr.contains("radiorecord", ignoreCase = true) ||
+               uriStr.contains("cdnvideo", ignoreCase = true) ||
+               uriStr.contains("hostingradio", ignoreCase = true) ||
+               uriStr.contains("studio21", ignoreCase = true) ||
+               uriStr.contains(".aacp", ignoreCase = true) ||
+               uriStr.contains("live", ignoreCase = true) ||
+               uriStr.contains("stream.", ignoreCase = true)
+    }
+
     fun getDataSourceFactory(): DataSource.Factory {
         val httpFactory = DefaultHttpDataSource.Factory()
             .setUserAgent("VKTracks/1.0 (Android)")
@@ -128,50 +140,35 @@ class MediaCacheManager private constructor(private val context: Context) {
             .setCacheReadDataSourceFactory(FileDataSource.Factory())
             .setFlags(CacheDataSource.FLAG_IGNORE_CACHE_ON_ERROR)
 
-        // Делегирующая фабрика: живое радио играет напрямую, обычные треки ВК кэшируются на лету
+        // Делегирующая фабрика: живое радио играет напрямую без кэша, обычные треки ВК кэшируются на лету
         return object : DataSource.Factory {
             override fun createDataSource(): DataSource {
+                val httpSource = httpFactory.createDataSource()
+                val cacheSource = cacheDataSourceFactory.createDataSource()
                 return object : DataSource {
-                    private var currentSource: DataSource? = null
-                    private val transferListeners = mutableListOf<TransferListener>()
+                    private var activeSource: DataSource = cacheSource
 
                     override fun addTransferListener(transferListener: TransferListener) {
-                        transferListeners.add(transferListener)
-                        currentSource?.addTransferListener(transferListener)
+                        httpSource.addTransferListener(transferListener)
+                        cacheSource.addTransferListener(transferListener)
                     }
 
                     override fun open(dataSpec: DataSpec): Long {
                         val uriStr = dataSpec.uri.toString()
-                        val isLiveRadio = uriStr.contains("icecast", ignoreCase = true) ||
-                                          uriStr.contains("radiorecord", ignoreCase = true) ||
-                                          uriStr.contains("cdnvideo", ignoreCase = true) ||
-                                          uriStr.contains("hostingradio", ignoreCase = true) ||
-                                          uriStr.contains("studio21", ignoreCase = true) ||
-                                          uriStr.contains(".aacp", ignoreCase = true) ||
-                                          uriStr.contains("live", ignoreCase = true) ||
-                                          uriStr.contains("stream.", ignoreCase = true)
-
-                        val source = if (isLiveRadio) {
-                            httpFactory.createDataSource()
-                        } else {
-                            cacheDataSourceFactory.createDataSource()
-                        }
-                        for (listener in transferListeners) {
-                            source.addTransferListener(listener)
-                        }
-                        currentSource = source
-                        return source.open(dataSpec)
+                        activeSource = if (isLiveStreamUri(uriStr)) httpSource else cacheSource
+                        return activeSource.open(dataSpec)
                     }
 
                     override fun read(buffer: ByteArray, offset: Int, length: Int): Int {
-                        return currentSource?.read(buffer, offset, length) ?: -1
+                        return activeSource.read(buffer, offset, length)
                     }
 
-                    override fun getUri(): Uri? = currentSource?.uri
+                    override fun getUri(): Uri? = activeSource.uri
+
+                    override fun getResponseHeaders(): Map<String, List<String>> = activeSource.responseHeaders
 
                     override fun close() {
-                        currentSource?.close()
-                        currentSource = null
+                        activeSource.close()
                     }
                 }
             }

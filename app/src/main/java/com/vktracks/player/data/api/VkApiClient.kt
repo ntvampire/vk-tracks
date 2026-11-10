@@ -121,7 +121,8 @@ class VkApiClient(
 
         val totalCount = response?.optInt("count", 0) ?: 0
         val rawCount = items?.length() ?: 0
-        val tracks = if (items != null) parseTracksArray(items) else emptyList()
+        val rawTracks = if (items != null) parseTracksArray(items) else emptyList()
+        val tracks = enrichTracksWithVkDetails(rawTracks)
         AudiosPage(tracks = tracks, totalCount = totalCount, rawCount = rawCount)
     }
 
@@ -151,7 +152,7 @@ class VkApiClient(
         val json = callVkApi("audio.get", params)
         if (json != null && !json.has("error")) {
             val tracks = parseTracksList(json)
-            if (tracks.isNotEmpty()) return@withContext tracks
+            if (tracks.isNotEmpty()) return@withContext enrichTracksWithVkDetails(tracks)
         }
 
         // Резервный вызов для официальных/редакционных плейлистов VK
@@ -169,7 +170,7 @@ class VkApiClient(
             val pResp = pJson.optJSONObject("response")
             val audios = pResp?.optJSONArray("audios") ?: pResp?.optJSONArray("items")
             if (audios != null) {
-                return@withContext parseTracksArray(audios)
+                return@withContext enrichTracksWithVkDetails(parseTracksArray(audios))
             }
         }
 
@@ -284,7 +285,7 @@ class VkApiClient(
             }
         }
 
-        SearchResult(tracks = tracks, playlists = playlists, artists = artists)
+        SearchResult(tracks = enrichTracksWithVkDetails(tracks), playlists = playlists, artists = artists)
     }
 
     suspend fun searchAudios(query: String, offset: Int = 0, count: Int = 50): List<Track> = withContext(Dispatchers.IO) {
@@ -643,7 +644,8 @@ class VkApiClient(
             params["user_id"] = userId.toString()
         }
         val json = callVkApi("audio.getRecommendations", params) ?: return@withContext emptyList()
-        parseTracksList(json)
+        val raw = parseTracksList(json)
+        enrichTracksWithVkDetails(raw)
     }
 
     suspend fun getPersonalRadio(settings: VkMixSettings? = null): List<Track> = withContext(Dispatchers.IO) {
@@ -723,19 +725,89 @@ class VkApiClient(
         tracks
     }
 
-    suspend fun resolveTrackUrl(track: Track): String? = withContext(Dispatchers.IO) {
+    /**
+     * Обогащение треков нативными метаданными и обложками через VK API audio.getById
+     * (по эталонному подходу Murglar / VKX).
+     * audio.get возвращает минимальную структуру без album.thumb; audio.getById батчами
+     * до 100 треков возвращает полные объекты с обложками максимального разрешения.
+     */
+    suspend fun enrichTracksWithVkDetails(tracks: List<Track>): List<Track> = withContext(Dispatchers.IO) {
+        if (tracks.isEmpty()) return@withContext emptyList()
+        val needsEnrichment = tracks.any { it.coverUrl.isNullOrEmpty() }
+        if (!needsEnrichment) return@withContext tracks
+
+        val enrichedMap = mutableMapOf<String, Track>()
+        val chunks = tracks.chunked(100)
+
+        for (chunk in chunks) {
+            val audiosParam = chunk.joinToString(",") { track ->
+                if (!track.accessKey.isNullOrEmpty()) {
+                    "${track.ownerId}_${track.id}_${track.accessKey}"
+                } else {
+                    "${track.ownerId}_${track.id}"
+                }
+            }
+
+            try {
+                val json = callVkApi("audio.getById", mapOf("audios" to audiosParam))
+                val items = json?.optJSONArray("response")
+                    ?: json?.optJSONObject("response")?.optJSONArray("items")
+                    ?: json?.optJSONObject("response")?.optJSONArray("audios")
+                if (items != null) {
+                    for (i in 0 until items.length()) {
+                        val item = items.optJSONObject(i) ?: continue
+                        val parsed = parseTrackObject(item) ?: continue
+                        enrichedMap[parsed.fullId] = parsed
+                    }
+                }
+            } catch (e: Exception) {
+                Log.w("VkApiClient", "Failed to enrich audio batch", e)
+            }
+        }
+
+        tracks.map { track ->
+            val enriched = enrichedMap[track.fullId]
+            if (enriched != null) {
+                track.copy(
+                    coverUrl = enriched.coverUrl ?: track.coverUrl,
+                    streamUrl = if (enriched.streamUrl.isNotEmpty()) enriched.streamUrl else track.streamUrl,
+                    albumTitle = enriched.albumTitle ?: track.albumTitle,
+                    lyricsId = enriched.lyricsId ?: track.lyricsId,
+                    restriction = enriched.restriction,
+                    restrictionText = enriched.restrictionText ?: track.restrictionText
+                )
+            } else {
+                track
+            }
+        }
+    }
+
+    suspend fun resolveTrack(track: Track): Track = withContext(Dispatchers.IO) {
+        if (track.streamUrl.isNotEmpty() && !track.coverUrl.isNullOrEmpty()) return@withContext track
         val audiosParam = if (!track.accessKey.isNullOrEmpty()) {
             "${track.ownerId}_${track.id}_${track.accessKey}"
         } else {
             "${track.ownerId}_${track.id}"
         }
-        val json = callVkApi("audio.getById", mapOf("audios" to audiosParam)) ?: return@withContext null
+        val json = callVkApi("audio.getById", mapOf("audios" to audiosParam)) ?: return@withContext track
         val responseArray = json.optJSONArray("response")
         val item = responseArray?.optJSONObject(0)
             ?: json.optJSONObject("response")?.optJSONArray("items")?.optJSONObject(0)
-            ?: return@withContext null
-        val url = item.optString("url")
-        if (url.isNotEmpty()) url else null
+            ?: return@withContext track
+        val parsed = parseTrackObject(item) ?: return@withContext track
+        track.copy(
+            streamUrl = if (parsed.streamUrl.isNotEmpty()) parsed.streamUrl else track.streamUrl,
+            coverUrl = parsed.coverUrl ?: track.coverUrl,
+            albumTitle = parsed.albumTitle ?: track.albumTitle,
+            lyricsId = parsed.lyricsId ?: track.lyricsId,
+            restriction = parsed.restriction,
+            restrictionText = parsed.restrictionText ?: track.restrictionText
+        )
+    }
+
+    suspend fun resolveTrackUrl(track: Track): String? = withContext(Dispatchers.IO) {
+        val resolved = resolveTrack(track)
+        if (resolved.streamUrl.isNotEmpty()) resolved.streamUrl else null
     }
 
     suspend fun getRecordNowPlaying(): JSONObject? = withContext(Dispatchers.IO) {

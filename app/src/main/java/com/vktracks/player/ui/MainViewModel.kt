@@ -716,11 +716,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         studio21WebSocket = null
         viewModelScope.launch {
             var currentTrackToPlay = track
-            if (currentTrackToPlay.streamUrl.isEmpty() && !currentTrackToPlay.isLocal) {
-                val resolvedUrl = apiClient.resolveTrackUrl(currentTrackToPlay)
-                if (!resolvedUrl.isNullOrEmpty()) {
-                    currentTrackToPlay = currentTrackToPlay.copy(streamUrl = resolvedUrl)
-                }
+            if ((currentTrackToPlay.streamUrl.isEmpty() || currentTrackToPlay.coverUrl.isNullOrEmpty()) && !currentTrackToPlay.isLocal) {
+                currentTrackToPlay = apiClient.resolveTrack(currentTrackToPlay)
             }
             if (currentTrackToPlay.streamUrl.isEmpty() && !currentTrackToPlay.isLocal) {
                 android.util.Log.w("MainViewModel", "Could not resolve streamUrl for ${currentTrackToPlay.fullId}")

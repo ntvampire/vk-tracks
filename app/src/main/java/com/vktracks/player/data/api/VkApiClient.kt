@@ -42,7 +42,7 @@ class VkApiClient(
     // Официальные профили User-Agent (VK Музыка и VK Android)
     private val vkMusicUserAgent = "VKMusic/1.1.0 (Android 14; SDK 34; arm64-v8a; ru)"
     private val vkAndroidUserAgent = "VKAndroidApp/8.17-15376 (Android 9.0; SDK 28; armeabi-v7a; xiaomi Redmi Note 3; ru; 1920x1080)"
-    private val apiVersion = "5.155"
+    private val apiVersion = "5.131"
 
     @Volatile
     private var preferredUserAgent = vkMusicUserAgent
@@ -74,8 +74,8 @@ class VkApiClient(
             }
         }
 
-        // Проверяем токен через users.get
-        val url = "https://api.vk.com/method/users.get?v=$apiVersion&access_token=$token&fields=photo_100"
+        // Проверяем токен через users.get (v=5.131)
+        val url = "https://api.vk.com/method/users.get?v=5.131&access_token=$token&fields=photo_100"
         val request = Request.Builder()
             .url(url)
             .header("User-Agent", preferredUserAgent)
@@ -121,8 +121,7 @@ class VkApiClient(
 
         val totalCount = response?.optInt("count", 0) ?: 0
         val rawCount = items?.length() ?: 0
-        val rawTracks = if (items != null) parseTracksArray(items) else emptyList()
-        val tracks = enrichTracksWithVkDetails(rawTracks)
+        val tracks = if (items != null) parseTracksArray(items) else emptyList()
         AudiosPage(tracks = tracks, totalCount = totalCount, rawCount = rawCount)
     }
 
@@ -152,7 +151,7 @@ class VkApiClient(
         val json = callVkApi("audio.get", params)
         if (json != null && !json.has("error")) {
             val tracks = parseTracksList(json)
-            if (tracks.isNotEmpty()) return@withContext enrichTracksWithVkDetails(tracks)
+            if (tracks.isNotEmpty()) return@withContext tracks
         }
 
         // Резервный вызов для официальных/редакционных плейлистов VK
@@ -170,7 +169,7 @@ class VkApiClient(
             val pResp = pJson.optJSONObject("response")
             val audios = pResp?.optJSONArray("audios") ?: pResp?.optJSONArray("items")
             if (audios != null) {
-                return@withContext enrichTracksWithVkDetails(parseTracksArray(audios))
+                return@withContext parseTracksArray(audios)
             }
         }
 
@@ -285,7 +284,7 @@ class VkApiClient(
             }
         }
 
-        SearchResult(tracks = enrichTracksWithVkDetails(tracks), playlists = playlists, artists = artists)
+        SearchResult(tracks = tracks, playlists = playlists, artists = artists)
     }
 
     suspend fun searchAudios(query: String, offset: Int = 0, count: Int = 50): List<Track> = withContext(Dispatchers.IO) {
@@ -644,8 +643,7 @@ class VkApiClient(
             params["user_id"] = userId.toString()
         }
         val json = callVkApi("audio.getRecommendations", params) ?: return@withContext emptyList()
-        val raw = parseTracksList(json)
-        enrichTracksWithVkDetails(raw)
+        parseTracksList(json)
     }
 
     suspend fun getPersonalRadio(settings: VkMixSettings? = null): List<Track> = withContext(Dispatchers.IO) {
@@ -1088,7 +1086,7 @@ class VkApiClient(
     }
 
     private fun executeMethodCall(method: String, params: Map<String, String>, token: String, ua: String): JSONObject? {
-        val methodApiVersion = params["v"] ?: apiVersion
+        val methodApiVersion = params["v"] ?: if (method.startsWith("catalog.")) "5.155" else "5.131"
         val formBuilder = FormBody.Builder()
             .add("access_token", token)
             .add("v", methodApiVersion)
@@ -1189,6 +1187,9 @@ class VkApiClient(
             ?: thumbObj?.optString("photo_135")?.takeIf { it.isNotEmpty() }
             ?: thumbObj?.optString("photo_68")?.takeIf { it.isNotEmpty() }
             ?: thumbObj?.optString("url")?.takeIf { it.isNotEmpty() }
+            ?: album?.optString("photo_600")?.takeIf { it.isNotEmpty() }
+            ?: album?.optString("photo_300")?.takeIf { it.isNotEmpty() }
+            ?: album?.optString("photo_1200")?.takeIf { it.isNotEmpty() }
             ?: item.optJSONObject("cover")?.optString("uri")?.takeIf { it.isNotEmpty() }
             ?: item.optJSONObject("cover")?.optString("url")?.takeIf { it.isNotEmpty() }
 

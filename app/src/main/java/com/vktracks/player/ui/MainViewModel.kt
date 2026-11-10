@@ -725,6 +725,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             }
             val updatedQueue = queue.map { if (it.fullId == currentTrackToPlay.fullId) currentTrackToPlay else it }
             val index = updatedQueue.indexOfFirst { it.fullId == currentTrackToPlay.fullId }.coerceAtLeast(0)
+            if (!currentTrackToPlay.coverUrl.isNullOrEmpty() && currentTrackToPlay.coverUrl != track.coverUrl) {
+                _myTracks.value = _myTracks.value.map { if (it.fullId == currentTrackToPlay.fullId) it.copy(coverUrl = currentTrackToPlay.coverUrl) else it }
+            }
             ensurePlaybackService { service ->
                 service.playQueue(updatedQueue, index)
             }

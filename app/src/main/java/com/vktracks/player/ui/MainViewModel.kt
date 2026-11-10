@@ -203,14 +203,19 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
 
         // Автоматическая подгрузка текста песни при смене трека и мгновенное обновление обложки в списках
+        var lastLyricsTrackId: String? = null
         viewModelScope.launch {
             currentTrack.collect { track ->
                 if (track != null) {
-                    loadLyrics(track)
+                    if (track.fullId != lastLyricsTrackId) {
+                        lastLyricsTrackId = track.fullId
+                        loadLyrics(track)
+                    }
                     if (!track.coverUrl.isNullOrEmpty()) {
                         updateCoverInDisplayedLists(track.fullId, track.coverUrl)
                     }
                 } else {
+                    lastLyricsTrackId = null
                     _currentLyrics.value = null
                 }
             }

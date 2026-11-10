@@ -214,7 +214,7 @@ fun SearchScreen(
                     if (searchResults.isEmpty()) {
                         item { EmptySearchMessage("Треки не найдены") }
                     } else {
-                        items(searchResults) { track ->
+                        items(searchResults, key = { it.fullId }) { track ->
                             TrackItem(
                                 track = track,
                                 isPlaying = isPlaying,
@@ -232,7 +232,7 @@ fun SearchScreen(
                     if (foundPlaylists.isEmpty()) {
                         item { EmptySearchMessage("Плейлисты не найдены") }
                     } else {
-                        items(foundPlaylists) { playlist ->
+                        items(foundPlaylists, key = { "${it.ownerId}_${it.id}" }) { playlist ->
                             SearchPlaylistItem(
                                 playlist = playlist,
                                 subtitle = "${playlist.count} треков",
@@ -245,7 +245,7 @@ fun SearchScreen(
                     if (foundAlbums.isEmpty()) {
                         item { EmptySearchMessage("Альбомы не найдены") }
                     } else {
-                        items(foundAlbums) { album ->
+                        items(foundAlbums, key = { "${it.ownerId}_${it.id}" }) { album ->
                             val desc = buildString {
                                 if (!album.mainArtist.isNullOrBlank()) append("${album.mainArtist} • ")
                                 if (album.year != null && album.year > 0) append("${album.year} • ")
@@ -263,7 +263,7 @@ fun SearchScreen(
                     if (searchArtists.isEmpty()) {
                         item { EmptySearchMessage("Исполнители не найдены") }
                     } else {
-                        items(searchArtists) { artist ->
+                        items(searchArtists, key = { it.id }) { artist ->
                             ListItem(
                                 leadingContent = {
                                     Box(

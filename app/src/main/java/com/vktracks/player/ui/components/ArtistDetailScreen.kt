@@ -249,7 +249,7 @@ fun ArtistDetailScreen(
                                 horizontalArrangement = Arrangement.spacedBy(14.dp),
                                 modifier = Modifier.padding(vertical = 8.dp)
                             ) {
-                                items(artistDetail.albums) { album ->
+                                items(artistDetail.albums, key = { "${it.ownerId}_${it.id}" }) { album ->
                                     ArtistAlbumCard(
                                         album = album,
                                         onClick = { onAlbumClick(album) }

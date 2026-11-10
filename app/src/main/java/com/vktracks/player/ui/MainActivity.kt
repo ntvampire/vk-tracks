@@ -151,7 +151,6 @@ fun MainAppScreen(viewModel: MainViewModel) {
     val availableUpdate by viewModel.availableUpdate.collectAsState()
     val vkMixSettings by viewModel.vkMixSettings.collectAsState()
     val updateProgress by viewModel.updateProgress.collectAsState()
-    val currentQueue by viewModel.currentQueue.collectAsState()
     val searchQuery by viewModel.searchQuery.collectAsState()
 
     LaunchedEffect(likedTrackIds) {
@@ -318,6 +317,7 @@ fun MainAppScreen(viewModel: MainViewModel) {
 
         // Полноэкранный плеер в стиле Apple Music (поверх всех экранов и плейлистов)
         if (showFullPlayer) {
+            val currentQueue by viewModel.currentQueue.collectAsState()
             val currentPosMs by viewModel.currentPosMs.collectAsState()
             val durationMs by viewModel.durationMs.collectAsState()
             val isCurrentLiked = currentTrack?.let {

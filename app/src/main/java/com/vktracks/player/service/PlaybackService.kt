@@ -612,6 +612,21 @@ class PlaybackService : MediaLibraryService() {
             currentQueue = currentQueue.map { if (it.fullId == current.fullId) updated else it }
             _currentQueueFlow.value = currentQueue
 
+            // Бесшовное обновление MediaItem metadata в плеере (для SystemUI в шторке и Android Auto без перезапуска потока)
+            val currentItem = player.currentMediaItem
+            if (currentItem != null) {
+                val newMeta = currentItem.mediaMetadata.buildUpon()
+                    .setTitle(cleanTitle)
+                    .setArtist(cleanArtist)
+                    .setDisplayTitle(cleanTitle)
+                    .setArtworkUri(updated.coverUrl?.let { Uri.parse(it) })
+                    .build()
+                val curIdx = player.currentMediaItemIndex
+                if (curIdx >= 0) {
+                    player.replaceMediaItem(curIdx, currentItem.buildUpon().setMediaMetadata(newMeta).build())
+                }
+            }
+
             player.playlistMetadata = MediaMetadata.Builder()
                 .setTitle(cleanTitle)
                 .setArtist(cleanArtist)
@@ -773,12 +788,32 @@ class PlaybackService : MediaLibraryService() {
                         val drawable = result.drawable
                         val bitmap = (drawable as? BitmapDrawable)?.bitmap
                         if (bitmap != null) {
+                            val stream = java.io.ByteArrayOutputStream()
+                            bitmap.compress(Bitmap.CompressFormat.JPEG, 85, stream)
+                            val byteArray = stream.toByteArray()
+
                             withContext(Dispatchers.Main) {
                                 val isCurrent = _currentTrack.value?.let {
                                     it.fullId == track.fullId && (it.duration != 0 || it.title == track.title)
                                 } ?: false
                                 if (isCurrent) {
                                     currentNotificationBitmap = bitmap
+                                    // Для прямого эфира радио обновляем MediaItem metadata с artworkData для мгновенного отображения в SystemUI шторки
+                                    if (track.duration == 0) {
+                                        val currentLive = _currentTrack.value
+                                        val currentItem = player.currentMediaItem
+                                        val currentIndex = player.currentMediaItemIndex
+                                        if (currentItem != null && currentIndex >= 0) {
+                                            val newMetadata = currentItem.mediaMetadata.buildUpon()
+                                                .setTitle(currentLive?.title ?: track.title)
+                                                .setArtist(currentLive?.artist ?: track.artist)
+                                                .setDisplayTitle(currentLive?.title ?: track.title)
+                                                .setArtworkData(byteArray, MediaMetadata.PICTURE_TYPE_FRONT_COVER)
+                                                .setArtworkUri(coverUrl?.let { Uri.parse(it) })
+                                                .build()
+                                            player.replaceMediaItem(currentIndex, currentItem.buildUpon().setMediaMetadata(newMetadata).build())
+                                        }
+                                    }
                                     mediaSession?.let { onUpdateNotification(it, player.playWhenReady) }
                                 }
                             }

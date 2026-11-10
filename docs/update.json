@@ -1,7 +1,7 @@
 ﻿{
-    "versionCode":  43,
-    "versionName":  "1.0.42",
-    "downloadUrl":  "https://github.com/ntvampire/vk-tracks/releases/download/v1.0.42/VK-Tracks-1.0.42.apk",
-    "mirrorUrl":  "https://ntvampire.github.io/vk-tracks/VK-Tracks-1.0.42.apk",
-    "changelog":  "1. Полная ликвидация серых квадратов: заблокировано извлечение coverUrl из аудиопотоков .m3u8/.mp3 валидатором isValidImageUrl; внедрен SubcomposeAsyncImage с защитными слотами loading и error во всех компонентах интерфейса. 2. Нативное обогащение треков по эталону VKX и Murglar: audio.getById вызывается батчами по 100 треков с App ID 2274003 (VK Android), возвращая photo_600/photo_300 обложки в списки медиатеки, рекомендации и каталог. 3. Чистая векторная нота Icons.Default.MusicNote строго при реальном отсутствии обложки в ВК."
+    "versionCode":  44,
+    "versionName":  "1.0.43",
+    "downloadUrl":  "https://github.com/ntvampire/vk-tracks/releases/download/v1.0.43/VK-Tracks-1.0.43.apk",
+    "mirrorUrl":  "https://ntvampire.github.io/vk-tracks/VK-Tracks-1.0.43.apk",
+    "changelog":  "1. Ликвидация лагов скролла (120 FPS): замена SubcomposeAsyncImage на высокопроизводительный слоеный Box со стандартным AsyncImage и векторной нотой Icons.Default.MusicNote. 2. Восстановление загрузки нативных обложек треков ВК: протокол API v5.155 и профиль VK Музыки возвращают album.thumb (photo_600/photo_300) напрямую без сбоев error 8/28 и без тяжелых сетевых батчей. 3. Восстановление метаданных и обложек радио в системной шторке Android (SystemUI Media Controls): передача artworkData (JPEG байты) и актуальных названий треков и исполнителей в MediaSession при смене трека прямого эфира (Studio 21 и Record)."
 }

@@ -152,17 +152,20 @@ fun FullPlayerSheet(
                         ) {
                             if (!track.coverUrl.isNullOrEmpty()) {
                                 AsyncImage(
-                                    model = track.coverUrl,
+                                    model = ImageRequest.Builder(LocalContext.current)
+                                        .data(track.coverUrl)
+                                        .crossfade(true)
+                                        .build(),
                                     contentDescription = track.title,
                                     modifier = Modifier.fillMaxSize(),
                                     contentScale = ContentScale.Crop
                                 )
                             } else {
-                                Image(
-                                    painter = painterResource(R.drawable.ic_vk_music_placeholder),
+                                Icon(
+                                    imageVector = Icons.Default.MusicNote,
                                     contentDescription = null,
-                                    modifier = Modifier.fillMaxSize(),
-                                    contentScale = ContentScale.Crop
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
+                                    modifier = Modifier.size(80.dp)
                                 )
                             }
                         }
@@ -312,35 +315,29 @@ fun FullPlayerSheet(
             } else {
                 // Таймлайн (Слайдер прогресса)
                 val trackDurationMs = if (durationMs > 0) durationMs else ((track?.duration ?: 0).toLong() * 1000L)
-                var isDragging by remember(track?.id) { mutableStateOf(false) }
-                var dragFraction by remember(track?.id) { mutableFloatStateOf(0f) }
+                val coroutineScope = rememberCoroutineScope()
+                var sliderPosition by remember(track?.id) { mutableStateOf<Float?>(null) }
+                val currentSlider = sliderPosition ?: if (trackDurationMs > 0) (currentPosMs.toFloat() / trackDurationMs).coerceIn(0f, 1f) else 0f
 
-                val currentFraction = if (isDragging) {
-                    dragFraction
-                } else if (trackDurationMs > 0) {
-                    (currentPosMs.toFloat() / trackDurationMs).coerceIn(0f, 1f)
-                } else {
-                    0f
-                }
-
-                val displayPosMs = if (isDragging && trackDurationMs > 0) {
-                    (dragFraction * trackDurationMs).toLong()
+                val displayPosMs = if (sliderPosition != null && trackDurationMs > 0) {
+                    (sliderPosition!! * trackDurationMs).toLong()
                 } else {
                     currentPosMs
                 }
 
                 Slider(
-                    value = currentFraction,
-                    onValueChange = {
-                        isDragging = true
-                        dragFraction = it
-                    },
+                    value = currentSlider,
+                    onValueChange = { sliderPosition = it },
                     onValueChangeFinished = {
-                        if (trackDurationMs > 0) {
-                            val targetMs = (dragFraction * trackDurationMs).toLong().coerceIn(0L, trackDurationMs)
-                            onSeekTo(targetMs)
+                        sliderPosition?.let { targetFraction ->
+                            if (trackDurationMs > 0) {
+                                onSeekTo((targetFraction * trackDurationMs).toLong())
+                            }
+                            coroutineScope.launch {
+                                kotlinx.coroutines.delay(600)
+                                sliderPosition = null
+                            }
                         }
-                        isDragging = false
                     },
                     colors = SliderDefaults.colors(
                         thumbColor = MaterialTheme.colorScheme.onBackground,

@@ -168,7 +168,7 @@ class CoverArtResolver(
                     val artworkUrl = item.optString("artworkUrl100")
 
                     if (isArtistMatch(artist, resArtist) && isTitleMatch(title, resTrack)) {
-                        return artworkUrl.replace("100x100bb.jpg", "1000x1000bb.jpg")
+                        return artworkUrl.replace("100x100bb.jpg", "600x600bb.jpg")
                     }
                 }
                 null
@@ -198,7 +198,7 @@ class CoverArtResolver(
                     val artworkUrl = item.optString("artworkUrl100")
 
                     if (isArtistMatch(artist, resArtist) && isTitleMatch(album, resAlbum)) {
-                        return artworkUrl.replace("100x100bb.jpg", "1000x1000bb.jpg")
+                        return artworkUrl.replace("100x100bb.jpg", "600x600bb.jpg")
                     }
                 }
                 null
@@ -226,7 +226,7 @@ class CoverArtResolver(
                     val artworkUrl = item.optString("artworkUrl100")
 
                     if (isArtistMatch(artist, resArtist) && artworkUrl.isNotEmpty()) {
-                        return artworkUrl.replace("100x100bb.jpg", "1000x1000bb.jpg")
+                        return artworkUrl.replace("100x100bb.jpg", "600x600bb.jpg")
                     }
                 }
                 null

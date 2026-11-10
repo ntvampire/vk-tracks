@@ -1,7 +1,7 @@
 ﻿{
-    "versionCode":  29,
-    "versionName":  "1.0.28",
-    "downloadUrl":  "https://github.com/ntvampire/vk-tracks/releases/download/v1.0.28/VK-Tracks-1.0.28.apk",
-    "mirrorUrl":  "https://ntvampire.github.io/vk-tracks/VK-Tracks-1.0.28.apk",
-    "changelog":  "Кардинальная оптимизация производительности в стиле VKX: 0 ms чтение обложек из памяти, ультрабыстрый точечный iTunes-поиск без перегрузки VK API, точечные ключи списков LazyColumn для 60/120 FPS скролла, изоляция подписки на очередь воспроизведения."
+    "versionCode":  30,
+    "versionName":  "1.0.29",
+    "downloadUrl":  "https://github.com/ntvampire/vk-tracks/releases/download/v1.0.29/VK-Tracks-1.0.29.apk",
+    "mirrorUrl":  "https://ntvampire.github.io/vk-tracks/VK-Tracks-1.0.29.apk",
+    "changelog":  "Ликвидация прогрессирующих утечек памяти и лагов скролла (GC Thrashing): включен largeHeap, центральный синглтон ImageLoaderFactory с кэшем 25% RAM и 250 МБ диска, устранены утечки ImageLoader в PlaybackService, принудительный аппаратный даунсэмплинг миниатюр TrackCoverThumbnail (80 КБ в RAM вместо 4 МБ на элемент — 50-кратная экономия), оптимизация 600x600 в iTunes и подавление холостых рекомпозиций."
 }

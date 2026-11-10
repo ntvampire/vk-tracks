@@ -23,6 +23,7 @@ import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import com.vktracks.player.data.model.Playlist
 import com.vktracks.player.data.model.Track
+import com.vktracks.player.ui.components.TrackCoverThumbnail
 import com.vktracks.player.ui.components.TrackItem
 
 enum class LibraryTab(val title: String) {
@@ -131,7 +132,6 @@ fun LibraryScreen(
                         items(myTracks, key = { it.fullId }) { track ->
                             TrackItem(
                                 track = track,
-                                isPlaying = isPlaying,
                                 isCurrent = currentTrack?.fullId == track.fullId,
                                 onTrackClick = { onTrackClick(track, myTracks) },
                                 isLiked = likedTrackIds.contains(track.fullId) || track.isLiked,
@@ -186,7 +186,6 @@ fun LibraryScreen(
                         items(downloadedTracks, key = { it.fullId }) { track ->
                             TrackItem(
                                 track = track,
-                                isPlaying = isPlaying,
                                 isCurrent = currentTrack?.fullId == track.fullId,
                                 onTrackClick = { onTrackClick(track, downloadedTracks) },
                                 isLiked = likedTrackIds.contains(track.fullId) || track.isLiked,
@@ -225,29 +224,11 @@ private fun PlaylistListItem(
 ) {
     ListItem(
         leadingContent = {
-            Box(
-                modifier = Modifier
-                    .size(54.dp)
-                    .clip(RoundedCornerShape(8.dp))
-                    .background(MaterialTheme.colorScheme.surfaceVariant),
-                contentAlignment = Alignment.Center
-            ) {
-                if (!playlist.coverUrl.isNullOrEmpty()) {
-                    AsyncImage(
-                        model = playlist.coverUrl,
-                        contentDescription = playlist.title,
-                        modifier = Modifier.fillMaxSize(),
-                        contentScale = ContentScale.Crop
-                    )
-                } else {
-                    Icon(
-                        imageVector = Icons.Default.Album,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
-                        modifier = Modifier.size(28.dp)
-                    )
-                }
-            }
+            TrackCoverThumbnail(
+                coverUrl = playlist.coverUrl,
+                sizeDp = 54.dp,
+                iconSizeDp = 28.dp
+            )
         },
         headlineContent = {
             Text(

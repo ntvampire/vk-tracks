@@ -135,9 +135,6 @@ fun MainAppScreen(viewModel: MainViewModel) {
     val searchArtists by viewModel.searchArtists.collectAsState()
     val likedTrackIds by viewModel.likedTrackIds.collectAsState()
     val downloadedTrackIds by viewModel.downloadedTrackIds.collectAsState()
-    val cacheSizeDisplay by viewModel.cacheSizeDisplay.collectAsState()
-    val isCacheEnabled by viewModel.isCacheEnabled.collectAsState()
-    val maxCacheMb by viewModel.maxCacheMb.collectAsState()
     val isSearching by viewModel.isSearching.collectAsState()
 
     val selectedPlaylist by viewModel.selectedPlaylist.collectAsState()
@@ -383,6 +380,10 @@ fun MainAppScreen(viewModel: MainViewModel) {
         // Экран настроек
         val context = LocalContext.current
         if (showSettings) {
+            val cacheSizeDisplay by viewModel.cacheSizeDisplay.collectAsState()
+            val isCacheEnabled by viewModel.isCacheEnabled.collectAsState()
+            val maxCacheMb by viewModel.maxCacheMb.collectAsState()
+
             SettingsScreen(
                 authManager = viewModel.authManager,
                 downloader = viewModel.downloader,

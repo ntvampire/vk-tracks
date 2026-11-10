@@ -28,7 +28,7 @@ import androidx.media3.session.MediaSession
 import androidx.media3.session.MediaSessionService
 import androidx.media3.session.SessionCommand
 import androidx.media3.session.SessionResult
-import coil.ImageLoader
+import coil.Coil
 import coil.request.ImageRequest
 import coil.request.SuccessResult
 import com.google.common.collect.ImmutableList
@@ -483,10 +483,10 @@ class PlaybackService : MediaSessionService() {
                 }
 
                 try {
-                    val loader = ImageLoader(this@PlaybackService)
+                    val loader = Coil.imageLoader(this@PlaybackService)
                     val req = ImageRequest.Builder(this@PlaybackService)
                         .data(coverUrl)
-                        .size(600, 600)
+                        .size(300, 300)
                         .allowHardware(false)
                         .build()
                     val result = loader.execute(req)
@@ -495,7 +495,7 @@ class PlaybackService : MediaSessionService() {
                         val bitmap = (drawable as? BitmapDrawable)?.bitmap
                         if (bitmap != null) {
                             val stream = ByteArrayOutputStream()
-                            bitmap.compress(Bitmap.CompressFormat.JPEG, 85, stream)
+                            bitmap.compress(Bitmap.CompressFormat.JPEG, 80, stream)
                             val bytes = stream.toByteArray()
 
                             withContext(Dispatchers.Main) {

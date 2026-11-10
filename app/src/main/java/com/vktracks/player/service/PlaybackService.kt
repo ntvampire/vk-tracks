@@ -722,9 +722,8 @@ class PlaybackService : MediaLibraryService() {
                 try {
                     val authManager = com.vktracks.player.data.api.VkAuthManager(applicationContext)
                     val apiClient = com.vktracks.player.data.api.VkApiClient(authManager)
-                    val enrichedList = apiClient.enrichTracksWithVkDetails(listOf(track))
-                    val enrichedTrack = enrichedList.firstOrNull()
-                    if (enrichedTrack != null && !enrichedTrack.coverUrl.isNullOrEmpty()) {
+                    val enrichedTrack = apiClient.resolveTrack(track)
+                    if (!enrichedTrack.coverUrl.isNullOrEmpty()) {
                         coverUrl = enrichedTrack.coverUrl
                         try {
                             val db = AppDatabase.getInstance(applicationContext)

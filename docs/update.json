@@ -1,7 +1,7 @@
 ﻿{
-    "versionCode":  40,
-    "versionName":  "1.0.39",
-    "downloadUrl":  "https://github.com/ntvampire/vk-tracks/releases/download/v1.0.39/VK-Tracks-1.0.39.apk",
-    "mirrorUrl":  "https://ntvampire.github.io/vk-tracks/VK-Tracks-1.0.39.apk",
-    "changelog":  "Fix native VK covers loading (Murglar audio.getById pattern), fix radio audio artifacts (Studio 21/Record Sonic catch-up \u0026 buffers), fix player seek slider jump to 0"
+    "versionCode":  41,
+    "versionName":  "1.0.40",
+    "downloadUrl":  "https://github.com/ntvampire/vk-tracks/releases/download/v1.0.40/VK-Tracks-1.0.40.apk",
+    "mirrorUrl":  "https://ntvampire.github.io/vk-tracks/VK-Tracks-1.0.40.apk",
+    "changelog":  "Fix native VK track covers loading: restore VK API v5.131 for audio/user methods, remove heavy batch enrichment, direct resolveTrack in player"
 }

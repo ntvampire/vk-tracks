@@ -68,12 +68,12 @@ fun LibraryScreen(
         derivedStateOf {
             val lastVisibleIndex = listState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: 0
             val totalCount = listState.layoutInfo.totalItemsCount
-            totalCount > 10 && lastVisibleIndex >= totalCount - 8
+            totalCount > 10 && lastVisibleIndex >= totalCount - 5
         }
     }
 
-    LaunchedEffect(shouldLoadMore, selectedTab) {
-        if (shouldLoadMore && selectedTab == LibraryTab.FAVORITES) {
+    LaunchedEffect(shouldLoadMore, selectedTab, isLoadingMoreTracks) {
+        if (shouldLoadMore && selectedTab == LibraryTab.FAVORITES && !isLoadingMoreTracks) {
             onLoadMoreTracks()
         }
     }
@@ -151,12 +151,7 @@ fun LibraryScreen(
                             EmptyLibraryMessage("В избранном пока нет треков")
                         }
                     } else {
-                        itemsIndexed(myTracks, key = { _, track -> track.fullId }) { index, track ->
-                            if (index >= myTracks.size - 8) {
-                                LaunchedEffect(myTracks.size) {
-                                    onLoadMoreTracks()
-                                }
-                            }
+                        items(myTracks, key = { it.fullId }) { track ->
                             TrackItem(
                                 track = track,
                                 isCurrent = currentTrack?.fullId == track.fullId,

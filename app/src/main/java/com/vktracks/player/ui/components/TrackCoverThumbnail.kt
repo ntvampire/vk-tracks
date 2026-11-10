@@ -16,11 +16,11 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
-import coil.compose.AsyncImage
+import coil.compose.SubcomposeAsyncImage
 
 /**
  * Высокопроизводительный компонент миниатюры обложки для списков, очередей и мини-плеера.
- * Использует стандартный Coil AsyncImage с автоматическим кэшированием и масштабированием.
+ * Использует SubcomposeAsyncImage с плавной подгрузкой и защитой от серых квадратов (loading/error отображают ноту).
  */
 @Composable
 fun TrackCoverThumbnail(
@@ -38,11 +38,31 @@ fun TrackCoverThumbnail(
         contentAlignment = Alignment.Center
     ) {
         if (!coverUrl.isNullOrEmpty()) {
-            AsyncImage(
+            SubcomposeAsyncImage(
                 model = coverUrl,
                 contentDescription = null,
                 modifier = Modifier.fillMaxSize(),
-                contentScale = ContentScale.Crop
+                contentScale = ContentScale.Crop,
+                loading = {
+                    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                        Icon(
+                            imageVector = Icons.Default.MusicNote,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.35f),
+                            modifier = Modifier.size(iconSizeDp)
+                        )
+                    }
+                },
+                error = {
+                    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                        Icon(
+                            imageVector = Icons.Default.MusicNote,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
+                            modifier = Modifier.size(iconSizeDp)
+                        )
+                    }
+                }
             )
         } else {
             Icon(

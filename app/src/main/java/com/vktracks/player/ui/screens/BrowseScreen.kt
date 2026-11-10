@@ -183,7 +183,7 @@ fun BrowseScreen(
                     contentPadding = PaddingValues(horizontal = 16.dp),
                     horizontalArrangement = Arrangement.spacedBy(16.dp)
                 ) {
-                    items(editorialBlock.playlists) { playlist ->
+                    items(editorialBlock.playlists, key = { "${it.ownerId}_${it.id}" }) { playlist ->
                         CuratedPlaylistCard(playlist = playlist, onClick = { onPlaylistClick(playlist) })
                     }
                 }
@@ -293,7 +293,7 @@ fun BrowseScreen(
         }
 
         // 6. Дополнительные тематические разделы VK каталога (Новинки, Выбор редакции, Новые альбомы, Новые имена)
-        items(otherBlocks) { block ->
+        items(otherBlocks, key = { it.title }) { block ->
             if (block.playlists.isNotEmpty()) {
                 Column(modifier = Modifier.padding(top = 24.dp)) {
                     Text(
@@ -316,7 +316,7 @@ fun BrowseScreen(
                         contentPadding = PaddingValues(horizontal = 16.dp),
                         horizontalArrangement = Arrangement.spacedBy(16.dp)
                     ) {
-                        items(block.playlists) { playlist ->
+                        items(block.playlists, key = { "${it.ownerId}_${it.id}" }) { playlist ->
                             CuratedPlaylistCard(playlist = playlist, onClick = { onPlaylistClick(playlist) })
                         }
                     }
@@ -344,7 +344,7 @@ fun BrowseScreen(
                         contentPadding = PaddingValues(horizontal = 16.dp),
                         horizontalArrangement = Arrangement.spacedBy(16.dp)
                     ) {
-                        items(trackChunks) { chunk ->
+                        items(trackChunks, key = { it.firstOrNull()?.fullId ?: it.hashCode().toString() }) { chunk ->
                             Column(
                                 modifier = Modifier.width(280.dp),
                                 verticalArrangement = Arrangement.spacedBy(8.dp)

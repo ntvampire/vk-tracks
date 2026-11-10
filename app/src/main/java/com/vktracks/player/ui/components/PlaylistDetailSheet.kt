@@ -252,7 +252,7 @@ fun PlaylistDetailSheet(
                             }
                         }
                     } else {
-                        itemsIndexed(tracks) { index, track ->
+                        itemsIndexed(tracks, key = { _, track -> track.fullId }) { index, track ->
                             val isCurrent = currentTrack?.fullId == track.fullId
                             val isLiked = likedTrackIds.contains(track.fullId) || track.isLiked
 

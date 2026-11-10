@@ -1097,7 +1097,7 @@ class VkApiClient(
                 ?: thumb?.optString("photo_1200")
         }
 
-        // Если в VK обложки нет, смотрим только локальный кэш Room (без блокирующих сетевых запросов)
+        // Если в VK обложки нет, смотрим мгновенный кэш в оперативной памяти (0 ms, без дисковых блокировок)
         if (coverUrl.isNullOrEmpty()) {
             coverUrl = coverArtResolver.getCachedCover(artist, title)
         }

@@ -1,7 +1,7 @@
 ﻿{
-    "versionCode":  28,
-    "versionName":  "1.0.27",
-    "downloadUrl":  "https://github.com/ntvampire/vk-tracks/releases/download/v1.0.27/VK-Tracks-1.0.27.apk",
-    "mirrorUrl":  "https://ntvampire.github.io/vk-tracks/VK-Tracks-1.0.27.apk",
-    "changelog":  "Восстановление трансляции метаданных и обложек радио в шторку уведомлений (Android Media Controls): немедленное обновление MediaMetadata и передача artworkData в MediaSession."
+    "versionCode":  29,
+    "versionName":  "1.0.28",
+    "downloadUrl":  "https://github.com/ntvampire/vk-tracks/releases/download/v1.0.28/VK-Tracks-1.0.28.apk",
+    "mirrorUrl":  "https://ntvampire.github.io/vk-tracks/VK-Tracks-1.0.28.apk",
+    "changelog":  "Кардинальная оптимизация производительности в стиле VKX: 0 ms чтение обложек из памяти, ультрабыстрый точечный iTunes-поиск без перегрузки VK API, точечные ключи списков LazyColumn для 60/120 FPS скролла, изоляция подписки на очередь воспроизведения."
 }

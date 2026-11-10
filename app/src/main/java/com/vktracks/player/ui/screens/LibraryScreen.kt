@@ -128,7 +128,7 @@ fun LibraryScreen(
                             EmptyLibraryMessage("В избранном пока нет треков")
                         }
                     } else {
-                        items(myTracks) { track ->
+                        items(myTracks, key = { it.fullId }) { track ->
                             TrackItem(
                                 track = track,
                                 isPlaying = isPlaying,
@@ -148,7 +148,7 @@ fun LibraryScreen(
                             EmptyLibraryMessage("Нет сохранённых плейлистов")
                         }
                     } else {
-                        items(userPlaylists) { playlist ->
+                        items(userPlaylists, key = { "${it.ownerId}_${it.id}" }) { playlist ->
                             PlaylistListItem(
                                 playlist = playlist,
                                 subtitle = "${playlist.count} треков",
@@ -163,7 +163,7 @@ fun LibraryScreen(
                             EmptyLibraryMessage("Нет сохранённых альбомов")
                         }
                     } else {
-                        items(userAlbums) { album ->
+                        items(userAlbums, key = { "${it.ownerId}_${it.id}" }) { album ->
                             val desc = buildString {
                                 if (!album.mainArtist.isNullOrBlank()) append("${album.mainArtist} • ")
                                 if (album.year != null && album.year > 0) append("${album.year} • ")
@@ -183,7 +183,7 @@ fun LibraryScreen(
                             EmptyLibraryMessage("Нет скачанных треков")
                         }
                     } else {
-                        items(downloadedTracks) { track ->
+                        items(downloadedTracks, key = { it.fullId }) { track ->
                             TrackItem(
                                 track = track,
                                 isPlaying = isPlaying,

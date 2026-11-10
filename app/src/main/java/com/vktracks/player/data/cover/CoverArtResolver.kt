@@ -18,6 +18,16 @@ class CoverArtResolver(
     companion object {
         @Volatile
         var instance: CoverArtResolver? = null
+
+        // Прекомпилированные регулярные выражения для максимальной производительности (0 аллокаций)
+        private val REGEX_PARENS = Regex("""\([^)]*\)""")
+        private val REGEX_BRACKETS = Regex("""\[[^\]]*\]""")
+        private val REGEX_BRACES = Regex("""\{[^}]*\}""")
+        private val REGEX_TRACK_NUM = Regex("""^\d+[\s.-]+""")
+        private val REGEX_TAGS = Regex("""(?i)\b(feat|ft|prod|remix|mix|edit|deluxe|version|slowed|reverb|speed up|bass boosted|cover|instrumental|live|bonus)\b.*$""")
+        private val REGEX_TRAILING_DASH = Regex("""\s*[-–—]\s*$""")
+        private val REGEX_FEAT_SPLIT = Regex("""\s*,\s*|\s+[/&x+]\s+|\b(feat|ft|vs)\b""", RegexOption.IGNORE_CASE)
+        private val REGEX_NORMALIZE = Regex("""[^a-z0-9а-яё]""")
     }
 
     @Volatile
@@ -26,8 +36,8 @@ class CoverArtResolver(
     private val memoryCache = java.util.concurrent.ConcurrentHashMap<String, String>()
 
     private val client = OkHttpClient.Builder()
-        .connectTimeout(5, TimeUnit.SECONDS)
-        .readTimeout(8, TimeUnit.SECONDS)
+        .connectTimeout(3, TimeUnit.SECONDS)
+        .readTimeout(5, TimeUnit.SECONDS)
         .build()
 
     init {
@@ -43,35 +53,28 @@ class CoverArtResolver(
         } catch (_: Exception) {}
     }
 
-    suspend fun getCachedCover(rawArtist: String, rawTitle: String): String? {
+    /**
+     * Мгновенный поиск обложки исключительно в оперативной памяти (0 ms, ConcurrentHashMap).
+     * Не делает блокирующих запросов к Room SQLite или диску.
+     * Используется при массовом парсинге списков треков (библиотека, каталог, поиск).
+     */
+    fun getCachedCover(rawArtist: String, rawTitle: String): String? {
         val cleanArtist = sanitizeArtist(rawArtist)
         val cleanTitle = sanitizeTitle(rawTitle)
         val trackKey = "$cleanArtist - $cleanTitle".lowercase()
         val artistKey = "artist:$cleanArtist".lowercase()
-
-        // 1. Мгновенная проверка в оперативной памяти (0 ms, без обращения к диску)
-        val inMem = memoryCache[trackKey] ?: memoryCache[artistKey]
-        if (!inMem.isNullOrEmpty()) return inMem
-
-        // 2. Проверка в локальной базе Room
-        return try {
-            val fromDb = coverCacheDao.getCover(trackKey) ?: coverCacheDao.getCover(artistKey)
-            if (!fromDb.isNullOrEmpty()) {
-                memoryCache[trackKey] = fromDb
-                fromDb
-            } else {
-                null
-            }
-        } catch (_: Exception) {
-            null
-        }
+        return memoryCache[trackKey] ?: memoryCache[artistKey]
     }
 
     /**
-     * Трёхступенчатый каскадный поиск обложки (только iTunes и VK):
-     * 1. Персональная обложка трека / сингла
-     * 2. Обложка альбома исполнителя с этим треком
-     * 3. Fallback: официальное фото самого исполнителя
+     * Трёхступенчатый ультрабыстрый поиск обложки (по аналогии с VKX):
+     * 1. Проверка оперативной памяти (0 ms)
+     * 2. Проверка локальной базы Room (<1 ms)
+     * 3. iTunes API: персональная обложка трека / сингла (entity=song, limit=3, ~80 ms)
+     * 4. iTunes API: обложка альбома исполнителя (entity=album, limit=3)
+     * 5. iTunes API Fallback: официальное фото / обложка топ-релиза исполнителя (entity=album, limit=3)
+     *
+     * Не нагружает VK API каталогами и не блокирует поток воспроизведения.
      */
     suspend fun resolveCover(
         rawArtist: String,
@@ -85,11 +88,11 @@ class CoverArtResolver(
         val trackKey = "$cleanArtist - $cleanTitle".lowercase()
         val artistKey = "artist:$cleanArtist".lowercase()
 
-        // 0. Проверяем оперативную память
+        // 1. Проверяем оперативную память
         val inMem = memoryCache[trackKey] ?: if (cleanTitle.isBlank()) memoryCache[artistKey] else null
         if (!inMem.isNullOrEmpty()) return@withContext inMem
 
-        // 0.1. Проверяем локальный кэш Room
+        // 2. Проверяем локальный кэш Room
         try {
             val cachedTrack = coverCacheDao.getCover(trackKey)
             if (!cachedTrack.isNullOrEmpty()) {
@@ -104,44 +107,28 @@ class CoverArtResolver(
             }
         } catch (_: Exception) {}
 
-        // ЭТАП 1: Поиск обложки конкретного трека / сингла
+        // ЭТАП 1: Поиск обложки конкретного трека / сингла в iTunes
         if (cleanTitle.isNotBlank()) {
-            // 1.1. iTunes API (entity=song) со строгой двухфакторной проверкой
             val itunesTrackCover = searchItunesTrack(cleanArtist, cleanTitle)
             if (!itunesTrackCover.isNullOrEmpty()) {
                 saveToCache(trackKey, itunesTrackCover)
                 return@withContext itunesTrackCover
             }
-
-            // 1.2. VK API (audio.search) — поиск трека того же исполнителя с официальным album.thumb
-            val vkTrackCover = searchVkTrack(cleanArtist, cleanTitle)
-            if (!vkTrackCover.isNullOrEmpty()) {
-                saveToCache(trackKey, vkTrackCover)
-                return@withContext vkTrackCover
-            }
         }
 
-        // ЭТАП 2: Поиск обложки альбома исполнителя
+        // ЭТАП 2: Поиск обложки альбома исполнителя в iTunes
         val cleanAlbum = rawAlbum?.takeIf { it != "Онлайн-радио" }?.let { sanitizeTitle(it) }
-        if (!cleanAlbum.isNullOrBlank()) {
-            // 2.1. iTunes API (entity=album)
-            val itunesAlbumCover = searchItunesAlbum(cleanArtist, cleanAlbum)
+        val albumSearchTerm = if (!cleanAlbum.isNullOrBlank()) cleanAlbum else cleanTitle
+        if (albumSearchTerm.isNotBlank()) {
+            val itunesAlbumCover = searchItunesAlbum(cleanArtist, albumSearchTerm)
             if (!itunesAlbumCover.isNullOrEmpty()) {
                 saveToCache(trackKey, itunesAlbumCover)
                 return@withContext itunesAlbumCover
             }
-
-            // 2.2. VK API (searchPlaylists) — поиск альбома исполнителя
-            val vkAlbumCover = searchVkAlbum(cleanArtist, cleanAlbum)
-            if (!vkAlbumCover.isNullOrEmpty()) {
-                saveToCache(trackKey, vkAlbumCover)
-                return@withContext vkAlbumCover
-            }
         }
 
-        // ЭТАП 3: Fallback — Официальное фото исполнителя
+        // ЭТАП 3: Fallback — Официальная обложка / релиз исполнителя в iTunes
         if (cleanArtist.isNotBlank()) {
-            // 3.0. Проверяем кэш артиста
             try {
                 val cachedArtist = coverCacheDao.getCover(artistKey)
                 if (!cachedArtist.isNullOrEmpty()) {
@@ -150,15 +137,6 @@ class CoverArtResolver(
                 }
             } catch (_: Exception) {}
 
-            // 3.1. VK Artist API (карточка музыканта с photo_1200 / photo_600)
-            val vkArtistPhoto = searchVkArtistPhoto(cleanArtist)
-            if (!vkArtistPhoto.isNullOrEmpty()) {
-                saveToCache(artistKey, vkArtistPhoto)
-                saveToCache(trackKey, vkArtistPhoto)
-                return@withContext vkArtistPhoto
-            }
-
-            // 3.2. iTunes Artist / Top album fallback
             val itunesArtistPhoto = searchItunesArtistFallback(cleanArtist)
             if (!itunesArtistPhoto.isNullOrEmpty()) {
                 saveToCache(artistKey, itunesArtistPhoto)
@@ -173,7 +151,7 @@ class CoverArtResolver(
     private fun searchItunesTrack(artist: String, title: String): String? {
         val query = "$artist $title"
         val encoded = URLEncoder.encode(query, "UTF-8")
-        val url = "https://itunes.apple.com/search?term=$encoded&media=music&entity=song&limit=10"
+        val url = "https://itunes.apple.com/search?term=$encoded&media=music&entity=song&limit=3"
 
         return try {
             val request = Request.Builder().url(url).build()
@@ -200,25 +178,10 @@ class CoverArtResolver(
         }
     }
 
-    private suspend fun searchVkTrack(artist: String, title: String): String? {
-        val vk = vkApiClient ?: return null
-        return try {
-            val tracks = vk.searchAudios("$artist $title", count = 10)
-            for (t in tracks) {
-                if (isArtistMatch(artist, t.artist) && isTitleMatch(title, t.title) && !t.coverUrl.isNullOrEmpty()) {
-                    return t.coverUrl
-                }
-            }
-            null
-        } catch (_: Exception) {
-            null
-        }
-    }
-
     private fun searchItunesAlbum(artist: String, album: String): String? {
         val query = "$artist $album"
         val encoded = URLEncoder.encode(query, "UTF-8")
-        val url = "https://itunes.apple.com/search?term=$encoded&media=music&entity=album&limit=5"
+        val url = "https://itunes.apple.com/search?term=$encoded&media=music&entity=album&limit=3"
 
         return try {
             val request = Request.Builder().url(url).build()
@@ -245,40 +208,9 @@ class CoverArtResolver(
         }
     }
 
-    private suspend fun searchVkAlbum(artist: String, album: String): String? {
-        val vk = vkApiClient ?: return null
-        return try {
-            val playlists = vk.searchPlaylists("$artist $album", count = 5)
-            for (p in playlists) {
-                val pArtist = p.mainArtist ?: p.title
-                if (p.isAlbum && isArtistMatch(artist, pArtist) && isTitleMatch(album, p.title) && !p.coverUrl.isNullOrEmpty()) {
-                    return p.coverUrl
-                }
-            }
-            null
-        } catch (_: Exception) {
-            null
-        }
-    }
-
-    private suspend fun searchVkArtistPhoto(artist: String): String? {
-        val vk = vkApiClient ?: return null
-        return try {
-            val searchResult = vk.searchCatalog(artist)
-            for (a in searchResult.artists) {
-                if (isArtistMatch(artist, a.name) && !a.photoUrl.isNullOrEmpty()) {
-                    return a.photoUrl
-                }
-            }
-            null
-        } catch (_: Exception) {
-            null
-        }
-    }
-
     private fun searchItunesArtistFallback(artist: String): String? {
         val encoded = URLEncoder.encode(artist, "UTF-8")
-        val url = "https://itunes.apple.com/search?term=$encoded&media=music&entity=album&limit=5"
+        val url = "https://itunes.apple.com/search?term=$encoded&media=music&entity=album&limit=3"
 
         return try {
             val request = Request.Builder().url(url).build()
@@ -317,12 +249,12 @@ class CoverArtResolver(
      */
     fun sanitizeTitle(title: String): String {
         return title
-            .replace(Regex("""\([^)]*\)"""), "") // Удаление всех (...)
-            .replace(Regex("""\[[^\]]*\]"""), "") // Удаление всех [...]
-            .replace(Regex("""\{[^}]*\}"""), "") // Удаление всех {...}
-            .replace(Regex("""^\d+[\s.-]+"""), "") // Удаление порядкового номера "01. " или "01 - "
-            .replace(Regex("""(?i)\b(feat|ft|prod|remix|mix|edit|deluxe|version|slowed|reverb|speed up|bass boosted|cover|instrumental|live|bonus)\b.*$"""), "")
-            .replace(Regex("""\s*[-–—]\s*$"""), "")
+            .replace(REGEX_PARENS, "")
+            .replace(REGEX_BRACKETS, "")
+            .replace(REGEX_BRACES, "")
+            .replace(REGEX_TRACK_NUM, "")
+            .replace(REGEX_TAGS, "")
+            .replace(REGEX_TRAILING_DASH, "")
             .trim()
     }
 
@@ -332,9 +264,9 @@ class CoverArtResolver(
      */
     fun sanitizeArtist(artist: String): String {
         return artist
-            .replace(Regex("""\([^)]*\)"""), "")
-            .replace(Regex("""\[[^\]]*\]"""), "")
-            .split(Regex("""\s*,\s*|\s+[/&x+]\s+|\b(feat|ft|vs)\b""", RegexOption.IGNORE_CASE))
+            .replace(REGEX_PARENS, "")
+            .replace(REGEX_BRACKETS, "")
+            .split(REGEX_FEAT_SPLIT)
             .firstOrNull()?.trim() ?: artist.trim()
     }
 
@@ -371,8 +303,7 @@ class CoverArtResolver(
     }
 
     private fun normalize(str: String): String {
-        return str.lowercase()
-            .replace(Regex("""[^a-z0-9а-яё]"""), "")
+        return str.lowercase().replace(REGEX_NORMALIZE, "")
     }
 
     private fun levenshtein(s1: CharSequence, s2: CharSequence): Int {

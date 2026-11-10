@@ -1,7 +1,7 @@
 ﻿{
-    "versionCode":  35,
-    "versionName":  "1.0.34",
-    "downloadUrl":  "https://github.com/ntvampire/vk-tracks/releases/download/v1.0.34/VK-Tracks-1.0.34.apk",
-    "mirrorUrl":  "https://ntvampire.github.io/vk-tracks/VK-Tracks-1.0.34.apk",
-    "changelog":  "Прямое отображение нативных обложек через AsyncImage без перекрытия заглушкой в placeholder/error; заглушка ВК Музыка выводится строго при null-обложке."
+    "versionCode":  36,
+    "versionName":  "1.0.35",
+    "downloadUrl":  "https://github.com/ntvampire/vk-tracks/releases/download/v1.0.35/VK-Tracks-1.0.35.apk",
+    "mirrorUrl":  "https://ntvampire.github.io/vk-tracks/VK-Tracks-1.0.35.apk",
+    "changelog":  "Полный откат к надёжной и плавной реализации v1.0.31: нативные обложки из треков VK, нота при null-обложке, удалён тяжёлый векторный плейсхолдер; устранена перемотка в начало трека через удержание sliderPosition."
 }

@@ -1,7 +1,7 @@
 ﻿{
-    "versionCode":  36,
-    "versionName":  "1.0.35",
-    "downloadUrl":  "https://github.com/ntvampire/vk-tracks/releases/download/v1.0.35/VK-Tracks-1.0.35.apk",
-    "mirrorUrl":  "https://ntvampire.github.io/vk-tracks/VK-Tracks-1.0.35.apk",
-    "changelog":  "Полный откат к надёжной и плавной реализации v1.0.31: нативные обложки из треков VK, нота при null-обложке, удалён тяжёлый векторный плейсхолдер; устранена перемотка в начало трека через удержание sliderPosition."
+    "versionCode":  37,
+    "versionName":  "1.0.36",
+    "downloadUrl":  "https://github.com/ntvampire/vk-tracks/releases/download/v1.0.36/VK-Tracks-1.0.36.apk",
+    "mirrorUrl":  "https://ntvampire.github.io/vk-tracks/VK-Tracks-1.0.36.apk",
+    "changelog":  "1. Восстановление загрузки нативных обложек VK API и пагинации избранного: v=5.131 для audio.* и users.* возвращает album.thumb и поддерживает offset; v=5.155 строго для catalog.*. 2. Исключение задержек и мигания: прямой AsyncImage(coverUrl) без тяжелых промежуточных плейсхолдеров, легкая векторная нота строго при отсутствии обложки. 3. Слайдер таймлайна в плеере: отмена предыдущих delay-джобов при повторных тапах и перетаскивании, исключение срыва позиции на 0:00."
 }

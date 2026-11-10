@@ -152,10 +152,7 @@ fun FullPlayerSheet(
                         ) {
                             if (!track.coverUrl.isNullOrEmpty()) {
                                 AsyncImage(
-                                    model = ImageRequest.Builder(LocalContext.current)
-                                        .data(track.coverUrl)
-                                        .crossfade(true)
-                                        .build(),
+                                    model = track.coverUrl,
                                     contentDescription = track.title,
                                     modifier = Modifier.fillMaxSize(),
                                     contentScale = ContentScale.Crop
@@ -317,6 +314,7 @@ fun FullPlayerSheet(
                 val trackDurationMs = if (durationMs > 0) durationMs else ((track?.duration ?: 0).toLong() * 1000L)
                 val coroutineScope = rememberCoroutineScope()
                 var sliderPosition by remember(track?.id) { mutableStateOf<Float?>(null) }
+                var seekJob by remember(track?.id) { mutableStateOf<kotlinx.coroutines.Job?>(null) }
                 val currentSlider = sliderPosition ?: if (trackDurationMs > 0) (currentPosMs.toFloat() / trackDurationMs).coerceIn(0f, 1f) else 0f
 
                 val displayPosMs = if (sliderPosition != null && trackDurationMs > 0) {
@@ -327,14 +325,18 @@ fun FullPlayerSheet(
 
                 Slider(
                     value = currentSlider,
-                    onValueChange = { sliderPosition = it },
+                    onValueChange = {
+                        seekJob?.cancel()
+                        sliderPosition = it
+                    },
                     onValueChangeFinished = {
                         sliderPosition?.let { targetFraction ->
                             if (trackDurationMs > 0) {
                                 onSeekTo((targetFraction * trackDurationMs).toLong())
                             }
-                            coroutineScope.launch {
-                                kotlinx.coroutines.delay(600)
+                            seekJob?.cancel()
+                            seekJob = coroutineScope.launch {
+                                kotlinx.coroutines.delay(800)
                                 sliderPosition = null
                             }
                         }

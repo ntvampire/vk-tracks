@@ -162,6 +162,8 @@ fun FullPlayerSheet(
                                 AsyncImage(
                                     model = coverReq,
                                     contentDescription = null,
+                                    placeholder = painterResource(R.drawable.ic_vk_music_placeholder),
+                                    error = painterResource(R.drawable.ic_vk_music_placeholder),
                                     modifier = Modifier.fillMaxSize(),
                                     contentScale = ContentScale.Crop
                                 )
@@ -320,19 +322,35 @@ fun FullPlayerSheet(
             } else {
                 // Таймлайн (Слайдер прогресса)
                 val trackDurationMs = if (durationMs > 0) durationMs else ((track?.duration ?: 0).toLong() * 1000L)
-                var sliderPosition by remember(track?.id) { mutableStateOf<Float?>(null) }
-                val currentSlider = sliderPosition ?: if (trackDurationMs > 0) (currentPosMs.toFloat() / trackDurationMs).coerceIn(0f, 1f) else 0f
+                var isDragging by remember(track?.id) { mutableStateOf(false) }
+                var dragFraction by remember(track?.id) { mutableFloatStateOf(0f) }
+
+                val currentFraction = if (isDragging) {
+                    dragFraction
+                } else if (trackDurationMs > 0) {
+                    (currentPosMs.toFloat() / trackDurationMs).coerceIn(0f, 1f)
+                } else {
+                    0f
+                }
+
+                val displayPosMs = if (isDragging && trackDurationMs > 0) {
+                    (dragFraction * trackDurationMs).toLong()
+                } else {
+                    currentPosMs
+                }
 
                 Slider(
-                    value = currentSlider,
-                    onValueChange = { sliderPosition = it },
+                    value = currentFraction,
+                    onValueChange = {
+                        isDragging = true
+                        dragFraction = it
+                    },
                     onValueChangeFinished = {
-                        sliderPosition?.let {
-                            if (trackDurationMs > 0) {
-                                onSeekTo((it * trackDurationMs).toLong())
-                            }
-                            sliderPosition = null
+                        if (trackDurationMs > 0) {
+                            val targetMs = (dragFraction * trackDurationMs).toLong().coerceIn(0L, trackDurationMs)
+                            onSeekTo(targetMs)
                         }
+                        isDragging = false
                     },
                     colors = SliderDefaults.colors(
                         thumbColor = MaterialTheme.colorScheme.onBackground,
@@ -350,12 +368,12 @@ fun FullPlayerSheet(
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
                     Text(
-                        text = formatMs(currentPosMs),
+                        text = formatMs(displayPosMs),
                         fontSize = 12.sp,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                     Text(
-                        text = if (trackDurationMs > 0) "-" + formatMs((trackDurationMs - currentPosMs).coerceAtLeast(0)) else "--:--",
+                        text = if (trackDurationMs > 0) "-" + formatMs((trackDurationMs - displayPosMs).coerceAtLeast(0)) else "--:--",
                         fontSize = 12.sp,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )

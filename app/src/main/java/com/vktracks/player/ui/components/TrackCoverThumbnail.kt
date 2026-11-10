@@ -57,6 +57,8 @@ fun TrackCoverThumbnail(
             AsyncImage(
                 model = request,
                 contentDescription = null,
+                placeholder = painterResource(R.drawable.ic_vk_music_placeholder),
+                error = painterResource(R.drawable.ic_vk_music_placeholder),
                 modifier = Modifier.fillMaxSize(),
                 contentScale = ContentScale.Crop
             )

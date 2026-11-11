@@ -39,6 +39,7 @@ fun PlaylistDetailSheet(
     downloadedTrackIds: Set<String> = emptySet(),
     currentTrack: Track?,
     isPlaying: Boolean,
+    resolvedCovers: Map<String, String> = emptyMap(),
     onTrackClick: (Track, List<Track>) -> Unit,
     onPlayAllClick: (List<Track>) -> Unit,
     onShuffleClick: (List<Track>) -> Unit,
@@ -290,7 +291,7 @@ fun PlaylistDetailSheet(
                                 val itemCoverUrl = if (playlist.isAlbum) {
                                     track.coverUrl ?: playlist.coverUrl
                                 } else {
-                                    if (isCurrent) currentTrack?.coverUrl ?: track.coverUrl else track.coverUrl
+                                    resolvedCovers[track.fullId] ?: if (isCurrent) currentTrack?.coverUrl ?: track.coverUrl else track.coverUrl
                                 }
 
                                 TrackCoverThumbnail(

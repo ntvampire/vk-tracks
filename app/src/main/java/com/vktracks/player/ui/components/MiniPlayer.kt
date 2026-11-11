@@ -60,7 +60,7 @@ fun MiniPlayer(
 
             Spacer(modifier = Modifier.width(12.dp))
 
-            // Название и артист с плавной бегущей строкой при длинном тексте
+            // Название и артист с плавной бегущей строкой при активном воспроизведении
             Column(
                 modifier = Modifier
                     .weight(1f)
@@ -72,30 +72,16 @@ fun MiniPlayer(
                     fontWeight = FontWeight.SemiBold,
                     color = MaterialTheme.colorScheme.onSurface,
                     maxLines = 1,
-                    softWrap = false,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .basicMarquee(
-                            iterations = Int.MAX_VALUE,
-                            initialDelayMillis = 1500,
-                            repeatDelayMillis = 2000,
-                            velocity = 30.dp
-                        )
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.fillMaxWidth()
                 )
                 Text(
                     text = track.artist,
                     fontSize = 12.sp,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 1,
-                    softWrap = false,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .basicMarquee(
-                            iterations = Int.MAX_VALUE,
-                            initialDelayMillis = 1500,
-                            repeatDelayMillis = 2000,
-                            velocity = 30.dp
-                        )
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.fillMaxWidth()
                 )
             }
 

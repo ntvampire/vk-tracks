@@ -40,6 +40,7 @@ fun ArtistDetailScreen(
     downloadedTrackIds: Set<String> = emptySet(),
     currentTrack: Track?,
     isPlaying: Boolean,
+    resolvedCovers: Map<String, String> = emptyMap(),
     onTrackClick: (Track, List<Track>) -> Unit,
     onAlbumClick: (Playlist) -> Unit,
     onToggleLike: (Track) -> Unit,
@@ -223,6 +224,7 @@ fun ArtistDetailScreen(
                                 isCurrent = isCurrent,
                                 isLiked = isLiked,
                                 isDownloaded = downloadedTrackIds.contains(track.fullId) || track.isLocal,
+                                coverUrl = resolvedCovers[track.fullId] ?: track.coverUrl,
                                 onTrackClick = { onTrackClick(track, artistDetail.popularTracks) },
                                 onLikeClick = { onToggleLike(track) },
                                 onDownloadClick = { onDownloadTrackClick(track) }

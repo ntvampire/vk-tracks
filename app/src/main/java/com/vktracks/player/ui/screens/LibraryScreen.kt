@@ -44,6 +44,7 @@ fun LibraryScreen(
     playlists: List<Playlist>,
     currentTrack: Track?,
     isPlaying: Boolean,
+    resolvedCovers: Map<String, String> = emptyMap(),
     likedTrackIds: Set<String> = emptySet(),
     downloadedTrackIds: Set<String> = emptySet(),
     isLoadingMoreTracks: Boolean = false,
@@ -156,7 +157,7 @@ fun LibraryScreen(
 
                         items(myTracks, key = { it.fullId }) { track ->
                             val isCurrent = currentFullId == track.fullId
-                            val itemCover = if (isCurrent) currentPlayingCover ?: track.coverUrl else track.coverUrl
+                            val itemCover = resolvedCovers[track.fullId] ?: if (isCurrent) currentPlayingCover ?: track.coverUrl else track.coverUrl
                             val isLiked = remember(track.fullId, likedTrackIds, track.isLiked) { likedTrackIds.contains(track.fullId) || track.isLiked }
                             val isDownloaded = remember(track.fullId, downloadedTrackIds, track.isLocal) { downloadedTrackIds.contains(track.fullId) || track.isLocal }
 
@@ -235,7 +236,7 @@ fun LibraryScreen(
 
                         items(downloadedTracks, key = { it.fullId }) { track ->
                             val isCurrent = currentFullId == track.fullId
-                            val itemCover = if (isCurrent) currentPlayingCover ?: track.coverUrl else track.coverUrl
+                            val itemCover = resolvedCovers[track.fullId] ?: if (isCurrent) currentPlayingCover ?: track.coverUrl else track.coverUrl
                             val isLiked = remember(track.fullId, likedTrackIds, track.isLiked) { likedTrackIds.contains(track.fullId) || track.isLiked }
 
                             TrackItem(

@@ -810,7 +810,10 @@ class VkApiClient(
             track.copy(coverUrl = cachedCover)
         } else track
 
-        if (trackWithCached.streamUrl.isNotEmpty() && !trackWithCached.coverUrl.isNullOrEmpty() && isValidImageUrl(trackWithCached.coverUrl)) {
+        val coverAlreadyResolved = (!trackWithCached.coverUrl.isNullOrEmpty() && isValidImageUrl(trackWithCached.coverUrl)) ||
+                (cachedCover != null && cachedCover.isEmpty())
+
+        if (trackWithCached.streamUrl.isNotEmpty() && coverAlreadyResolved) {
             return@withContext trackWithCached
         }
 
@@ -862,10 +865,21 @@ class VkApiClient(
             }
         }
 
-        // 3. Если обложки нет и в iTunes — оставляем null (чистая векторная нота-заглушка)
+        // 3. Если обложки трека нет в iTunes — проверяем официальное фото артиста (только точное совпадение имени)
+        if (resolvedCover.isNullOrEmpty() || !isValidImageUrl(resolvedCover)) {
+            val artistPhoto = fetchExactArtistPhoto(trackWithCached.artist)
+            if (!artistPhoto.isNullOrEmpty() && isValidImageUrl(artistPhoto)) {
+                resolvedCover = artistPhoto
+            }
+        }
+
+        // 4. Если обложки нет и у артиста — оставляем null (чистая векторная нота-заглушка)
         if (!resolvedCover.isNullOrEmpty()) {
             trackCoverCache[trackWithCached.fullId] = resolvedCover
             albumKey(trackWithCached.artist, resolvedAlbum)?.let { albumCoverCache[it] = resolvedCover }
+        } else {
+            // Кэшируем пустую строку, чтобы предотвратить повторные дорогостоящие запросы для треков без обложки
+            trackCoverCache[trackWithCached.fullId] = ""
         }
 
         trackWithCached.copy(
@@ -876,6 +890,39 @@ class VkApiClient(
             restriction = resolvedRestriction,
             restrictionText = resolvedRestrictionText
         )
+    }
+
+    suspend fun fetchExactArtistPhoto(artist: String): String? = withContext(Dispatchers.IO) {
+        val cleanArtist = extractMainArtist(artist).trim()
+        if (cleanArtist.isBlank()) return@withContext null
+        val cached = artistPhotoCache[cleanArtist.lowercase()]
+        if (cached != null) return@withContext cached.takeIf { it.isNotEmpty() }
+
+        try {
+            val json = callVkApi("audio.searchArtists", mapOf("q" to cleanArtist, "count" to "3"))
+            val response = json?.optJSONObject("response")
+            val items = response?.optJSONArray("items")
+            if (items != null) {
+                for (i in 0 until items.length()) {
+                    val item = items.optJSONObject(i) ?: continue
+                    val name = item.optString("name", "").trim()
+                    if (name.equals(cleanArtist, ignoreCase = true)) {
+                        val photoArray = item.optJSONArray("photo")
+                        var photoUrl: String? = null
+                        if (photoArray != null && photoArray.length() > 0) {
+                            val best = photoArray.optJSONObject(photoArray.length() - 1)
+                            photoUrl = best?.optString("url")
+                        }
+                        if (!photoUrl.isNullOrEmpty() && isValidImageUrl(photoUrl)) {
+                            artistPhotoCache[cleanArtist.lowercase()] = photoUrl
+                            return@withContext photoUrl
+                        }
+                    }
+                }
+            }
+        } catch (_: Exception) {}
+        artistPhotoCache[cleanArtist.lowercase()] = ""
+        null
     }
 
     fun extractMainArtist(artist: String): String {

@@ -797,6 +797,31 @@ class VkApiClient(
             }
         }
 
+        // 2. Для первых треков без обложки пакетно получаем официальные обложки из каталога VK (через единый execute)
+        val stillMissing = withCached.filter { track ->
+            val en = enrichedMap[track.fullId]
+            val cover = en?.coverUrl ?: track.coverUrl
+            cover.isNullOrEmpty() || !isValidImageUrl(cover)
+        }.take(15)
+
+        if (stillMissing.isNotEmpty()) {
+            val batchCovers = resolveCoversBatch(stillMissing)
+            for ((id, cover) in batchCovers) {
+                if (!cover.isNullOrEmpty() && isValidImageUrl(cover)) {
+                    trackCoverCache[id] = cover
+                    val existing = enrichedMap[id]
+                    if (existing != null) {
+                        enrichedMap[id] = existing.copy(coverUrl = cover)
+                    } else {
+                        val base = withCached.firstOrNull { it.fullId == id }
+                        if (base != null) {
+                            enrichedMap[id] = base.copy(coverUrl = cover)
+                        }
+                    }
+                }
+            }
+        }
+
         withCached.map { track ->
             val enriched = enrichedMap[track.fullId]
             if (enriched != null) {
@@ -838,7 +863,11 @@ class VkApiClient(
             ?: json.optJSONObject("response")?.optJSONArray("audios")?.optJSONObject(0)
             ?: return@withContext trackWithCached
         val parsed = parseTrackObject(item) ?: return@withContext trackWithCached
-        val resolvedCover = parsed.coverUrl ?: trackWithCached.coverUrl
+        val parsedCover = parsed.coverUrl ?: trackWithCached.coverUrl
+        val resolvedCover = if (parsedCover.isNullOrEmpty() || !isValidImageUrl(parsedCover)) {
+            resolveCoverFromVkCatalog(trackWithCached.artist, trackWithCached.title)
+        } else parsedCover
+
         if (!resolvedCover.isNullOrEmpty()) {
             trackCoverCache[trackWithCached.fullId] = resolvedCover
             trackWithCached.albumTitle?.let { albumCoverCache[it] = resolvedCover }
@@ -851,6 +880,131 @@ class VkApiClient(
             restriction = parsed.restriction,
             restrictionText = parsed.restrictionText ?: trackWithCached.restrictionText
         )
+    }
+
+    /**
+     * Пакетный резолвер обложек из каталога VK через единый вызов VKScript execute.
+     */
+    suspend fun resolveCoversBatch(tracks: List<Track>): Map<String, String> = withContext(Dispatchers.IO) {
+        if (tracks.isEmpty()) return@withContext emptyMap()
+        val itemsArray = org.json.JSONArray()
+        for (t in tracks) {
+            val q = cleanCatalogQuery(t.artist, t.title)
+            val obj = JSONObject()
+            obj.put("id", t.fullId)
+            obj.put("query", q)
+            itemsArray.put(obj)
+        }
+
+        val code = """
+            var items = $itemsArray;
+            var results = [];
+            var i = 0;
+            while (i < items.length) {
+                var it = items[i];
+                var res = API.catalog.getAudioSearch({"query": it.query, "need_blocks": 1, "v": "5.155"});
+                var pls = res.playlists;
+                var cover = null;
+                if (pls != null) {
+                    var j = 0;
+                    while (j < pls.length && cover == null) {
+                        var p = pls[j];
+                        if (p.photo != null) {
+                            cover = p.photo.photo_600;
+                            if (cover == null) cover = p.photo.photo_300;
+                            if (cover == null) cover = p.photo.photo_1200;
+                            if (cover == null) cover = p.photo.photo_270;
+                        }
+                        if (cover == null && p.thumbs != null && p.thumbs.length > 0) {
+                            cover = p.thumbs[0].photo_600;
+                            if (cover == null) cover = p.thumbs[0].photo_300;
+                            if (cover == null) cover = p.thumbs[0].photo_1200;
+                        }
+                        j = j + 1;
+                    }
+                }
+                results.push({"id": it.id, "cover": cover});
+                i = i + 1;
+            }
+            return results;
+        """.trimIndent()
+
+        val result = mutableMapOf<String, String>()
+        try {
+            val json = callVkApi("execute", mapOf("code" to code))
+            val arr = json?.optJSONArray("response")
+            if (arr != null) {
+                for (i in 0 until arr.length()) {
+                    val r = arr.optJSONObject(i) ?: continue
+                    val id = r.optString("id")
+                    val cover = r.optString("cover")
+                    if (id.isNotEmpty() && cover.isNotEmpty() && isValidImageUrl(cover)) {
+                        result[id] = cover
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            Log.w("VkApiClient", "resolveCoversBatch execute failed", e)
+        }
+        result
+    }
+
+    /**
+     * Точечный резолвер обложки отдельного трека из каталога VK (для плеера, шторки и мини-плеера).
+     */
+    suspend fun resolveCoverFromVkCatalog(artist: String, title: String): String? = withContext(Dispatchers.IO) {
+        val q1 = "$artist $title".trim()
+        var cover = fetchCoverByCatalogSearch(q1)
+        if (!cover.isNullOrEmpty()) return@withContext cover
+
+        val q2 = cleanCatalogQuery(artist, title)
+        if (q2.isNotEmpty() && q2 != q1) {
+            cover = fetchCoverByCatalogSearch(q2)
+        }
+        cover
+    }
+
+    private suspend fun fetchCoverByCatalogSearch(q: String): String? {
+        try {
+            val json = callVkApi("catalog.getAudioSearch", mapOf("query" to q, "need_blocks" to "1")) ?: return null
+            val response = json.optJSONObject("response") ?: return null
+            val playlists = response.optJSONArray("playlists") ?: return null
+            for (i in 0 until playlists.length()) {
+                val pl = playlists.optJSONObject(i) ?: continue
+                val photo = pl.optJSONObject("photo")
+                if (photo != null) {
+                    val cover = photo.optString("photo_600").takeIf { it.isNotEmpty() }
+                        ?: photo.optString("photo_300").takeIf { it.isNotEmpty() }
+                        ?: photo.optString("photo_1200").takeIf { it.isNotEmpty() }
+                        ?: photo.optString("photo_270").takeIf { it.isNotEmpty() }
+                    if (!cover.isNullOrEmpty() && isValidImageUrl(cover)) return cover
+                }
+                val thumbs = pl.optJSONArray("thumbs")
+                if (thumbs != null && thumbs.length() > 0) {
+                    val t = thumbs.optJSONObject(0)
+                    if (t != null) {
+                        val cover = t.optString("photo_600").takeIf { it.isNotEmpty() }
+                            ?: t.optString("photo_300").takeIf { it.isNotEmpty() }
+                            ?: t.optString("photo_1200").takeIf { it.isNotEmpty() }
+                        if (!cover.isNullOrEmpty() && isValidImageUrl(cover)) return cover
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            Log.w("VkApiClient", "fetchCoverByCatalogSearch failed for '$q'", e)
+        }
+        return null
+    }
+
+    fun cleanCatalogQuery(artist: String, title: String): String {
+        val mainArtist = artist.split(Regex("[,&/]|\\bfeat\\.?\\b|\\bft\\.?\\b", RegexOption.IGNORE_CASE))
+            .firstOrNull()?.trim() ?: artist
+        val cleanTitle = title
+            .replace(Regex("\\[vk\\.com/.*?\\]", RegexOption.IGNORE_CASE), "")
+            .replace(Regex("\\((feat|ft|with).*?\\)", RegexOption.IGNORE_CASE), "")
+            .replace(Regex("\\[(feat|ft|with).*?\\]", RegexOption.IGNORE_CASE), "")
+            .trim()
+        return "$mainArtist $cleanTitle".trim()
     }
 
     suspend fun resolveTrackUrl(track: Track): String? = withContext(Dispatchers.IO) {
@@ -1122,10 +1276,10 @@ class VkApiClient(
     private fun callVkApi(method: String, params: Map<String, String>): JSONObject? {
         val token = authManager.getAccessToken() ?: return null
 
-        val primaryUa = if (method.startsWith("catalog.")) vkMusicUserAgent else vkAndroidUserAgent
+        val primaryUa = if (method.startsWith("catalog.")) vkMusicUserAgent else preferredUserAgent
         val fallbackUa = if (primaryUa == vkAndroidUserAgent) vkMusicUserAgent else vkAndroidUserAgent
 
-        // Попытка 1: С основным User-Agent (VK Android для audio.*, VK Музыка для catalog.*)
+        // Попытка 1: С основным User-Agent (VK Music для официального токена, с авто-фоллбэком)
         var result = executeMethodCall(method, params, token, primaryUa, "api.vk.com")
             ?: executeMethodCall(method, params, token, primaryUa, "api.vk.ru")
 
@@ -1136,6 +1290,7 @@ class VkApiClient(
                 val fallbackResult = executeMethodCall(method, params, token, fallbackUa, "api.vk.com")
                     ?: executeMethodCall(method, params, token, fallbackUa, "api.vk.ru")
                 if (fallbackResult != null && !fallbackResult.has("error")) {
+                    preferredUserAgent = fallbackUa
                     return fallbackResult
                 }
             }
@@ -1144,7 +1299,7 @@ class VkApiClient(
     }
 
     private fun executeMethodCall(method: String, params: Map<String, String>, token: String, ua: String, host: String = "api.vk.com"): JSONObject? {
-        val methodApiVersion = params["v"] ?: apiVersion
+        val methodApiVersion = params["v"] ?: if (method.startsWith("catalog.")) "5.155" else "5.131"
         val formBuilder = FormBody.Builder()
             .add("access_token", token)
             .add("v", methodApiVersion)
@@ -1159,6 +1314,13 @@ class VkApiClient(
             .url("https://$host/method/$method")
             .header("User-Agent", ua)
             .post(formBuilder.build())
+
+        if (ua.contains("VKMusic")) {
+            requestBuilder.header("X-App-Id", "6767438")
+            requestBuilder.header("X-Client-Version", "10683")
+        } else if (ua.contains("VKAndroidApp")) {
+            requestBuilder.header("X-App-Id", "2274003")
+        }
 
         return try {
             client.newCall(requestBuilder.build()).execute().use { response ->
@@ -1370,7 +1532,34 @@ class VkApiClient(
             ?: obj.optString("url").takeIf { it.isNotEmpty() }
             ?: obj.optString("uri").takeIf { it.isNotEmpty() }
             ?: obj.optString("src").takeIf { it.isNotEmpty() }
-        return str?.takeIf { isValidImageUrl(it) }
+        if (str != null && isValidImageUrl(str)) return str
+
+        val sizes = obj.optJSONArray("sizes")
+        if (sizes != null && sizes.length() > 0) {
+            val u = extractBestFromSizes(sizes)
+            if (!u.isNullOrEmpty() && isValidImageUrl(u)) return u
+        }
+
+        return null
+    }
+
+    private fun extractBestFromSizes(sizes: JSONArray): String? {
+        var bestUrl: String? = null
+        var bestWidth = 0
+        for (i in 0 until sizes.length()) {
+            val sObj = sizes.optJSONObject(i) ?: continue
+            val u = sObj.optString("url").takeIf { it.isNotEmpty() }
+                ?: sObj.optString("src").takeIf { it.isNotEmpty() } ?: continue
+            val w = sObj.optInt("width", 0)
+            if (w in 250..650) {
+                return u
+            }
+            if (w > bestWidth) {
+                bestWidth = w
+                bestUrl = u
+            }
+        }
+        return bestUrl ?: sizes.optJSONObject(sizes.length() - 1)?.optString("url")?.takeIf { it.isNotEmpty() }
     }
 
     private fun parseUmaTracks(json: JSONObject): List<Track> {

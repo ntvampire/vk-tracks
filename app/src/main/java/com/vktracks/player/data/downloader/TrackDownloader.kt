@@ -66,36 +66,11 @@ class TrackDownloader(
         return _downloadProgress.getOrPut(fullId) { MutableStateFlow(-1) }.asStateFlow()
     }
 
-    fun getFileNameTemplate(): String {
-        val prefs = context.getSharedPreferences("settings", Context.MODE_PRIVATE)
-        return prefs.getString("download_file_template", "ARTIST_TITLE") ?: "ARTIST_TITLE"
-    }
-
-    fun setFileNameTemplate(template: String) {
-        val prefs = context.getSharedPreferences("settings", Context.MODE_PRIVATE)
-        prefs.edit().putString("download_file_template", template).apply()
-    }
-
     fun buildTargetPaths(track: Track, subfolder: String?): Pair<String?, String> {
-        val template = getFileNameTemplate()
         val safeArtist = FileSanitizer.sanitize(track.artist)
         val safeTitle = FileSanitizer.sanitize(track.title)
-        val safeAlbum = track.albumTitle?.let { FileSanitizer.sanitize(it) } ?: "Single"
-
-        return when (template) {
-            "ALBUM_ARTIST_TITLE" -> {
-                val fullSub = if (!subfolder.isNullOrBlank()) "$subfolder/$safeAlbum" else safeAlbum
-                Pair(fullSub, "$safeArtist - $safeTitle.mp3")
-            }
-            "ARTIST_ALBUM_TITLE" -> {
-                val fullSub = if (!subfolder.isNullOrBlank()) "$subfolder/$safeArtist/$safeAlbum" else "$safeArtist/$safeAlbum"
-                Pair(fullSub, "$safeTitle.mp3")
-            }
-            else -> {
-                // "ARTIST_TITLE"
-                Pair(subfolder, "$safeArtist - $safeTitle.mp3")
-            }
-        }
+        val fileName = "$safeArtist - $safeTitle.mp3"
+        return Pair(subfolder, fileName)
     }
 
     suspend fun downloadTrack(track: Track, subfolder: String? = null): Result<File> = withContext(Dispatchers.IO) {

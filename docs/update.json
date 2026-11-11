@@ -1,7 +1,7 @@
 ﻿{
-    "versionCode":  45,
-    "versionName":  "1.0.44",
-    "downloadUrl":  "https://github.com/ntvampire/vk-tracks/releases/download/v1.0.44/VK-Tracks-1.0.44.apk",
-    "mirrorUrl":  "https://ntvampire.github.io/vk-tracks/VK-Tracks-1.0.44.apk",
-    "changelog":  "1. Нативная подгрузка обложек треков ВК (по эталону Murglar и VKX): вызовы audio.getById батчами по 100 треков с протоколом v=5.155 без конфликтующих заголовков X-App-Id/X-VK-Android-Client (устранены ошибки 8/28), автоматическое извлечение album.thumb (photo_600/photo_300/photo_1200/photo_270). 2. Двухуровневый In-Memory кэш обложек (ConcurrentHashMap по ID трека и альбома, 0 мс повторный показ). 3. Ликвидация подтормаживаний списков (120 FPS): удален паразитный LaunchedEffect внутри строк списков, защита от повторных запросов !isLoadingMoreTracks, принудительный аппаратный даунсэмплинг Coil до 144x144 px (экономия 98% RAM на миниатюру). 4. Чистая векторная нота строго при действительном отсутствии обложки у трека в ВК."
+    "versionCode":  46,
+    "versionName":  "1.0.45",
+    "downloadUrl":  "https://github.com/ntvampire/vk-tracks/releases/download/v1.0.45/VK-Tracks-1.0.45.apk",
+    "mirrorUrl":  "https://ntvampire.github.io/vk-tracks/VK-Tracks-1.0.45.apk",
+    "changelog":  "1. Нативное получение обложек VK треков через каталог аудио (catalog.getAudioSearch + VKScript execute батчи): 100% покрытие официальными HD-обложками 600x600 в медиатеке, плеере и системной шторке MediaSession. 2. Корректное отображение метаданных и обложек радиостанций в шторке уведомлений. 3. Мгновенное автообновление с обходом CDN-кэша и фоллбэком на GitHub Releases API. 4. Сохранение треков по стандартной маске \u0027{Исполнитель} - {Название}.mp3\u0027."
 }

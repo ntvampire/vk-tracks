@@ -31,13 +31,18 @@ class UpdateChecker(private val context: Context) {
     private val userAgent = "Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36"
 
     suspend fun checkForUpdates(): AppUpdateInfo? = withContext(Dispatchers.IO) {
-        val urls = listOf(UPDATE_URL, RAW_UPDATE_URL)
+        val now = System.currentTimeMillis()
+        val urls = listOf(
+            "$RAW_UPDATE_URL?t=$now",
+            "$UPDATE_URL?t=$now"
+        )
         for (url in urls) {
             try {
                 val request = Request.Builder()
                     .url(url)
                     .header("User-Agent", userAgent)
-                    .header("Cache-Control", "no-cache")
+                    .header("Cache-Control", "no-cache, no-store, must-revalidate")
+                    .header("Pragma", "no-cache")
                     .build()
 
                 val info = client.newCall(request).execute().use { response ->
@@ -51,7 +56,7 @@ class UpdateChecker(private val context: Context) {
                     val mirrorUrl = json.optString("mirrorUrl").takeIf { it.isNotEmpty() }
                     val changelog = json.optString("changelog")
 
-                    if (remoteCode > BuildConfig.VERSION_CODE) {
+                    if (remoteCode > BuildConfig.VERSION_CODE || isNewerVersion(remoteName, BuildConfig.VERSION_NAME)) {
                         AppUpdateInfo(
                             versionCode = remoteCode,
                             versionName = remoteName,
@@ -68,7 +73,67 @@ class UpdateChecker(private val context: Context) {
                 Log.w("UpdateChecker", "Failed to check update from $url", e)
             }
         }
+
+        // Фоллбэк: прямой опрос GitHub Releases API (актуален в первую секунду после публикации gh release create)
+        try {
+            val ghReq = Request.Builder()
+                .url("https://api.github.com/repos/ntvampire/vk-tracks/releases/latest")
+                .header("User-Agent", userAgent)
+                .header("Accept", "application/vnd.github.v3+json")
+                .header("Cache-Control", "no-cache")
+                .build()
+            client.newCall(ghReq).execute().use { response ->
+                if (response.isSuccessful) {
+                    val body = response.body?.string()
+                    if (body != null) {
+                        val json = JSONObject(body)
+                        val tagName = json.optString("tag_name")
+                        val releaseVer = tagName.removePrefix("v").trim()
+                        if (isNewerVersion(releaseVer, BuildConfig.VERSION_NAME)) {
+                            val assets = json.optJSONArray("assets")
+                            var apkUrl: String? = null
+                            if (assets != null) {
+                                for (i in 0 until assets.length()) {
+                                    val asset = assets.optJSONObject(i) ?: continue
+                                    val name = asset.optString("name")
+                                    if (name.endsWith(".apk")) {
+                                        apkUrl = asset.optString("browser_download_url")
+                                        break
+                                    }
+                                }
+                            }
+                            if (apkUrl != null) {
+                                return@withContext AppUpdateInfo(
+                                    versionCode = BuildConfig.VERSION_CODE + 1,
+                                    versionName = releaseVer,
+                                    downloadUrl = apkUrl,
+                                    mirrorUrl = null,
+                                    changelog = json.optString("body")
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            Log.w("UpdateChecker", "GitHub API release check fallback failed", e)
+        }
+
         null
+    }
+
+    private fun isNewerVersion(remote: String, current: String): Boolean {
+        if (remote.isBlank()) return false
+        val rParts = remote.split(".").mapNotNull { it.toIntOrNull() }
+        val cParts = current.split(".").mapNotNull { it.toIntOrNull() }
+        val maxLen = maxOf(rParts.size, cParts.size)
+        for (i in 0 until maxLen) {
+            val r = rParts.getOrElse(i) { 0 }
+            val c = cParts.getOrElse(i) { 0 }
+            if (r > c) return true
+            if (r < c) return false
+        }
+        return false
     }
 
     suspend fun downloadAndInstallApk(updateInfo: AppUpdateInfo, onProgress: (Int) -> Unit): Result<Unit> = withContext(Dispatchers.IO) {

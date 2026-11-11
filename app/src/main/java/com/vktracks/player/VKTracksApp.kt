@@ -34,7 +34,7 @@ class VKTracksApp : Application(), ImageLoaderFactory {
                     .build()
             }
             .respectCacheHeaders(false)
-            .crossfade(true)
+            .dispatcher(kotlinx.coroutines.Dispatchers.IO)
             .build()
     }
 

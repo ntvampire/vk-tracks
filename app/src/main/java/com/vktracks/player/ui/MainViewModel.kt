@@ -215,7 +215,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             } catch (_: Exception) {}
         }
 
-        // Автоматическая подгрузка текста песни при смене трека и фоновое обновление обложек в списках
+        // Автоматическая подгрузка текста песни при смене трека (без тяжелых рекомпозиций списков)
         var lastLyricsTrackId: String? = null
         viewModelScope.launch {
             currentTrack.collect { track ->
@@ -223,22 +223,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     if (track.fullId != lastLyricsTrackId) {
                         lastLyricsTrackId = track.fullId
                         loadLyrics(track)
-                    }
-                    val cover = track.coverUrl
-                    if (!cover.isNullOrEmpty()) {
-                        val fullId = track.fullId
-                        val curMy = _myTracks.value
-                        if (curMy.any { it.fullId == fullId && it.coverUrl != cover }) {
-                            _myTracks.value = curMy.map {
-                                if (it.fullId == fullId) it.copy(coverUrl = cover) else it
-                            }
-                        }
-                        val curPl = _selectedPlaylistTracks.value
-                        if (curPl.any { it.fullId == fullId && it.coverUrl != cover }) {
-                            _selectedPlaylistTracks.value = curPl.map {
-                                if (it.fullId == fullId) it.copy(coverUrl = cover) else it
-                            }
-                        }
                     }
                 } else {
                     lastLyricsTrackId = null

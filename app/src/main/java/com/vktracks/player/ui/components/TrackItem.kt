@@ -36,7 +36,8 @@ fun TrackItem(
     onLikeClick: (() -> Unit)? = null,
     onDownloadClick: (() -> Unit)? = null,
     modifier: Modifier = Modifier,
-    isPlaying: Boolean = false
+    isPlaying: Boolean = false,
+    coverUrl: String? = track.coverUrl
 ) {
     val context = LocalContext.current
     Row(
@@ -58,7 +59,7 @@ fun TrackItem(
     ) {
         // Миниатюра обложки (выделяет ~80 КБ в RAM вместо 4 МБ)
         TrackCoverThumbnail(
-            coverUrl = track.coverUrl,
+            coverUrl = coverUrl,
             sizeDp = 48.dp,
             iconSizeDp = 24.dp
         )

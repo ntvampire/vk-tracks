@@ -290,7 +290,7 @@ fun PlaylistDetailSheet(
                                 val itemCoverUrl = if (playlist.isAlbum) {
                                     track.coverUrl ?: playlist.coverUrl
                                 } else {
-                                    track.coverUrl
+                                    if (isCurrent) currentTrack?.coverUrl ?: track.coverUrl else track.coverUrl
                                 }
 
                                 TrackCoverThumbnail(

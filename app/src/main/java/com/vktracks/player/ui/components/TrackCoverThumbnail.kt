@@ -10,6 +10,7 @@ import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -48,14 +49,16 @@ fun TrackCoverThumbnail(
             modifier = Modifier.size(iconSizeDp)
         )
 
-        // Слой обложки: нативный аппаратный AsyncImage без подкомпозиций (быстрое декодирование Coil)
+        // Слой обложки: нативный аппаратный AsyncImage без лишних аллокаций и анимаций в списках (VKX/Murglar standard)
         if (!coverUrl.isNullOrEmpty()) {
             val context = LocalContext.current
-            val request = ImageRequest.Builder(context)
-                .data(coverUrl)
-                .crossfade(true)
-                .size(144, 144)
-                .build()
+            val request = remember(coverUrl) {
+                ImageRequest.Builder(context)
+                    .data(coverUrl)
+                    .size(144, 144)
+                    .crossfade(false)
+                    .build()
+            }
             AsyncImage(
                 model = request,
                 contentDescription = null,

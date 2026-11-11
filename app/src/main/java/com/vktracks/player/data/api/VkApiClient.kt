@@ -844,15 +844,15 @@ class VkApiClient(
             }
         }
 
-        // 1. Ищем официальную обложку альбома/сингла в каталоге VK (строго с проверкой совпадения артиста)
+        // 1. Проверяем кэш обложки альбома трека (если у трека указан альбом)
         if (resolvedCover.isNullOrEmpty() || !isValidImageUrl(resolvedCover)) {
-            val officialAlbumCover = fetchOfficialAlbumCover(trackWithCached.artist, trackWithCached.title)
-            if (!officialAlbumCover.isNullOrEmpty()) {
-                resolvedCover = officialAlbumCover
+            val albumCached = albumKey(trackWithCached.artist, resolvedAlbum)?.let { albumCoverCache[it] }
+            if (!albumCached.isNullOrEmpty() && isValidImageUrl(albumCached)) {
+                resolvedCover = albumCached
             }
         }
 
-        // 2. Если официальной обложки трека/альбома нет — получаем официальную обложку/фото артиста
+        // 2. Если обложки трека и альбома нет — получаем официальное фото артиста трека (строго по точному совпадению)
         if (resolvedCover.isNullOrEmpty() || !isValidImageUrl(resolvedCover)) {
             val artistPhoto = resolveArtistPhoto(trackWithCached.artist)
             if (!artistPhoto.isNullOrEmpty()) {
@@ -860,7 +860,7 @@ class VkApiClient(
             }
         }
 
-        // 3. Если и фото артиста нет — оставляем null (будет стандартная чистая векторная нота)
+        // 3. Если и фото артиста нет — оставляем null (будет стандартная чистая векторная нота-заглушка)
         if (!resolvedCover.isNullOrEmpty()) {
             trackCoverCache[trackWithCached.fullId] = resolvedCover
             albumKey(trackWithCached.artist, resolvedAlbum)?.let { albumCoverCache[it] = resolvedCover }
@@ -884,7 +884,7 @@ class VkApiClient(
         val cached = artistPhotoCache[cacheKey]
         if (!cached.isNullOrEmpty()) return@withContext cached
 
-        // 1. Поиск артиста через прямой audio.searchArtists
+        // 1. Поиск артиста через прямой audio.searchArtists (СТРОГОЕ совпадение имени артиста)
         try {
             val json = callVkApi("audio.searchArtists", mapOf(
                 "q" to cleanArtist,
@@ -899,7 +899,7 @@ class VkApiClient(
                     val list = parseArtistsArray(items)
                     val matched = list.firstOrNull {
                         it.name.trim().equals(cleanArtist, ignoreCase = true)
-                    } ?: list.firstOrNull()
+                    }
 
                     val photo = matched?.photoUrl
                     if (!photo.isNullOrEmpty() && isValidImageUrl(photo)) {
@@ -912,7 +912,7 @@ class VkApiClient(
             Log.w("VkApiClient", "resolveArtistPhoto audio.searchArtists failed for '$cleanArtist'", e)
         }
 
-        // 2. Резервный поиск через catalog.getAudioSearch
+        // 2. Резервный поиск через catalog.getAudioSearch (СТРОГОЕ совпадение имени артиста)
         try {
             val catJson = callVkApi("catalog.getAudioSearch", mapOf(
                 "query" to cleanArtist,
@@ -924,7 +924,7 @@ class VkApiClient(
                 val list = parseArtistsArray(artistsArr)
                 val matched = list.firstOrNull {
                     it.name.trim().equals(cleanArtist, ignoreCase = true)
-                } ?: list.firstOrNull()
+                }
                 val photo = matched?.photoUrl
                 if (!photo.isNullOrEmpty() && isValidImageUrl(photo)) {
                     artistPhotoCache[cacheKey] = photo
@@ -936,72 +936,6 @@ class VkApiClient(
         }
 
         null
-    }
-
-    private suspend fun fetchOfficialAlbumCover(artist: String, title: String): String? {
-        val cleanArtist = extractMainArtist(artist).lowercase().trim()
-        val q = cleanCatalogQuery(artist, title)
-        if (q.isBlank() || cleanArtist.isBlank()) return null
-
-        try {
-            val json = callVkApi("catalog.getAudioSearch", mapOf("query" to q, "need_blocks" to "1")) ?: return null
-            val response = json.optJSONObject("response") ?: return null
-            val playlists = response.optJSONArray("playlists") ?: return null
-
-            for (i in 0 until playlists.length()) {
-                val pl = playlists.optJSONObject(i) ?: continue
-
-                // СТРОГАЯ ПРОВЕРКА 1: Это должен быть официальный альбом или сингл, а НЕ пользовательский плейлист
-                val albumType = pl.optString("album_type", "").lowercase().trim()
-                val isExplicitAlbum = pl.optBoolean("is_album", false) || pl.optInt("is_album", 0) == 1
-                val isOfficialAlbum = isExplicitAlbum || (albumType.isNotEmpty() && albumType != "playlist" && albumType != "user")
-                if (!isOfficialAlbum) continue
-
-                // СТРОГАЯ ПРОВЕРКА 2: Артист альбома должен совпадать с артистом трека
-                var artistMatches = false
-                val mainArtists = pl.optJSONArray("main_artists")
-                if (mainArtists != null && mainArtists.length() > 0) {
-                    for (j in 0 until mainArtists.length()) {
-                        val aObj = mainArtists.optJSONObject(j) ?: continue
-                        val aName = aObj.optString("name", "").lowercase().trim()
-                        if (aName.contains(cleanArtist) || cleanArtist.contains(aName)) {
-                            artistMatches = true
-                            break
-                        }
-                    }
-                }
-                if (!artistMatches) {
-                    val sub = pl.optString("subtitle", "").lowercase().trim()
-                    val author = pl.optString("author_name", "").lowercase().trim()
-                    if (sub.contains(cleanArtist) || cleanArtist.contains(sub) ||
-                        author.contains(cleanArtist) || cleanArtist.contains(author)) {
-                        artistMatches = true
-                    }
-                }
-
-                if (!artistMatches) continue
-
-                // Официальный релиз подтвержден
-                val photo = pl.optJSONObject("photo")
-                if (photo != null) {
-                    val cover = photo.optString("photo_600").takeIf { it.isNotEmpty() }
-                        ?: photo.optString("photo_300").takeIf { it.isNotEmpty() }
-                        ?: photo.optString("photo_1200").takeIf { it.isNotEmpty() }
-                        ?: photo.optString("photo_270").takeIf { it.isNotEmpty() }
-                    if (!cover.isNullOrEmpty() && isValidImageUrl(cover)) return cover
-                }
-                val thumbs = pl.optJSONArray("thumbs")
-                if (thumbs != null && thumbs.length() > 0) {
-                    val t = thumbs.optJSONObject(0)
-                    val cover = t?.optString("photo_600")?.takeIf { it.isNotEmpty() }
-                        ?: t?.optString("photo_300")?.takeIf { it.isNotEmpty() }
-                    if (!cover.isNullOrEmpty() && isValidImageUrl(cover)) return cover
-                }
-            }
-        } catch (e: Exception) {
-            Log.w("VkApiClient", "fetchOfficialAlbumCover failed for '$artist - $title'", e)
-        }
-        return null
     }
 
     fun extractMainArtist(artist: String): String {

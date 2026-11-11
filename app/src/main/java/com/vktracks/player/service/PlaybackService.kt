@@ -795,62 +795,26 @@ class PlaybackService : MediaLibraryService() {
                     }
                 }
 
-                // Фоновое сохранение превью 144x144 в дисковый/оперативный кэш Coil для моментального показа в списках
-                try {
-                    val loader = Coil.imageLoader(this@PlaybackService)
-                    val thumbReq = ImageRequest.Builder(this@PlaybackService)
-                        .data(coverUrl)
-                        .size(144, 144)
-                        .build()
-                    loader.enqueue(thumbReq)
-                } catch (_: Exception) {}
-                withContext(Dispatchers.Main) {
-                    val isCurrent = _currentTrack.value?.let {
-                        it.fullId == track.fullId && (it.duration != 0 || it.title == track.title)
-                    } ?: false
-                    if (isCurrent && _currentTrack.value?.coverUrl != coverUrl) {
-                        _currentTrack.value = _currentTrack.value?.copy(coverUrl = coverUrl)
-                    }
-                }
-
+                // Фоновая загрузка обложки для системного уведомления шторки (в IO-потоке, без блокировки Main)
                 try {
                     val loader = Coil.imageLoader(this@PlaybackService)
                     val req = ImageRequest.Builder(this@PlaybackService)
                         .data(coverUrl)
                         .size(300, 300)
                         .allowHardware(false)
+                        .dispatcher(Dispatchers.IO)
                         .build()
                     val result = loader.execute(req)
                     if (result is SuccessResult) {
                         val drawable = result.drawable
                         val bitmap = (drawable as? BitmapDrawable)?.bitmap
                         if (bitmap != null) {
-                            val stream = java.io.ByteArrayOutputStream()
-                            bitmap.compress(Bitmap.CompressFormat.JPEG, 85, stream)
-                            val byteArray = stream.toByteArray()
-
                             withContext(Dispatchers.Main) {
                                 val isCurrent = _currentTrack.value?.let {
                                     it.fullId == track.fullId && (it.duration != 0 || it.title == track.title)
                                 } ?: false
                                 if (isCurrent) {
                                     currentNotificationBitmap = bitmap
-                                    // Для прямого эфира радио обновляем MediaItem metadata с artworkData для мгновенного отображения в SystemUI шторки
-                                    if (track.duration == 0) {
-                                        val currentLive = _currentTrack.value
-                                        val currentItem = player.currentMediaItem
-                                        val currentIndex = player.currentMediaItemIndex
-                                        if (currentItem != null && currentIndex >= 0) {
-                                            val newMetadata = currentItem.mediaMetadata.buildUpon()
-                                                .setTitle(currentLive?.title ?: track.title)
-                                                .setArtist(currentLive?.artist ?: track.artist)
-                                                .setDisplayTitle(currentLive?.title ?: track.title)
-                                                .setArtworkData(byteArray, MediaMetadata.PICTURE_TYPE_FRONT_COVER)
-                                                .setArtworkUri(coverUrl?.let { Uri.parse(it) })
-                                                .build()
-                                            player.replaceMediaItem(currentIndex, currentItem.buildUpon().setMediaMetadata(newMetadata).build())
-                                        }
-                                    }
                                     mediaSession?.let { onUpdateNotification(it, player.playWhenReady) }
                                 }
                             }

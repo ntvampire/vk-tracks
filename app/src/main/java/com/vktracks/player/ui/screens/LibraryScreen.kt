@@ -152,9 +152,11 @@ fun LibraryScreen(
                         }
                     } else {
                         items(myTracks, key = { it.fullId }) { track ->
+                            val isCurrent = currentTrack?.fullId == track.fullId
                             TrackItem(
                                 track = track,
-                                isCurrent = currentTrack?.fullId == track.fullId,
+                                isCurrent = isCurrent,
+                                coverUrl = if (isCurrent) currentTrack?.coverUrl ?: track.coverUrl else track.coverUrl,
                                 onTrackClick = { onTrackClick(track, myTracks) },
                                 isLiked = likedTrackIds.contains(track.fullId) || track.isLiked,
                                 isDownloaded = downloadedTrackIds.contains(track.fullId) || track.isLocal,

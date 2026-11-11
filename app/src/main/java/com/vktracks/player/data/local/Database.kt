@@ -73,7 +73,15 @@ private val MIGRATION_2_3 = object : Migration(2, 3) {
     }
 }
 
-@Database(entities = [TrackEntity::class], version = 3, exportSchema = false)
+private val MIGRATION_3_4 = object : Migration(3, 4) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        // Очищаем потенциально некорректные обложки из сторонних плейлистов,
+        // чтобы они подгрузились заново строго по правилам v1.0.48
+        db.execSQL("UPDATE tracks SET coverUrl = NULL WHERE isDownloaded = 0")
+    }
+}
+
+@Database(entities = [TrackEntity::class], version = 4, exportSchema = false)
 abstract class AppDatabase : RoomDatabase() {
     abstract fun trackDao(): TrackDao
 
@@ -88,7 +96,7 @@ abstract class AppDatabase : RoomDatabase() {
                     AppDatabase::class.java,
                     "vk_tracks.db"
                 )
-                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3)
+                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4)
                     .fallbackToDestructiveMigration()
                     .build()
                 INSTANCE = instance

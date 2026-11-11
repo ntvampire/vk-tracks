@@ -190,90 +190,19 @@ fun FullPlayerSheet(
 
             Spacer(modifier = Modifier.height(16.dp))
 
-            // Название трека, артист и кнопка сердечка (Apple Music style с плавной бегущей строкой)
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Column(
-                    modifier = Modifier
-                        .weight(1f)
-                        .padding(end = 12.dp)
-                ) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Text(
-                            text = track.title,
-                            fontSize = 22.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.onBackground,
-                            maxLines = 1,
-                            softWrap = false,
-                            modifier = Modifier
-                                .weight(1f, fill = false)
-                                .basicMarquee(
-                                    iterations = Int.MAX_VALUE,
-                                    initialDelayMillis = 1500,
-                                    repeatDelayMillis = 2000,
-                                    velocity = 35.dp
-                                )
-                        )
-                        if (track.isExplicit) {
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Box(
-                                modifier = Modifier
-                                    .clip(RoundedCornerShape(4.dp))
-                                    .background(Color.Gray.copy(alpha = 0.3f))
-                                    .padding(horizontal = 5.dp, vertical = 2.dp)
-                            ) {
-                                Text(
-                                    text = "E",
-                                    fontSize = 11.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.7f)
-                                )
-                            }
-                        }
-                    }
-                    Spacer(modifier = Modifier.height(4.dp))
-                    Text(
-                        text = track.artist,
-                        fontSize = 17.sp,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        maxLines = 1,
-                        softWrap = false,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .basicMarquee(
-                                iterations = Int.MAX_VALUE,
-                                initialDelayMillis = 1500,
-                                repeatDelayMillis = 2000,
-                                velocity = 35.dp
-                            )
-                    )
-                }
+            val isLiveStream = track.duration == 0
 
-                val isLiveStream = track.duration == 0
-
-                IconButton(
-                    onClick = onLikeClick,
-                    modifier = Modifier.size(44.dp)
-                ) {
-                    Icon(
-                        imageVector = if (!isLiveStream && isLiked) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
-                        contentDescription = if (isLiveStream) "Найти в поиске" else if (isLiked) "В медиатеке" else "Добавить в медиатеку",
-                        tint = if (!isLiveStream && isLiked) AppleRed else MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.size(28.dp)
-                    )
-                }
-            }
+            // Название трека, артист и кнопка сердечка (Apple Music style: изолированный компонент, 0 рекомпозиций при ходе таймлайна)
+            PlayerTrackHeader(
+                title = track.title,
+                artist = track.artist,
+                isExplicit = track.isExplicit,
+                isLiked = isLiked,
+                isLiveStream = isLiveStream,
+                onLikeClick = onLikeClick
+            )
 
             Spacer(modifier = Modifier.height(20.dp))
-
-            val isLiveStream = track.duration == 0
 
             if (isLiveStream) {
                 // Бейдж прямого эфира
@@ -309,63 +238,13 @@ fun FullPlayerSheet(
                     }
                 }
             } else {
-                // Таймлайн (Слайдер прогресса)
-                val trackDurationMs = if (durationMs > 0) durationMs else ((track?.duration ?: 0).toLong() * 1000L)
-                val coroutineScope = rememberCoroutineScope()
-                var sliderPosition by remember(track?.id) { mutableStateOf<Float?>(null) }
-                var seekJob by remember(track?.id) { mutableStateOf<kotlinx.coroutines.Job?>(null) }
-                val currentSlider = sliderPosition ?: if (trackDurationMs > 0) (currentPosMs.toFloat() / trackDurationMs).coerceIn(0f, 1f) else 0f
-
-                val displayPosMs = if (sliderPosition != null && trackDurationMs > 0) {
-                    (sliderPosition!! * trackDurationMs).toLong()
-                } else {
-                    currentPosMs
-                }
-
-                Slider(
-                    value = currentSlider,
-                    onValueChange = {
-                        seekJob?.cancel()
-                        sliderPosition = it
-                    },
-                    onValueChangeFinished = {
-                        sliderPosition?.let { targetFraction ->
-                            if (trackDurationMs > 0) {
-                                onSeekTo((targetFraction * trackDurationMs).toLong())
-                            }
-                            seekJob?.cancel()
-                            seekJob = coroutineScope.launch {
-                                kotlinx.coroutines.delay(800)
-                                sliderPosition = null
-                            }
-                        }
-                    },
-                    colors = SliderDefaults.colors(
-                        thumbColor = MaterialTheme.colorScheme.onBackground,
-                        activeTrackColor = MaterialTheme.colorScheme.onBackground,
-                        inactiveTrackColor = MaterialTheme.colorScheme.surfaceVariant
-                    ),
-                    modifier = Modifier.fillMaxWidth()
+                // Таймлайн (Слайдер прогресса: изолирован, рекомпозируется только он)
+                val trackDurationMs = if (durationMs > 0) durationMs else ((track.duration).toLong() * 1000L)
+                PlayerTimeline(
+                    trackDurationMs = trackDurationMs,
+                    currentPosMs = currentPosMs,
+                    onSeekTo = onSeekTo
                 )
-
-                // Метки времени
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 4.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                    Text(
-                        text = formatMs(displayPosMs),
-                        fontSize = 12.sp,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                    Text(
-                        text = if (trackDurationMs > 0) "-" + formatMs((trackDurationMs - displayPosMs).coerceAtLeast(0)) else "--:--",
-                        fontSize = 12.sp,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
             }
 
             Spacer(modifier = Modifier.height(16.dp))
@@ -670,5 +549,156 @@ fun PlayerQueueView(
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun PlayerTrackHeader(
+    title: String,
+    artist: String,
+    isExplicit: Boolean,
+    isLiked: Boolean,
+    isLiveStream: Boolean,
+    onLikeClick: () -> Unit
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Column(
+            modifier = Modifier
+                .weight(1f)
+                .padding(end = 12.dp)
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text(
+                    text = title,
+                    fontSize = 22.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onBackground,
+                    maxLines = 1,
+                    softWrap = false,
+                    modifier = Modifier
+                        .weight(1f, fill = false)
+                        .basicMarquee(
+                            iterations = Int.MAX_VALUE,
+                            initialDelayMillis = 1500,
+                            repeatDelayMillis = 2000,
+                            velocity = 35.dp
+                        )
+                )
+                if (isExplicit) {
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(4.dp))
+                            .background(Color.Gray.copy(alpha = 0.3f))
+                            .padding(horizontal = 5.dp, vertical = 2.dp)
+                    ) {
+                        Text(
+                            text = "E",
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.7f)
+                        )
+                    }
+                }
+            }
+            Spacer(modifier = Modifier.height(4.dp))
+            Text(
+                text = artist,
+                fontSize = 17.sp,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+                softWrap = false,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .basicMarquee(
+                        iterations = Int.MAX_VALUE,
+                        initialDelayMillis = 1500,
+                        repeatDelayMillis = 2000,
+                        velocity = 35.dp
+                    )
+            )
+        }
+
+        IconButton(
+            onClick = onLikeClick,
+            modifier = Modifier.size(44.dp)
+        ) {
+            Icon(
+                imageVector = if (!isLiveStream && isLiked) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
+                contentDescription = if (isLiveStream) "Найти в поиске" else if (isLiked) "В медиатеке" else "Добавить в медиатеку",
+                tint = if (!isLiveStream && isLiked) AppleRed else MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.size(28.dp)
+            )
+        }
+    }
+}
+
+@Composable
+private fun PlayerTimeline(
+    trackDurationMs: Long,
+    currentPosMs: Long,
+    onSeekTo: (Long) -> Unit
+) {
+    val coroutineScope = rememberCoroutineScope()
+    var sliderPosition by remember { mutableStateOf<Float?>(null) }
+    var seekJob by remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
+    val currentSlider = sliderPosition ?: if (trackDurationMs > 0) (currentPosMs.toFloat() / trackDurationMs).coerceIn(0f, 1f) else 0f
+
+    val displayPosMs = if (sliderPosition != null && trackDurationMs > 0) {
+        (sliderPosition!! * trackDurationMs).toLong()
+    } else {
+        currentPosMs
+    }
+
+    Slider(
+        value = currentSlider,
+        onValueChange = {
+            seekJob?.cancel()
+            sliderPosition = it
+        },
+        onValueChangeFinished = {
+            sliderPosition?.let { targetFraction ->
+                if (trackDurationMs > 0) {
+                    onSeekTo((targetFraction * trackDurationMs).toLong())
+                }
+                seekJob?.cancel()
+                seekJob = coroutineScope.launch {
+                    kotlinx.coroutines.delay(800)
+                    sliderPosition = null
+                }
+            }
+        },
+        colors = SliderDefaults.colors(
+            thumbColor = MaterialTheme.colorScheme.onBackground,
+            activeTrackColor = MaterialTheme.colorScheme.onBackground,
+            inactiveTrackColor = MaterialTheme.colorScheme.surfaceVariant
+        ),
+        modifier = Modifier.fillMaxWidth()
+    )
+
+    // Метки времени
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 4.dp),
+        horizontalArrangement = Arrangement.SpaceBetween
+    ) {
+        Text(
+            text = formatMs(displayPosMs),
+            fontSize = 12.sp,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        Text(
+            text = if (trackDurationMs > 0) "-" + formatMs((trackDurationMs - displayPosMs).coerceAtLeast(0)) else "--:--",
+            fontSize = 12.sp,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
     }
 }

@@ -51,6 +51,22 @@ class VkApiClient(
     private val trackCoverCache = java.util.concurrent.ConcurrentHashMap<String, String>()
     private val albumCoverCache = java.util.concurrent.ConcurrentHashMap<String, String>()
 
+    fun preloadCovers(covers: Map<String, String>) {
+        trackCoverCache.putAll(covers)
+    }
+
+    fun cacheCover(fullId: String, coverUrl: String) {
+        trackCoverCache[fullId] = coverUrl
+    }
+
+    fun albumKey(artist: String, albumTitle: String?): String? {
+        if (albumTitle.isNullOrBlank() || artist.isBlank()) return null
+        val cleanArtist = artist.trim().lowercase()
+        val cleanAlbum = albumTitle.trim().lowercase()
+        if (cleanAlbum in listOf("single", "single edit", "remix", "ep", "сингл", "unknown")) return null
+        return "${cleanArtist}__${cleanAlbum}"
+    }
+
     suspend fun getUserProfile(): Pair<String, String>? = withContext(Dispatchers.IO) {
         val json = callVkApi("users.get", mapOf("fields" to "photo_100")) ?: return@withContext null
         val response = json.optJSONArray("response") ?: return@withContext null
@@ -144,7 +160,7 @@ class VkApiClient(
         parsePlaylists(json)
     }
 
-    suspend fun getPlaylistTracks(playlistId: Long, ownerId: Long, accessKey: String? = null): List<Track> = withContext(Dispatchers.IO) {
+    suspend fun getPlaylistTracks(playlistId: Long, ownerId: Long, accessKey: String? = null, isAlbum: Boolean = false): List<Track> = withContext(Dispatchers.IO) {
         // Резервный вызов для официальных/редакционных плейлистов и альбомов VK (содержит объект playlist с нативной обложкой)
         val pParams = mutableMapOf(
             "playlist_id" to playlistId.toString(),
@@ -161,10 +177,22 @@ class VkApiClient(
             val pResp = pJson.optJSONObject("response")
             val playlistObj = pResp?.optJSONObject("playlist") ?: pResp
             val playlistCover = playlistObj?.let { extractCoverUrl(it) }
+
+            val isAlbumRelease = isAlbum || playlistObj?.let { obj ->
+                val albumType = obj.optString("album_type", "").trim().lowercase()
+                val isExplicitAlbum = obj.optBoolean("is_album", false) || obj.optInt("is_album", 0) == 1
+                val mainArtists = obj.optJSONArray("main_artists")
+                val hasMainArtists = mainArtists != null && mainArtists.length() > 0
+                val year = obj.optInt("year").takeIf { it > 0 }
+                isExplicitAlbum || (albumType.isNotEmpty() && albumType != "playlist" && albumType != "user" && albumType != "null") || (hasMainArtists && year != null)
+            } ?: false
+
             val audios = pResp?.optJSONArray("audios") ?: pResp?.optJSONArray("items")
             if (audios != null) {
                 val parsed = parseTracksArray(audios)
-                return@withContext if (!playlistCover.isNullOrEmpty()) {
+                // Для альбомов (1 артист) обложка релиза подходит ко всем трекам.
+                // Для плейлистов (сборка разных треков и исполнителей) обложку плейлиста ко всем трекам НЕ применяем!
+                return@withContext if (isAlbumRelease && !playlistCover.isNullOrEmpty()) {
                     parsed.map { if (it.coverUrl.isNullOrEmpty()) it.copy(coverUrl = playlistCover) else it }
                 } else {
                     parsed
@@ -740,109 +768,29 @@ class VkApiClient(
     }
 
     /**
-     * Обогащение треков нативными метаданными и обложками через VK API audio.getById
-     * (по эталонному подходу Murglar / VKX).
-     * audio.get возвращает минимальную структуру без album.thumb; audio.getById батчами
-     * до 100 треков возвращает полные объекты с обложками максимального разрешения.
+     * Быстрое обогащение треков для списков (0 мс, 0 сетевых блокировок).
+     * В списках отображаются по умолчанию только существующие обложки из In-Memory / Room кэша.
+     * Загрузка обложек из каталога происходит строго фоном при воспроизведении трека в плеере.
      */
     suspend fun enrichTracksWithVkDetails(tracks: List<Track>): List<Track> = withContext(Dispatchers.IO) {
         if (tracks.isEmpty()) return@withContext emptyList()
 
-        // 1. Моментальное заполнение из In-Memory кэша (0 мс, по подобию VKX)
-        val withCached = tracks.map { track ->
+        tracks.map { track ->
             if (track.coverUrl.isNullOrEmpty() || !isValidImageUrl(track.coverUrl)) {
                 val cached = trackCoverCache[track.fullId]
-                    ?: track.albumTitle?.let { albumCoverCache[it] }
+                    ?: albumKey(track.artist, track.albumTitle)?.let { albumCoverCache[it] }
                 if (!cached.isNullOrEmpty()) track.copy(coverUrl = cached) else track
             } else {
                 trackCoverCache[track.fullId] = track.coverUrl
-                track.albumTitle?.let { albumCoverCache[it] = track.coverUrl }
+                albumKey(track.artist, track.albumTitle)?.let { albumCoverCache[it] = track.coverUrl }
                 track
-            }
-        }
-
-        val missing = withCached.filter { it.coverUrl.isNullOrEmpty() || !isValidImageUrl(it.coverUrl) }
-        if (missing.isEmpty()) return@withContext withCached
-
-        val enrichedMap = mutableMapOf<String, Track>()
-        val chunks = missing.chunked(100)
-
-        for (chunk in chunks) {
-            val audiosParam = chunk.joinToString(",") { track ->
-                if (!track.accessKey.isNullOrEmpty()) {
-                    "${track.ownerId}_${track.id}_${track.accessKey}"
-                } else {
-                    "${track.ownerId}_${track.id}"
-                }
-            }
-
-            try {
-                val json = callVkApi("audio.getById", mapOf("audios" to audiosParam))
-                val items = json?.optJSONArray("response")
-                    ?: json?.optJSONObject("response")?.optJSONArray("items")
-                    ?: json?.optJSONObject("response")?.optJSONArray("audios")
-                if (items != null) {
-                    for (i in 0 until items.length()) {
-                        val item = items.optJSONObject(i) ?: continue
-                        val parsed = parseTrackObject(item) ?: continue
-                        enrichedMap[parsed.fullId] = parsed
-                        if (!parsed.coverUrl.isNullOrEmpty()) {
-                            trackCoverCache[parsed.fullId] = parsed.coverUrl
-                            parsed.albumTitle?.let { albumCoverCache[it] = parsed.coverUrl }
-                        }
-                    }
-                }
-            } catch (e: Exception) {
-                Log.w("VkApiClient", "Failed to enrich audio batch", e)
-            }
-        }
-
-        // 2. Для первых треков без обложки пакетно получаем официальные обложки из каталога VK (через единый execute)
-        val stillMissing = withCached.filter { track ->
-            val en = enrichedMap[track.fullId]
-            val cover = en?.coverUrl ?: track.coverUrl
-            cover.isNullOrEmpty() || !isValidImageUrl(cover)
-        }.take(15)
-
-        if (stillMissing.isNotEmpty()) {
-            val batchCovers = resolveCoversBatch(stillMissing)
-            for ((id, cover) in batchCovers) {
-                if (!cover.isNullOrEmpty() && isValidImageUrl(cover)) {
-                    trackCoverCache[id] = cover
-                    val existing = enrichedMap[id]
-                    if (existing != null) {
-                        enrichedMap[id] = existing.copy(coverUrl = cover)
-                    } else {
-                        val base = withCached.firstOrNull { it.fullId == id }
-                        if (base != null) {
-                            enrichedMap[id] = base.copy(coverUrl = cover)
-                        }
-                    }
-                }
-            }
-        }
-
-        withCached.map { track ->
-            val enriched = enrichedMap[track.fullId]
-            if (enriched != null) {
-                track.copy(
-                    coverUrl = enriched.coverUrl ?: track.coverUrl,
-                    streamUrl = if (enriched.streamUrl.isNotEmpty()) enriched.streamUrl else track.streamUrl,
-                    albumTitle = enriched.albumTitle ?: track.albumTitle,
-                    lyricsId = enriched.lyricsId ?: track.lyricsId,
-                    restriction = enriched.restriction,
-                    restrictionText = enriched.restrictionText ?: track.restrictionText
-                )
-            } else {
-                val fallbackCover = track.albumTitle?.let { albumCoverCache[it] }
-                if (!fallbackCover.isNullOrEmpty()) track.copy(coverUrl = fallbackCover) else track
             }
         }
     }
 
     suspend fun resolveTrack(track: Track): Track = withContext(Dispatchers.IO) {
         val cachedCover = trackCoverCache[track.fullId]
-            ?: track.albumTitle?.let { albumCoverCache[it] }
+            ?: albumKey(track.artist, track.albumTitle)?.let { albumCoverCache[it] }
         val trackWithCached = if (track.coverUrl.isNullOrEmpty() && !cachedCover.isNullOrEmpty()) {
             track.copy(coverUrl = cachedCover)
         } else track
@@ -851,34 +799,58 @@ class VkApiClient(
             return@withContext trackWithCached
         }
 
-        val audiosParam = if (!trackWithCached.accessKey.isNullOrEmpty()) {
-            "${trackWithCached.ownerId}_${trackWithCached.id}_${trackWithCached.accessKey}"
-        } else {
-            "${trackWithCached.ownerId}_${trackWithCached.id}"
+        var resolvedStream = trackWithCached.streamUrl
+        var resolvedCover = trackWithCached.coverUrl
+        var resolvedAlbum = trackWithCached.albumTitle
+        var resolvedLyrics = trackWithCached.lyricsId
+        var resolvedRestriction = trackWithCached.restriction
+        var resolvedRestrictionText = trackWithCached.restrictionText
+
+        // Если не хватает потока или метаданных, получаем через audio.getById
+        if (resolvedStream.isEmpty()) {
+            val audiosParam = if (!trackWithCached.accessKey.isNullOrEmpty()) {
+                "${trackWithCached.ownerId}_${trackWithCached.id}_${trackWithCached.accessKey}"
+            } else {
+                "${trackWithCached.ownerId}_${trackWithCached.id}"
+            }
+            val json = callVkApi("audio.getById", mapOf("audios" to audiosParam))
+            val responseArray = json?.optJSONArray("response")
+            val item = responseArray?.optJSONObject(0)
+                ?: json?.optJSONObject("response")?.optJSONArray("items")?.optJSONObject(0)
+                ?: json?.optJSONObject("response")?.optJSONArray("audios")?.optJSONObject(0)
+            if (item != null) {
+                val parsed = parseTrackObject(item)
+                if (parsed != null) {
+                    if (parsed.streamUrl.isNotEmpty()) resolvedStream = parsed.streamUrl
+                    if (!parsed.coverUrl.isNullOrEmpty() && isValidImageUrl(parsed.coverUrl)) resolvedCover = parsed.coverUrl
+                    if (parsed.albumTitle != null) resolvedAlbum = parsed.albumTitle
+                    if (parsed.lyricsId != null) resolvedLyrics = parsed.lyricsId
+                    resolvedRestriction = parsed.restriction
+                    resolvedRestrictionText = parsed.restrictionText
+                }
+            }
         }
-        val json = callVkApi("audio.getById", mapOf("audios" to audiosParam)) ?: return@withContext trackWithCached
-        val responseArray = json.optJSONArray("response")
-        val item = responseArray?.optJSONObject(0)
-            ?: json.optJSONObject("response")?.optJSONArray("items")?.optJSONObject(0)
-            ?: json.optJSONObject("response")?.optJSONArray("audios")?.optJSONObject(0)
-            ?: return@withContext trackWithCached
-        val parsed = parseTrackObject(item) ?: return@withContext trackWithCached
-        val parsedCover = parsed.coverUrl ?: trackWithCached.coverUrl
-        val resolvedCover = if (parsedCover.isNullOrEmpty() || !isValidImageUrl(parsedCover)) {
-            resolveCoverFromVkCatalog(trackWithCached.artist, trackWithCached.title)
-        } else parsedCover
+
+        // Подгрузка официальной обложки из каталога VK, если обложки еще нет
+        if (resolvedCover.isNullOrEmpty() || !isValidImageUrl(resolvedCover)) {
+            val catCover = resolveCoverFromVkCatalog(trackWithCached.artist, trackWithCached.title)
+            if (!catCover.isNullOrEmpty()) {
+                resolvedCover = catCover
+            }
+        }
 
         if (!resolvedCover.isNullOrEmpty()) {
             trackCoverCache[trackWithCached.fullId] = resolvedCover
-            trackWithCached.albumTitle?.let { albumCoverCache[it] = resolvedCover }
+            albumKey(trackWithCached.artist, resolvedAlbum)?.let { albumCoverCache[it] = resolvedCover }
         }
+
         trackWithCached.copy(
-            streamUrl = if (parsed.streamUrl.isNotEmpty()) parsed.streamUrl else trackWithCached.streamUrl,
+            streamUrl = resolvedStream,
             coverUrl = resolvedCover,
-            albumTitle = parsed.albumTitle ?: trackWithCached.albumTitle,
-            lyricsId = parsed.lyricsId ?: trackWithCached.lyricsId,
-            restriction = parsed.restriction,
-            restrictionText = parsed.restrictionText ?: trackWithCached.restrictionText
+            albumTitle = resolvedAlbum,
+            lyricsId = resolvedLyrics,
+            restriction = resolvedRestriction,
+            restrictionText = resolvedRestrictionText
         )
     }
 
@@ -1388,12 +1360,13 @@ class VkApiClient(
         if (!coverUrl.isNullOrEmpty()) {
             trackCoverCache[fullId] = coverUrl
             val albumTitle = album?.optString("title")
-            if (!albumTitle.isNullOrEmpty()) {
-                albumCoverCache[albumTitle] = coverUrl
+            val key = albumKey(artist, albumTitle)
+            if (key != null) {
+                albumCoverCache[key] = coverUrl
             }
         } else {
             coverUrl = trackCoverCache[fullId]
-                ?: album?.optString("title")?.let { albumCoverCache[it] }
+                ?: albumKey(artist, album?.optString("title"))?.let { albumCoverCache[it] }
         }
 
         // Ограничения трека (Murglar RestrictionStatus: правообладатель, геоблок, подписка)

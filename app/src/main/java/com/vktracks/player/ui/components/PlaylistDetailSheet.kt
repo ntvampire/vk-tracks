@@ -286,9 +286,15 @@ fun PlaylistDetailSheet(
                                     modifier = Modifier.width(28.dp)
                                 )
 
-                                // Обложка трека (нативная обложка трека либо обложка родительского альбома/плейлиста)
+                                // Обложка трека: для альбома (1 артист) подходит обложка альбома; для плейлиста (сборка разных артистов) - только собственная обложка трека
+                                val itemCoverUrl = if (playlist.isAlbum) {
+                                    track.coverUrl ?: playlist.coverUrl
+                                } else {
+                                    track.coverUrl
+                                }
+
                                 TrackCoverThumbnail(
-                                    coverUrl = track.coverUrl ?: playlist.coverUrl,
+                                    coverUrl = itemCoverUrl,
                                     sizeDp = 44.dp,
                                     iconSizeDp = 20.dp
                                 )

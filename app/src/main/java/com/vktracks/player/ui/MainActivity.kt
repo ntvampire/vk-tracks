@@ -143,6 +143,7 @@ fun MainAppScreen(viewModel: MainViewModel) {
     val searchArtists by viewModel.searchArtists.collectAsState()
     val likedTrackIds by viewModel.likedTrackIds.collectAsState()
     val downloadedTrackIds by viewModel.downloadedTrackIds.collectAsState()
+    val resolvedCovers by viewModel.resolvedCovers.collectAsState()
     val isSearching by viewModel.isSearching.collectAsState()
 
     val selectedPlaylist by viewModel.selectedPlaylist.collectAsState()
@@ -243,6 +244,7 @@ fun MainAppScreen(viewModel: MainViewModel) {
                             playlists = playlists,
                             currentTrack = currentTrack,
                             isPlaying = isPlaying,
+                            resolvedCovers = resolvedCovers,
                             likedTrackIds = likedTrackIds,
                             downloadedTrackIds = downloadedTrackIds,
                             isLoadingMoreTracks = isLoadingMoreTracks,
@@ -265,6 +267,7 @@ fun MainAppScreen(viewModel: MainViewModel) {
                             isSearching = isSearching,
                             currentTrack = currentTrack,
                             isPlaying = isPlaying,
+                            resolvedCovers = resolvedCovers,
                             likedTrackIds = likedTrackIds,
                             downloadedTrackIds = downloadedTrackIds,
                             onSearch = { viewModel.search(it) },
@@ -287,6 +290,7 @@ fun MainAppScreen(viewModel: MainViewModel) {
                             downloadedTrackIds = downloadedTrackIds,
                             currentTrack = currentTrack,
                             isPlaying = isPlaying,
+                            resolvedCovers = resolvedCovers,
                             onTrackClick = { track, list -> viewModel.playTrack(track, list) },
                             onAlbumClick = { album -> viewModel.openPlaylist(album) },
                             onToggleLike = { viewModel.toggleTrackLike(it) },
@@ -308,6 +312,7 @@ fun MainAppScreen(viewModel: MainViewModel) {
                             downloadedTrackIds = downloadedTrackIds,
                             currentTrack = currentTrack,
                             isPlaying = isPlaying,
+                            resolvedCovers = resolvedCovers,
                             onTrackClick = { track, list -> viewModel.playTrack(track, list) },
                             onPlayAllClick = { list -> if (list.isNotEmpty()) viewModel.playTrack(list.first(), list) },
                             onShuffleClick = { list ->

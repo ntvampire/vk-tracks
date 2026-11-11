@@ -139,6 +139,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     val isShuffle = PlaybackService.isShuffle
     val repeatMode = PlaybackService.repeatMode
 
+    // Быстрый In-Memory реактивный кэш разрешенных обложек (для предотвращения исчезновения обложек в списках)
+    private val _resolvedCovers = MutableStateFlow<Map<String, String>>(emptyMap())
+    val resolvedCovers: StateFlow<Map<String, String>> = _resolvedCovers.asStateFlow()
+
     // Полноэкранный плеер
     private val _showFullPlayer = MutableStateFlow(false)
     val showFullPlayer: StateFlow<Boolean> = _showFullPlayer.asStateFlow()
@@ -212,10 +216,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     tuple.coverUrl?.takeIf { it.isNotEmpty() }?.let { tuple.id to it }
                 }.toMap()
                 apiClient.preloadCovers(map)
+                _resolvedCovers.value = map
             } catch (_: Exception) {}
         }
 
-        // Автоматическая подгрузка текста песни при смене трека (без тяжелых рекомпозиций списков)
+        // Автоматическая подгрузка текста песни и синхронизация обложек при смене трека
         var lastLyricsTrackId: String? = null
         viewModelScope.launch {
             currentTrack.collect { track ->
@@ -223,6 +228,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     if (track.fullId != lastLyricsTrackId) {
                         lastLyricsTrackId = track.fullId
                         loadLyrics(track)
+                    }
+                    if (!track.coverUrl.isNullOrEmpty() && _resolvedCovers.value[track.fullId] != track.coverUrl) {
+                        _resolvedCovers.value = _resolvedCovers.value + (track.fullId to track.coverUrl)
                     }
                 } else {
                     lastLyricsTrackId = null
@@ -750,8 +758,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             }
             val updatedQueue = if (currentTrackToPlay === track) queue else queue.map { if (it.fullId == currentTrackToPlay.fullId) currentTrackToPlay else it }
             val index = updatedQueue.indexOfFirst { it.fullId == currentTrackToPlay.fullId }.coerceAtLeast(0)
-            // Фоновое сохранение обложки в БД без пересоздания списка _myTracks (0 лагов скролла)
+            // Моментальное сохранение обложки в реактивный кэш памяти и фоновая запись в БД Room
             if (!currentTrackToPlay.coverUrl.isNullOrEmpty() && currentTrackToPlay.coverUrl != track.coverUrl) {
+                _resolvedCovers.value = _resolvedCovers.value + (currentTrackToPlay.fullId to currentTrackToPlay.coverUrl!!)
                 viewModelScope.launch(Dispatchers.IO) {
                     try {
                         database.trackDao().updateCover(currentTrackToPlay.fullId, currentTrackToPlay.coverUrl!!)

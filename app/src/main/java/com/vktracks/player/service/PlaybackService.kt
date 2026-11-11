@@ -79,16 +79,16 @@ class PlaybackService : MediaLibraryService() {
             session: MediaSession,
             controller: MediaSession.ControllerInfo
         ): MediaSession.ConnectionResult {
-            val sessionCommands = MediaSession.ConnectionResult.DEFAULT_SESSION_COMMANDS.buildUpon()
+            val baseResult = super.onConnect(session, controller)
+            val sessionCommands = (baseResult.availableSessionCommands ?: MediaSession.ConnectionResult.DEFAULT_SESSION_COMMANDS)
+                .buildUpon()
                 .add(SessionCommand(ACTION_TOGGLE_LIKE, Bundle.EMPTY))
-                .build()
-            val playerCommands = MediaSession.ConnectionResult.DEFAULT_PLAYER_COMMANDS.buildUpon()
                 .build()
             val track = _currentTrack.value
             val isLiked = if (track != null) isCurrentTrackLiked(track) else false
             return MediaSession.ConnectionResult.AcceptedResultBuilder(session)
                 .setAvailableSessionCommands(sessionCommands)
-                .setAvailablePlayerCommands(playerCommands)
+                .setAvailablePlayerCommands(baseResult.availablePlayerCommands ?: MediaSession.ConnectionResult.DEFAULT_PLAYER_COMMANDS)
                 .setCustomLayout(listOf(createLikeCommandButton(isLiked)))
                 .build()
         }
@@ -108,6 +108,31 @@ class PlaybackService : MediaLibraryService() {
                 return Futures.immediateFuture(SessionResult(SessionResult.RESULT_SUCCESS))
             }
             return super.onCustomCommand(session, controller, customCommand, args)
+        }
+
+        override fun onPlaybackResumption(
+            mediaSession: MediaSession,
+            controller: MediaSession.ControllerInfo
+        ): ListenableFuture<MediaSession.MediaItemsWithStartPosition> {
+            val item = player.currentMediaItem
+            val index = player.currentMediaItemIndex
+            val pos = player.currentPosition.coerceAtLeast(0)
+            if (item != null) {
+                return Futures.immediateFuture(
+                    MediaSession.MediaItemsWithStartPosition(
+                        listOf(item),
+                        index,
+                        pos
+                    )
+                )
+            }
+            return Futures.immediateFuture(
+                MediaSession.MediaItemsWithStartPosition(
+                    emptyList(),
+                    0,
+                    0L
+                )
+            )
         }
 
         // Поддержка Android Auto / MediaLibraryService (VKX стиль)
@@ -431,7 +456,6 @@ class PlaybackService : MediaLibraryService() {
                     saveQueueState()
                 }
                 updateNotificationLikeButton()
-                mediaSession?.let { onUpdateNotification(it, isPlaying) }
             }
 
             override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
@@ -499,9 +523,6 @@ class PlaybackService : MediaLibraryService() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        if (player.playWhenReady) {
-            mediaSession?.let { onUpdateNotification(it, true) }
-        }
         super.onStartCommand(intent, flags, startId)
         return START_NOT_STICKY
     }
@@ -545,14 +566,34 @@ class PlaybackService : MediaLibraryService() {
 
     fun playQueue(tracks: List<Track>, startIndex: Int = 0) {
         if (tracks.isEmpty()) return
-        currentQueue = tracks
-        _currentQueueFlow.value = tracks
-
-        val validTrack = tracks.getOrNull(startIndex) ?: return
+        val validStartIndex = startIndex.coerceIn(0, tracks.lastIndex)
+        val validTrack = tracks[validStartIndex]
         if (validTrack.streamUrl.isEmpty() && !validTrack.isLocal) {
             android.util.Log.e("PlaybackService", "Cannot play track without stream URL: ${validTrack.fullId}")
             return
         }
+
+        // Если очередь та же самая — не пересоздаем все MediaItems и не сбрасываем ExoPlayer
+        val isSameQueue = currentQueue.size == tracks.size &&
+                currentQueue.isNotEmpty() &&
+                currentQueue.first().fullId == tracks.first().fullId &&
+                currentQueue.last().fullId == tracks.last().fullId
+
+        if (isSameQueue && player.mediaItemCount == tracks.size) {
+            currentQueue = tracks
+            _currentQueueFlow.value = tracks
+            player.seekToDefaultPosition(validStartIndex)
+            player.play()
+            _currentTrack.value = validTrack
+            _durationMs.value = (validTrack.duration.toLong() * 1000L).coerceAtLeast(0)
+            loadArtworkAsync(validTrack)
+            updateNotificationLikeButton()
+            saveQueueState()
+            return
+        }
+
+        currentQueue = tracks
+        _currentQueueFlow.value = tracks
 
         val mediaItems = tracks.map { track ->
             val uri = when {
@@ -601,7 +642,6 @@ class PlaybackService : MediaLibraryService() {
         _durationMs.value = (validTrack.duration.toLong() * 1000L).coerceAtLeast(0)
         loadArtworkAsync(validTrack)
         updateNotificationLikeButton()
-        mediaSession?.let { onUpdateNotification(it, true) }
         saveQueueState()
     }
 
@@ -724,9 +764,13 @@ class PlaybackService : MediaLibraryService() {
         }
     }
 
+    private var lastNotifiedLikedState: Boolean? = null
+
     fun updateNotificationLikeButton() {
         val track = _currentTrack.value
         val isLiked = if (track != null) isCurrentTrackLiked(track) else false
+        if (lastNotifiedLikedState == isLiked) return
+        lastNotifiedLikedState = isLiked
         val likeButton = createLikeCommandButton(isLiked)
         mediaSession?.setCustomLayout(listOf(likeButton))
     }
@@ -748,47 +792,13 @@ class PlaybackService : MediaLibraryService() {
 
         artworkJob?.cancel()
         artworkJob = serviceScope.launch(Dispatchers.IO) {
-            var coverUrl = track.coverUrl?.takeIf { it.isNotBlank() } ?: run {
+            val coverUrl = track.coverUrl?.takeIf { it.isNotBlank() } ?: run {
                 try {
                     val db = AppDatabase.getInstance(applicationContext)
                     db.trackDao().getTrackById(track.fullId)?.coverUrl?.takeIf { it.isNotBlank() }
                 } catch (_: Exception) {
                     null
                 }
-            }
-
-            // Fallback обогащение через каталог VK строго при воспроизведении трека
-            if (coverUrl.isNullOrEmpty() && track.duration > 0 && !track.isLocal) {
-                try {
-                    val authManager = com.vktracks.player.data.api.VkAuthManager(applicationContext)
-                    val apiClient = com.vktracks.player.data.api.VkApiClient(authManager)
-                    val enrichedTrack = apiClient.resolveTrack(track)
-                    if (!enrichedTrack.coverUrl.isNullOrEmpty()) {
-                        coverUrl = enrichedTrack.coverUrl
-                        try {
-                            val db = AppDatabase.getInstance(applicationContext)
-                            val entity = TrackEntity(
-                                id = enrichedTrack.fullId,
-                                trackId = enrichedTrack.id,
-                                ownerId = enrichedTrack.ownerId,
-                                title = enrichedTrack.title,
-                                artist = enrichedTrack.artist,
-                                duration = enrichedTrack.duration,
-                                streamUrl = enrichedTrack.streamUrl,
-                                coverUrl = enrichedTrack.coverUrl,
-                                albumTitle = enrichedTrack.albumTitle,
-                                isExplicit = enrichedTrack.isExplicit,
-                                lyricsId = enrichedTrack.lyricsId,
-                                accessKey = enrichedTrack.accessKey,
-                                isLiked = enrichedTrack.isLiked,
-                                localFilePath = enrichedTrack.localFilePath,
-                                isDownloaded = enrichedTrack.isLocal,
-                                lastPlayedTimestamp = System.currentTimeMillis()
-                            )
-                            db.trackDao().insertOrUpdate(entity)
-                        } catch (_: Exception) {}
-                    }
-                } catch (_: Exception) {}
             }
 
             if (!coverUrl.isNullOrEmpty()) {
@@ -806,7 +816,7 @@ class PlaybackService : MediaLibraryService() {
                     val loader = Coil.imageLoader(this@PlaybackService)
                     val req = ImageRequest.Builder(this@PlaybackService)
                         .data(coverUrl)
-                        .size(300, 300)
+                        .size(128, 128)
                         .allowHardware(false)
                         .dispatcher(Dispatchers.IO)
                         .build()
@@ -819,7 +829,7 @@ class PlaybackService : MediaLibraryService() {
                                 val isCurrent = _currentTrack.value?.let {
                                     it.fullId == track.fullId && (it.duration != 0 || it.title == track.title)
                                 } ?: false
-                                if (isCurrent) {
+                                if (isCurrent && currentNotificationBitmap != bitmap) {
                                     currentNotificationBitmap = bitmap
                                     mediaSession?.let { onUpdateNotification(it, player.playWhenReady) }
                                 }
@@ -835,19 +845,22 @@ class PlaybackService : MediaLibraryService() {
 
     private fun startProgressUpdates() {
         progressJob?.cancel()
-        progressJob = serviceScope.launch {
+        progressJob = serviceScope.launch(Dispatchers.Main) {
             while (isActive) {
                 val now = System.currentTimeMillis()
-                if (now - lastSeekTimestamp >= 1200L) {
-                    _currentPositionMs.value = player.currentPosition.coerceAtLeast(0)
+                val pos = if (now - lastSeekTimestamp >= 1200L) {
+                    player.currentPosition.coerceAtLeast(0)
                 } else {
-                    _currentPositionMs.value = lastSeekPositionMs
+                    lastSeekPositionMs
+                }
+                if (_currentPositionMs.value != pos) {
+                    _currentPositionMs.value = pos
                 }
                 val dur = player.duration
-                if (dur > 0) {
+                if (dur > 0 && _durationMs.value != dur) {
                     _durationMs.value = dur
                 }
-                delay(300)
+                delay(500)
             }
         }
     }

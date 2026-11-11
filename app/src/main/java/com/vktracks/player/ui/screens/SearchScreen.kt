@@ -59,6 +59,7 @@ fun SearchScreen(
     isSearching: Boolean,
     currentTrack: Track?,
     isPlaying: Boolean,
+    resolvedCovers: Map<String, String> = emptyMap(),
     likedTrackIds: Set<String> = emptySet(),
     downloadedTrackIds: Set<String> = emptySet(),
     onSearch: (String) -> Unit,
@@ -215,10 +216,16 @@ fun SearchScreen(
                     if (searchResults.isEmpty()) {
                         item { EmptySearchMessage("Треки не найдены") }
                     } else {
+                        val currentPlayingCover = currentTrack?.coverUrl
                         items(searchResults, key = { it.fullId }) { track ->
+                            val isCurrent = currentTrack?.fullId == track.fullId
+                            val itemCover = resolvedCovers[track.fullId]
+                                ?: if (isCurrent) currentPlayingCover ?: track.coverUrl else track.coverUrl
                             TrackItem(
                                 track = track,
-                                isCurrent = currentTrack?.fullId == track.fullId,
+                                isCurrent = isCurrent,
+                                isPlaying = isPlaying,
+                                coverUrl = itemCover,
                                 onTrackClick = { onTrackClick(track, searchResults) },
                                 isLiked = likedTrackIds.contains(track.fullId) || track.isLiked,
                                 isDownloaded = downloadedTrackIds.contains(track.fullId) || track.isLocal,

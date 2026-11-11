@@ -26,8 +26,16 @@ data class TrackEntity(
     val lastPlayedTimestamp: Long = 0
 )
 
+data class TrackCoverTuple(
+    @ColumnInfo(name = "id") val id: String,
+    @ColumnInfo(name = "coverUrl") val coverUrl: String?
+)
+
 @Dao
 interface TrackDao {
+    @Query("SELECT id, coverUrl FROM tracks WHERE coverUrl IS NOT NULL AND coverUrl != ''")
+    suspend fun getAllCachedCovers(): List<TrackCoverTuple>
+
     @Query("SELECT * FROM tracks WHERE isDownloaded = 1 ORDER BY title ASC")
     fun getDownloadedTracks(): Flow<List<TrackEntity>>
 

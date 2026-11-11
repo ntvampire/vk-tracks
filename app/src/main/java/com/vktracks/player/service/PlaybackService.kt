@@ -503,7 +503,26 @@ class PlaybackService : MediaLibraryService() {
             mediaSession?.let { onUpdateNotification(it, true) }
         }
         super.onStartCommand(intent, flags, startId)
-        return START_STICKY
+        return START_NOT_STICKY
+    }
+
+    override fun onTaskRemoved(rootIntent: Intent?) {
+        try {
+            saveQueueState()
+            progressJob?.cancel()
+            artworkJob?.cancel()
+            historyJob?.cancel()
+            player.stop()
+            player.clearMediaItems()
+            stopForeground(STOP_FOREGROUND_REMOVE)
+            val nm = getSystemService(android.content.Context.NOTIFICATION_SERVICE) as? android.app.NotificationManager
+            nm?.cancel(DefaultMediaNotificationProvider.DEFAULT_NOTIFICATION_ID)
+            nm?.cancelAll()
+        } catch (e: Exception) {
+            android.util.Log.e("PlaybackService", "Error stopping onTaskRemoved", e)
+        }
+        stopSelf()
+        super.onTaskRemoved(rootIntent)
     }
 
     override fun onDestroy() {
@@ -715,7 +734,7 @@ class PlaybackService : MediaLibraryService() {
     }
 
     private fun loadArtworkAsync(track: Track) {
-        val currentKey = "${track.fullId}_${track.title}_${track.artist}"
+        val currentKey = "${track.fullId}_${track.title}_${track.artist}_${track.coverUrl}"
         if (lastLoadedArtworkKey == currentKey) {
             return
         }
@@ -732,7 +751,7 @@ class PlaybackService : MediaLibraryService() {
                 }
             }
 
-            // Fallback обогащение через audio.getById для треков ВК если обложка еще не сохранена
+            // Fallback обогащение через каталог VK строго при воспроизведении трека
             if (coverUrl.isNullOrEmpty() && track.duration > 0 && !track.isLocal) {
                 try {
                     val authManager = com.vktracks.player.data.api.VkAuthManager(applicationContext)
@@ -767,6 +786,24 @@ class PlaybackService : MediaLibraryService() {
             }
 
             if (!coverUrl.isNullOrEmpty()) {
+                withContext(Dispatchers.Main) {
+                    val isCurrent = _currentTrack.value?.let {
+                        it.fullId == track.fullId && (it.duration != 0 || it.title == track.title)
+                    } ?: false
+                    if (isCurrent && _currentTrack.value?.coverUrl != coverUrl) {
+                        _currentTrack.value = _currentTrack.value?.copy(coverUrl = coverUrl)
+                    }
+                }
+
+                // Фоновое сохранение превью 144x144 в дисковый/оперативный кэш Coil для моментального показа в списках
+                try {
+                    val loader = Coil.imageLoader(this@PlaybackService)
+                    val thumbReq = ImageRequest.Builder(this@PlaybackService)
+                        .data(coverUrl)
+                        .size(144, 144)
+                        .build()
+                    loader.enqueue(thumbReq)
+                } catch (_: Exception) {}
                 withContext(Dispatchers.Main) {
                     val isCurrent = _currentTrack.value?.let {
                         it.fullId == track.fullId && (it.duration != 0 || it.title == track.title)

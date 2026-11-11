@@ -204,7 +204,18 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             }
         }
 
-        // Автоматическая подгрузка текста песни при смене трека
+        // Предзагрузка сохраненных обложек из базы данных Room в память для мгновенного показа в списках
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                val cached = database.trackDao().getAllCachedCovers()
+                val map = cached.mapNotNull { tuple ->
+                    tuple.coverUrl?.takeIf { it.isNotEmpty() }?.let { tuple.id to it }
+                }.toMap()
+                apiClient.preloadCovers(map)
+            } catch (_: Exception) {}
+        }
+
+        // Автоматическая подгрузка текста песни при смене трека и фоновое обновление обложек в списках
         var lastLyricsTrackId: String? = null
         viewModelScope.launch {
             currentTrack.collect { track ->
@@ -212,6 +223,22 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     if (track.fullId != lastLyricsTrackId) {
                         lastLyricsTrackId = track.fullId
                         loadLyrics(track)
+                    }
+                    val cover = track.coverUrl
+                    if (!cover.isNullOrEmpty()) {
+                        val fullId = track.fullId
+                        val curMy = _myTracks.value
+                        if (curMy.any { it.fullId == fullId && it.coverUrl != cover }) {
+                            _myTracks.value = curMy.map {
+                                if (it.fullId == fullId) it.copy(coverUrl = cover) else it
+                            }
+                        }
+                        val curPl = _selectedPlaylistTracks.value
+                        if (curPl.any { it.fullId == fullId && it.coverUrl != cover }) {
+                            _selectedPlaylistTracks.value = curPl.map {
+                                if (it.fullId == fullId) it.copy(coverUrl = cover) else it
+                            }
+                        }
                     }
                 } else {
                     lastLyricsTrackId = null
@@ -590,7 +617,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
         viewModelScope.launch {
             try {
-                val tracks = apiClient.getPlaylistTracks(playlist.id, playlist.ownerId, playlist.accessKey)
+                val tracks = apiClient.getPlaylistTracks(playlist.id, playlist.ownerId, playlist.accessKey, isAlbum = playlist.isAlbum)
                 if (tracks.isNotEmpty()) {
                     playlistTracksCache[cacheKey] = tracks
                     _selectedPlaylistTracks.value = tracks
@@ -716,7 +743,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         studio21WebSocket = null
         viewModelScope.launch {
             var currentTrackToPlay = track
-            if ((currentTrackToPlay.streamUrl.isEmpty() || currentTrackToPlay.coverUrl.isNullOrEmpty()) && !currentTrackToPlay.isLocal) {
+            // Если нет ссылки на поток (например, трек из расширенного поиска), резолвим ссылку
+            if (currentTrackToPlay.streamUrl.isEmpty() && !currentTrackToPlay.isLocal) {
                 currentTrackToPlay = apiClient.resolveTrack(currentTrackToPlay)
             }
             if (currentTrackToPlay.streamUrl.isEmpty() && !currentTrackToPlay.isLocal) {

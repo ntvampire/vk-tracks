@@ -748,10 +748,15 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 android.util.Log.w("MainViewModel", "Could not resolve streamUrl for ${currentTrackToPlay.fullId}")
                 return@launch
             }
-            val updatedQueue = queue.map { if (it.fullId == currentTrackToPlay.fullId) currentTrackToPlay else it }
+            val updatedQueue = if (currentTrackToPlay === track) queue else queue.map { if (it.fullId == currentTrackToPlay.fullId) currentTrackToPlay else it }
             val index = updatedQueue.indexOfFirst { it.fullId == currentTrackToPlay.fullId }.coerceAtLeast(0)
+            // Фоновое сохранение обложки в БД без пересоздания списка _myTracks (0 лагов скролла)
             if (!currentTrackToPlay.coverUrl.isNullOrEmpty() && currentTrackToPlay.coverUrl != track.coverUrl) {
-                _myTracks.value = _myTracks.value.map { if (it.fullId == currentTrackToPlay.fullId) it.copy(coverUrl = currentTrackToPlay.coverUrl) else it }
+                viewModelScope.launch(Dispatchers.IO) {
+                    try {
+                        database.trackDao().updateCover(currentTrackToPlay.fullId, currentTrackToPlay.coverUrl!!)
+                    } catch (_: Exception) {}
+                }
             }
             ensurePlaybackService { service ->
                 service.playQueue(updatedQueue, index)

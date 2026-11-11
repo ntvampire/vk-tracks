@@ -1,5 +1,7 @@
 package com.vktracks.player.data.model
 
+import androidx.compose.runtime.Immutable
+
 enum class TrackRestriction(val code: Int, val description: String) {
     NONE(0, ""),
     ARTIST_DECISION(1, "Изъято правообладателем"),
@@ -15,6 +17,7 @@ enum class TrackRestriction(val code: Int, val description: String) {
     }
 }
 
+@Immutable
 data class Track(
     val id: Long,
     val ownerId: Long,

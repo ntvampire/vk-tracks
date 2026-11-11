@@ -157,8 +157,14 @@ fun FullPlayerSheet(
                                 modifier = Modifier.size(80.dp)
                             )
                             if (!track.coverUrl.isNullOrEmpty()) {
+                                val bigCoverRequest = remember(track.coverUrl) {
+                                    ImageRequest.Builder(context)
+                                        .data(track.coverUrl)
+                                        .crossfade(true)
+                                        .build()
+                                }
                                 AsyncImage(
-                                    model = track.coverUrl,
+                                    model = bigCoverRequest,
                                     contentDescription = track.title,
                                     modifier = Modifier.fillMaxSize(),
                                     contentScale = ContentScale.Crop

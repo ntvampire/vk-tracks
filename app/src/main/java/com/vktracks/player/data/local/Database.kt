@@ -57,6 +57,9 @@ interface TrackDao {
     @Query("UPDATE tracks SET isLiked = :isLiked WHERE id = :id")
     suspend fun updateLike(id: String, isLiked: Boolean)
 
+    @Query("UPDATE tracks SET coverUrl = :coverUrl WHERE id = :id")
+    suspend fun updateCover(id: String, coverUrl: String)
+
     @Query("UPDATE tracks SET coverUrl = NULL WHERE isDownloaded = 0")
     suspend fun clearCachedTrackCovers()
 }
@@ -81,7 +84,14 @@ private val MIGRATION_3_4 = object : Migration(3, 4) {
     }
 }
 
-@Database(entities = [TrackEntity::class], version = 4, exportSchema = false)
+private val MIGRATION_4_5 = object : Migration(4, 5) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        // Сбрасываем кэш обложек для чистой строгой иерархии v1.0.50
+        db.execSQL("UPDATE tracks SET coverUrl = NULL WHERE isDownloaded = 0")
+    }
+}
+
+@Database(entities = [TrackEntity::class], version = 5, exportSchema = false)
 abstract class AppDatabase : RoomDatabase() {
     abstract fun trackDao(): TrackDao
 
@@ -96,7 +106,7 @@ abstract class AppDatabase : RoomDatabase() {
                     AppDatabase::class.java,
                     "vk_tracks.db"
                 )
-                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4)
+                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5)
                     .fallbackToDestructiveMigration()
                     .build()
                 INSTANCE = instance

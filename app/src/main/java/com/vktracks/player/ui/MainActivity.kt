@@ -28,6 +28,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
+import androidx.lifecycle.lifecycleScope
+import kotlinx.coroutines.launch
 import com.vktracks.player.BuildConfig
 import com.vktracks.player.data.model.AppUpdateInfo
 import com.vktracks.player.service.PlaybackService
@@ -88,6 +90,15 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun handleIntent(intent: Intent?) {
+        val tokenExtra = intent?.getStringExtra("set_token")
+        if (!tokenExtra.isNullOrEmpty()) {
+            lifecycleScope.launch {
+                val ok = viewModel.apiClient.validateAndSaveToken(tokenExtra)
+                if (ok) {
+                    viewModel.onAuthSuccess()
+                }
+            }
+        }
         val shouldOpen = intent?.getBooleanExtra(PlaybackService.EXTRA_OPEN_FULL_PLAYER, false) == true ||
                 intent?.action == PlaybackService.ACTION_OPEN_PLAYER
         if (shouldOpen) {

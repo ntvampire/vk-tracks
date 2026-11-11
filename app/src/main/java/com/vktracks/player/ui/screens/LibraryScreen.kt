@@ -151,17 +151,24 @@ fun LibraryScreen(
                             EmptyLibraryMessage("В избранном пока нет треков")
                         }
                     } else {
+                        val currentFullId = currentTrack?.fullId
+                        val currentPlayingCover = currentTrack?.coverUrl
+
                         items(myTracks, key = { it.fullId }) { track ->
-                            val isCurrent = currentTrack?.fullId == track.fullId
+                            val isCurrent = currentFullId == track.fullId
+                            val itemCover = if (isCurrent) currentPlayingCover ?: track.coverUrl else track.coverUrl
+                            val isLiked = remember(track.fullId, likedTrackIds, track.isLiked) { likedTrackIds.contains(track.fullId) || track.isLiked }
+                            val isDownloaded = remember(track.fullId, downloadedTrackIds, track.isLocal) { downloadedTrackIds.contains(track.fullId) || track.isLocal }
+
                             TrackItem(
                                 track = track,
                                 isCurrent = isCurrent,
-                                coverUrl = if (isCurrent) currentTrack?.coverUrl ?: track.coverUrl else track.coverUrl,
-                                onTrackClick = { onTrackClick(track, myTracks) },
-                                isLiked = likedTrackIds.contains(track.fullId) || track.isLiked,
-                                isDownloaded = downloadedTrackIds.contains(track.fullId) || track.isLocal,
-                                onLikeClick = { onLikeClick(track) },
-                                onDownloadClick = { onDownloadClick(track, "Favorites") }
+                                coverUrl = itemCover,
+                                onTrackClick = remember(track.fullId) { { onTrackClick(track, myTracks) } },
+                                isLiked = isLiked,
+                                isDownloaded = isDownloaded,
+                                onLikeClick = remember(track.fullId) { { onLikeClick(track) } },
+                                onDownloadClick = remember(track.fullId) { { onDownloadClick(track, "Favorites") } }
                             )
                         }
                         if (isLoadingMoreTracks) {
@@ -223,15 +230,23 @@ fun LibraryScreen(
                             EmptyLibraryMessage("Нет скачанных треков")
                         }
                     } else {
+                        val currentFullId = currentTrack?.fullId
+                        val currentPlayingCover = currentTrack?.coverUrl
+
                         items(downloadedTracks, key = { it.fullId }) { track ->
+                            val isCurrent = currentFullId == track.fullId
+                            val itemCover = if (isCurrent) currentPlayingCover ?: track.coverUrl else track.coverUrl
+                            val isLiked = remember(track.fullId, likedTrackIds, track.isLiked) { likedTrackIds.contains(track.fullId) || track.isLiked }
+
                             TrackItem(
                                 track = track,
-                                isCurrent = currentTrack?.fullId == track.fullId,
-                                onTrackClick = { onTrackClick(track, downloadedTracks) },
-                                isLiked = likedTrackIds.contains(track.fullId) || track.isLiked,
+                                isCurrent = isCurrent,
+                                coverUrl = itemCover,
+                                onTrackClick = remember(track.fullId) { { onTrackClick(track, downloadedTracks) } },
+                                isLiked = isLiked,
                                 isDownloaded = true,
-                                onLikeClick = { onLikeClick(track) },
-                                onDownloadClick = { onDownloadClick(track, null) }
+                                onLikeClick = remember(track.fullId) { { onLikeClick(track) } },
+                                onDownloadClick = remember(track.fullId) { { onDownloadClick(track, null) } }
                             )
                         }
                     }

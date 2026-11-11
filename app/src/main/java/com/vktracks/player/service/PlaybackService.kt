@@ -518,11 +518,17 @@ class PlaybackService : MediaLibraryService() {
             val nm = getSystemService(android.content.Context.NOTIFICATION_SERVICE) as? android.app.NotificationManager
             nm?.cancel(DefaultMediaNotificationProvider.DEFAULT_NOTIFICATION_ID)
             nm?.cancelAll()
+            mediaSession?.run {
+                player.release()
+                release()
+            }
+            mediaSession = null
         } catch (e: Exception) {
             android.util.Log.e("PlaybackService", "Error stopping onTaskRemoved", e)
         }
         stopSelf()
         super.onTaskRemoved(rootIntent)
+        android.os.Process.killProcess(android.os.Process.myPid())
     }
 
     override fun onDestroy() {

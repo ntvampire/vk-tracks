@@ -1,7 +1,7 @@
 ﻿{
-    "versionCode":  49,
-    "versionName":  "1.0.48",
-    "downloadUrl":  "https://github.com/ntvampire/vk-tracks/releases/download/v1.0.48/VK-Tracks-1.0.48.apk",
-    "mirrorUrl":  "https://ntvampire.github.io/vk-tracks/VK-Tracks-1.0.48.apk",
-    "changelog":  "1. Строгий отбор обложек: устранён нечеткий поиск каталога, исключены сторонние сборники и каверы. Приоритет строго: обложка трека -\u003e альбом трека -\u003e точное совпадение артиста (audio.searchArtists) -\u003e векторная заглушка. 2. Устранены лаги скролла и бегущей строки (Marquee): отменено пересоздание списков при загрузке обложек, изолирован таймлайн от заголовка трека, помножен remember-кэш ImageRequest и отключен crossfade в списках. 3. Автомиграция БД v4 со сбросом некорректных кэшированных обложек."
+    "versionCode":  50,
+    "versionName":  "1.0.49",
+    "downloadUrl":  "https://github.com/ntvampire/vk-tracks/releases/download/v1.0.49/VK-Tracks-1.0.49.apk",
+    "mirrorUrl":  "https://ntvampire.github.io/vk-tracks/VK-Tracks-1.0.49.apk",
+    "changelog":  "1. Гарантированная остановка плеера и всех фоновых процессов при смахивании приложения из списка Недавних. 2. Поддержка передачи токена через Intent для диплинков и быстрого запуска. 3. Полная проверка на телефонном эмуляторе Android 14 (Pixel API 34): обложки Lisa, Madison Beer и заглушки теперь отображаются идеально."
 }

@@ -96,8 +96,8 @@ fun PlaylistDetailSheet(
                 }
             }
 
-            val tracksWithCovers = androidx.compose.runtime.remember(tracks, playlist.coverUrl) {
-                if (!playlist.coverUrl.isNullOrEmpty()) {
+            val tracksWithCovers = androidx.compose.runtime.remember(tracks, playlist.coverUrl, playlist.isAlbum) {
+                if (playlist.isAlbum && !playlist.coverUrl.isNullOrEmpty()) {
                     tracks.map { if (it.coverUrl.isNullOrEmpty()) it.copy(coverUrl = playlist.coverUrl) else it }
                 } else {
                     tracks
@@ -267,7 +267,7 @@ fun PlaylistDetailSheet(
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .clickable {
-                                        val trackWithCover = if (track.coverUrl.isNullOrEmpty() && !playlist.coverUrl.isNullOrEmpty()) {
+                                        val trackWithCover = if (playlist.isAlbum && track.coverUrl.isNullOrEmpty() && !playlist.coverUrl.isNullOrEmpty()) {
                                             track.copy(coverUrl = playlist.coverUrl)
                                         } else {
                                             track

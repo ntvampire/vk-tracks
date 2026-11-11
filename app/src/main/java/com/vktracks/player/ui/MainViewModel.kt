@@ -726,6 +726,19 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         Toast.makeText(getApplication(), "Кэш треков очищен", Toast.LENGTH_SHORT).show()
     }
 
+    @OptIn(coil.annotation.ExperimentalCoilApi::class)
+    fun clearImageCache() {
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                val loader = coil.Coil.imageLoader(getApplication())
+                loader.memoryCache?.clear()
+                loader.diskCache?.clear()
+                com.vktracks.player.data.api.VkApiClient.clearCaches()
+                database.trackDao().clearCachedTrackCovers()
+            } catch (_: Exception) {}
+        }
+    }
+
     fun setCacheMaxMb(mb: Int) {
         cacheManager.setMaxCacheMb(mb)
         _maxCacheMb.value = mb

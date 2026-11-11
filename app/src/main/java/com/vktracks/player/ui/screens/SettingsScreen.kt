@@ -44,6 +44,7 @@ fun SettingsScreen(
     onToggleCacheEnabled: (Boolean) -> Unit = {},
     onSelectMaxCacheMb: (Int) -> Unit = {},
     onClearCache: () -> Unit = {},
+    onClearImageCache: () -> Unit = {},
     onLoginClick: () -> Unit,
     onCheckUpdateClick: () -> Unit,
     onDismiss: () -> Unit,
@@ -376,6 +377,16 @@ fun SettingsScreen(
                             onClick = {
                                 onClearCache()
                                 Toast.makeText(context, "Кэш треков очищен", Toast.LENGTH_SHORT).show()
+                            }
+                        )
+                        HorizontalDivider(color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
+                        SettingsItem(
+                            icon = Icons.Default.Image,
+                            title = "Очистить кэш обложек",
+                            subtitle = "Сбросить кэш обложек и загрузить заново",
+                            onClick = {
+                                onClearImageCache()
+                                Toast.makeText(context, "Кэш обложек очищен", Toast.LENGTH_SHORT).show()
                             }
                         )
                     }

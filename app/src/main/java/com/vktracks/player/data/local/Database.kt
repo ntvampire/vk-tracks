@@ -56,6 +56,9 @@ interface TrackDao {
 
     @Query("UPDATE tracks SET isLiked = :isLiked WHERE id = :id")
     suspend fun updateLike(id: String, isLiked: Boolean)
+
+    @Query("UPDATE tracks SET coverUrl = NULL WHERE isDownloaded = 0")
+    suspend fun clearCachedTrackCovers()
 }
 
 private val MIGRATION_1_2 = object : Migration(1, 2) {
@@ -64,7 +67,13 @@ private val MIGRATION_1_2 = object : Migration(1, 2) {
     }
 }
 
-@Database(entities = [TrackEntity::class], version = 2, exportSchema = false)
+private val MIGRATION_2_3 = object : Migration(2, 3) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("UPDATE tracks SET coverUrl = NULL WHERE isDownloaded = 0")
+    }
+}
+
+@Database(entities = [TrackEntity::class], version = 3, exportSchema = false)
 abstract class AppDatabase : RoomDatabase() {
     abstract fun trackDao(): TrackDao
 
@@ -79,7 +88,7 @@ abstract class AppDatabase : RoomDatabase() {
                     AppDatabase::class.java,
                     "vk_tracks.db"
                 )
-                    .addMigrations(MIGRATION_1_2)
+                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3)
                     .fallbackToDestructiveMigration()
                     .build()
                 INSTANCE = instance

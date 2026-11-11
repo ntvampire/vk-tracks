@@ -397,6 +397,7 @@ fun MainAppScreen(viewModel: MainViewModel) {
                 onToggleCacheEnabled = { viewModel.setCacheEnabled(it) },
                 onSelectMaxCacheMb = { viewModel.setCacheMaxMb(it) },
                 onClearCache = { viewModel.clearCache() },
+                onClearImageCache = { viewModel.clearImageCache() },
                 onLoginClick = {
                     showSettings = false
                     showAuthDialog = true

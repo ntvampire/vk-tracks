@@ -63,6 +63,14 @@ class VkApiClient(
             trackCoverCache[fullId] = coverUrl
         }
 
+        fun getCachedCover(fullId: String): String? {
+            return trackCoverCache[fullId]?.takeIf { it.isNotEmpty() }
+        }
+
+        fun isCoverResolved(fullId: String): Boolean {
+            return trackCoverCache.containsKey(fullId)
+        }
+
         fun clearCaches() {
             trackCoverCache.clear()
             albumCoverCache.clear()
@@ -803,33 +811,70 @@ class VkApiClient(
         }
     }
 
-    suspend fun resolveTrack(track: Track): Track = withContext(Dispatchers.IO) {
-        val cachedCover = trackCoverCache[track.fullId]
-            ?: albumKey(track.artist, track.albumTitle)?.let { albumCoverCache[it] }
-        val trackWithCached = if (track.coverUrl.isNullOrEmpty() && !cachedCover.isNullOrEmpty()) {
-            track.copy(coverUrl = cachedCover)
-        } else track
-
-        val coverAlreadyResolved = (!trackWithCached.coverUrl.isNullOrEmpty() && isValidImageUrl(trackWithCached.coverUrl)) ||
-                (cachedCover != null && cachedCover.isEmpty())
-
-        if (trackWithCached.streamUrl.isNotEmpty() && coverAlreadyResolved) {
-            return@withContext trackWithCached
+    /**
+     * Строгое разрешение обложки трека по иерархии:
+     * 1. Нативная обложка трека из VK API (если была в объекте VK)
+     * 2. In-Memory кэш (положительный или отрицательный)
+     * 3. Обложка альбома трека (кэш альбомов)
+     * 4. Официальная студийная HD-обложка из Apple Music (iTunes Search API, строгая фильтрация)
+     * 5. Официальная обложка релиза артиста из Apple Music (строгое совпадение имени)
+     * 6. Векторная нота-заглушка (null)
+     */
+    suspend fun resolveTrackCover(track: Track): String? = withContext(Dispatchers.IO) {
+        // 0. Нативная обложка трека
+        if (!track.coverUrl.isNullOrEmpty() && isValidImageUrl(track.coverUrl)) {
+            trackCoverCache[track.fullId] = track.coverUrl
+            albumKey(track.artist, track.albumTitle)?.let { albumCoverCache[it] = track.coverUrl }
+            return@withContext track.coverUrl
         }
 
-        var resolvedStream = trackWithCached.streamUrl
-        var resolvedCover = trackWithCached.coverUrl
-        var resolvedAlbum = trackWithCached.albumTitle
-        var resolvedLyrics = trackWithCached.lyricsId
-        var resolvedRestriction = trackWithCached.restriction
-        var resolvedRestrictionText = trackWithCached.restrictionText
+        // 1. In-Memory кэш
+        val cached = trackCoverCache[track.fullId]
+        if (cached != null) {
+            return@withContext cached.takeIf { it.isNotEmpty() }
+        }
 
-        // Если не хватает потока или обложки, получаем детальные метаданные через audio.getById
-        if (resolvedStream.isEmpty() || resolvedCover.isNullOrEmpty() || !isValidImageUrl(resolvedCover)) {
-            val audiosParam = if (!trackWithCached.accessKey.isNullOrEmpty()) {
-                "${trackWithCached.ownerId}_${trackWithCached.id}_${trackWithCached.accessKey}"
+        // 2. Кэш альбома трека
+        val albumCached = albumKey(track.artist, track.albumTitle)?.let { albumCoverCache[it] }
+        if (!albumCached.isNullOrEmpty() && isValidImageUrl(albumCached)) {
+            trackCoverCache[track.fullId] = albumCached
+            return@withContext albumCached
+        }
+
+        // 3. Apple Music / iTunes Search API — студийная обложка сингла/трека
+        val itunesCover = itunesApiClient.fetchTrackCover(track.artist, track.title)
+        if (!itunesCover.isNullOrEmpty() && isValidImageUrl(itunesCover)) {
+            trackCoverCache[track.fullId] = itunesCover
+            albumKey(track.artist, track.albumTitle)?.let { albumCoverCache[it] = itunesCover }
+            return@withContext itunesCover
+        }
+
+        // 4. Apple Music / iTunes Search API — обложка официального релиза артиста (только строгое совпадение)
+        val artistCover = itunesApiClient.fetchArtistCover(track.artist)
+        if (!artistCover.isNullOrEmpty() && isValidImageUrl(artistCover)) {
+            trackCoverCache[track.fullId] = artistCover
+            return@withContext artistCover
+        }
+
+        // 5. Отрицательный кэш — сохраняем пустую строку, чтобы не повторять сетевые запросы
+        trackCoverCache[track.fullId] = ""
+        null
+    }
+
+    suspend fun resolveTrack(track: Track): Track = withContext(Dispatchers.IO) {
+        var resolvedStream = track.streamUrl
+        var resolvedCover = track.coverUrl
+        var resolvedAlbum = track.albumTitle
+        var resolvedLyrics = track.lyricsId
+        var resolvedRestriction = track.restriction
+        var resolvedRestrictionText = track.restrictionText
+
+        // Если не хватает потока, получаем детальные метаданные через audio.getById
+        if (resolvedStream.isEmpty()) {
+            val audiosParam = if (!track.accessKey.isNullOrEmpty()) {
+                "${track.ownerId}_${track.id}_${track.accessKey}"
             } else {
-                "${trackWithCached.ownerId}_${trackWithCached.id}"
+                "${track.ownerId}_${track.id}"
             }
             val json = callVkApi("audio.getById", mapOf("audios" to audiosParam))
             val responseArray = json?.optJSONArray("response")
@@ -849,40 +894,15 @@ class VkApiClient(
             }
         }
 
-        // 1. Проверяем кэш обложки альбома трека (если у трека указан альбом)
+        // Разрешаем обложку
         if (resolvedCover.isNullOrEmpty() || !isValidImageUrl(resolvedCover)) {
-            val albumCached = albumKey(trackWithCached.artist, resolvedAlbum)?.let { albumCoverCache[it] }
-            if (!albumCached.isNullOrEmpty() && isValidImageUrl(albumCached)) {
-                resolvedCover = albumCached
+            val resolved = resolveTrackCover(track.copy(albumTitle = resolvedAlbum))
+            if (!resolved.isNullOrEmpty()) {
+                resolvedCover = resolved
             }
         }
 
-        // 2. Если нативной обложки нет в объекте трека ВК — запрашиваем официальную студийную обложку в iTunes
-        if (resolvedCover.isNullOrEmpty() || !isValidImageUrl(resolvedCover)) {
-            val itunesCover = itunesApiClient.fetchTrackCover(trackWithCached.artist, trackWithCached.title)
-            if (!itunesCover.isNullOrEmpty() && isValidImageUrl(itunesCover)) {
-                resolvedCover = itunesCover
-            }
-        }
-
-        // 3. Если обложки трека нет в iTunes — проверяем официальное фото артиста (только точное совпадение имени)
-        if (resolvedCover.isNullOrEmpty() || !isValidImageUrl(resolvedCover)) {
-            val artistPhoto = fetchExactArtistPhoto(trackWithCached.artist)
-            if (!artistPhoto.isNullOrEmpty() && isValidImageUrl(artistPhoto)) {
-                resolvedCover = artistPhoto
-            }
-        }
-
-        // 4. Если обложки нет и у артиста — оставляем null (чистая векторная нота-заглушка)
-        if (!resolvedCover.isNullOrEmpty()) {
-            trackCoverCache[trackWithCached.fullId] = resolvedCover
-            albumKey(trackWithCached.artist, resolvedAlbum)?.let { albumCoverCache[it] = resolvedCover }
-        } else {
-            // Кэшируем пустую строку, чтобы предотвратить повторные дорогостоящие запросы для треков без обложки
-            trackCoverCache[trackWithCached.fullId] = ""
-        }
-
-        trackWithCached.copy(
+        track.copy(
             streamUrl = resolvedStream,
             coverUrl = resolvedCover,
             albumTitle = resolvedAlbum,
@@ -890,39 +910,6 @@ class VkApiClient(
             restriction = resolvedRestriction,
             restrictionText = resolvedRestrictionText
         )
-    }
-
-    suspend fun fetchExactArtistPhoto(artist: String): String? = withContext(Dispatchers.IO) {
-        val cleanArtist = extractMainArtist(artist).trim()
-        if (cleanArtist.isBlank()) return@withContext null
-        val cached = artistPhotoCache[cleanArtist.lowercase()]
-        if (cached != null) return@withContext cached.takeIf { it.isNotEmpty() }
-
-        try {
-            val json = callVkApi("audio.searchArtists", mapOf("q" to cleanArtist, "count" to "3"))
-            val response = json?.optJSONObject("response")
-            val items = response?.optJSONArray("items")
-            if (items != null) {
-                for (i in 0 until items.length()) {
-                    val item = items.optJSONObject(i) ?: continue
-                    val name = item.optString("name", "").trim()
-                    if (name.equals(cleanArtist, ignoreCase = true)) {
-                        val photoArray = item.optJSONArray("photo")
-                        var photoUrl: String? = null
-                        if (photoArray != null && photoArray.length() > 0) {
-                            val best = photoArray.optJSONObject(photoArray.length() - 1)
-                            photoUrl = best?.optString("url")
-                        }
-                        if (!photoUrl.isNullOrEmpty() && isValidImageUrl(photoUrl)) {
-                            artistPhotoCache[cleanArtist.lowercase()] = photoUrl
-                            return@withContext photoUrl
-                        }
-                    }
-                }
-            }
-        } catch (_: Exception) {}
-        artistPhotoCache[cleanArtist.lowercase()] = ""
-        null
     }
 
     fun extractMainArtist(artist: String): String {

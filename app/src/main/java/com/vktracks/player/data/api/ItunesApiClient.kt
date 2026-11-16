@@ -25,9 +25,27 @@ class ItunesApiClient(
             "compilation", "greatest hits", "100 hits", "party hits",
             "cover band", "tribute band", "studio group", "workout hits", "fitness"
         )
+        private val GENERIC_ARTISTS = setOf(
+            "unknown artist", "неизвестный исполнитель", "неизвестный", "unknown",
+            "various artists", "разные артисты", "разные исполнители", ""
+        )
+
+        private val GENERIC_TITLES = setOf(
+            "untitled", "без названия", "аудиозапись", "track", "audio", ""
+        )
+
+        fun isGeneric(artist: String, title: String): Boolean {
+            val a = artist.trim().lowercase()
+            val t = title.trim().lowercase()
+            if (a in GENERIC_ARTISTS || t in GENERIC_TITLES) return true
+            if (t.matches(Regex("^(track|audio|аудиозапись|untitled)?\\s*\\d+$", RegexOption.IGNORE_CASE))) return true
+            return false
+        }
     }
 
     suspend fun fetchTrackCover(artist: String, title: String): String? = withContext(Dispatchers.IO) {
+        if (isGeneric(artist, title)) return@withContext null
+
         val cleanArtist = extractMainArtist(artist).lowercase().trim()
         val cleanTitle = cleanTrackTitle(title).lowercase().trim()
         if (cleanArtist.isBlank() || cleanTitle.isBlank()) return@withContext null
@@ -99,6 +117,7 @@ class ItunesApiClient(
      * Требует строгого 100% совпадения имени артиста.
      */
     suspend fun fetchArtistCover(artist: String): String? = withContext(Dispatchers.IO) {
+        if (isGeneric(artist, "")) return@withContext null
         val cleanArtist = extractMainArtist(artist).trim()
         if (cleanArtist.isBlank()) return@withContext null
 

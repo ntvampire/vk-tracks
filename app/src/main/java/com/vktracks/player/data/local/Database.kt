@@ -105,7 +105,14 @@ private val MIGRATION_6_7 = object : Migration(6, 7) {
     }
 }
 
-@Database(entities = [TrackEntity::class], version = 7, exportSchema = false)
+private val MIGRATION_7_8 = object : Migration(7, 8) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        // Очищаем ошибочно привязанные обложки для треков с фиктивными именами (Unknown artist / Untitled)
+        db.execSQL("UPDATE tracks SET coverUrl = NULL WHERE LOWER(artist) LIKE '%unknown%' OR LOWER(title) LIKE '%untitled%' OR LOWER(artist) = '' OR LOWER(title) = ''")
+    }
+}
+
+@Database(entities = [TrackEntity::class], version = 8, exportSchema = false)
 abstract class AppDatabase : RoomDatabase() {
     abstract fun trackDao(): TrackDao
 
@@ -120,7 +127,7 @@ abstract class AppDatabase : RoomDatabase() {
                     AppDatabase::class.java,
                     "vk_tracks.db"
                 )
-                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7)
+                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8)
                     .fallbackToDestructiveMigration()
                     .build()
                 INSTANCE = instance

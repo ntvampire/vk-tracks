@@ -38,6 +38,7 @@ import coil.Coil
 import coil.request.ImageRequest
 import coil.request.SuccessResult
 import com.google.common.collect.ImmutableList
+import com.vktracks.player.data.api.VkApiClient
 import com.google.common.util.concurrent.Futures
 import com.google.common.util.concurrent.ListenableFuture
 import com.vktracks.player.R
@@ -783,6 +784,21 @@ class PlaybackService : MediaLibraryService() {
             .build()
     }
 
+    fun updateTrackCover(fullId: String, coverUrl: String) {
+        serviceScope.launch(Dispatchers.Main) {
+            val cur = _currentTrack.value
+            if (cur != null && cur.fullId == fullId && cur.coverUrl != coverUrl) {
+                val updated = cur.copy(coverUrl = coverUrl)
+                _currentTrack.value = updated
+                loadArtworkAsync(updated)
+            }
+            val idx = currentQueue.indexOfFirst { it.fullId == fullId }
+            if (idx >= 0 && currentQueue[idx].coverUrl != coverUrl) {
+                currentQueue = currentQueue.toMutableList().also { it[idx] = it[idx].copy(coverUrl = coverUrl) }
+            }
+        }
+    }
+
     private fun loadArtworkAsync(track: Track) {
         val currentKey = "${track.fullId}_${track.title}_${track.artist}_${track.coverUrl}"
         if (lastLoadedArtworkKey == currentKey) {
@@ -792,14 +808,16 @@ class PlaybackService : MediaLibraryService() {
 
         artworkJob?.cancel()
         artworkJob = serviceScope.launch(Dispatchers.IO) {
-            val coverUrl = track.coverUrl?.takeIf { it.isNotBlank() } ?: run {
-                try {
-                    val db = AppDatabase.getInstance(applicationContext)
-                    db.trackDao().getTrackById(track.fullId)?.coverUrl?.takeIf { it.isNotBlank() }
-                } catch (_: Exception) {
-                    null
+            val coverUrl: String? = track.coverUrl?.takeIf { it.isNotBlank() }
+                ?: VkApiClient.getCachedCover(track.fullId)?.takeIf { it.isNotBlank() }
+                ?: run {
+                    try {
+                        val db = AppDatabase.getInstance(applicationContext)
+                        db.trackDao().getTrackById(track.fullId)?.coverUrl?.takeIf { it.isNotBlank() }
+                    } catch (_: Exception) {
+                        null
+                    }
                 }
-            }
 
             if (!coverUrl.isNullOrEmpty()) {
                 withContext(Dispatchers.Main) {

@@ -220,7 +220,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             } catch (_: Exception) {}
         }
 
-        // Автоматическая подгрузка текста песни и синхронизация обложек при смене трека
+        // Автоматическая подгрузка текста песни и фоновое разрешение обложки при смене трека (в очереди/автопереходе)
         var lastLyricsTrackId: String? = null
         viewModelScope.launch {
             currentTrack.collect { track ->
@@ -231,6 +231,21 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     }
                     if (!track.coverUrl.isNullOrEmpty() && _resolvedCovers.value[track.fullId] != track.coverUrl) {
                         _resolvedCovers.value = _resolvedCovers.value + (track.fullId to track.coverUrl)
+                    } else if (track.coverUrl.isNullOrEmpty() && !track.isLocal) {
+                        launch(Dispatchers.IO) {
+                            val cover = apiClient.resolveTrackCover(track)
+                            if (!cover.isNullOrEmpty()) {
+                                withContext(Dispatchers.Main) {
+                                    _resolvedCovers.value = _resolvedCovers.value + (track.fullId to cover)
+                                }
+                                try {
+                                    database.trackDao().updateCover(track.fullId, cover)
+                                } catch (_: Exception) {}
+                                ensurePlaybackService { service ->
+                                    service.updateTrackCover(track.fullId, cover)
+                                }
+                            }
+                        }
                     }
                 } else {
                     lastLyricsTrackId = null
@@ -314,6 +329,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 myAudiosOffset = page.rawCount
                 canLoadMoreTracks = page.rawCount > 0 && (page.totalCount <= 0 || myAudiosOffset < page.totalCount)
                 _myTracks.value = audios
+                preloadLibraryCovers(audios)
                 _likedTrackIds.value = audios.map { it.fullId }.toSet()
                 _playlists.value = apiClient.getPlaylists(0, 100)
                 _recommendations.value = apiClient.getRecommendations(0, 50)
@@ -742,6 +758,35 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         _isCacheEnabled.value = enabled
     }
 
+    private var libraryPreloadJob: Job? = null
+
+    private fun preloadLibraryCovers(tracks: List<Track>) {
+        libraryPreloadJob?.cancel()
+        libraryPreloadJob = viewModelScope.launch(Dispatchers.IO) {
+            val toResolve = tracks.filter { track ->
+                !track.isLocal &&
+                track.coverUrl.isNullOrEmpty() &&
+                !_resolvedCovers.value.containsKey(track.fullId) &&
+                !VkApiClient.isCoverResolved(track.fullId)
+            }
+            if (toResolve.isEmpty()) return@launch
+
+            for (track in toResolve) {
+                if (!isActive) break
+                val cover = apiClient.resolveTrackCover(track)
+                if (!cover.isNullOrEmpty()) {
+                    withContext(Dispatchers.Main) {
+                        _resolvedCovers.value = _resolvedCovers.value + (track.fullId to cover)
+                    }
+                    try {
+                        database.trackDao().updateCover(track.fullId, cover)
+                    } catch (_: Exception) {}
+                }
+                delay(200)
+            }
+        }
+    }
+
     fun playTrack(track: Track, queue: List<Track>) {
         radioMetadataJob?.cancel()
         studio21WebSocket?.close(1000, "Normal track")
@@ -758,17 +803,35 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             }
             val updatedQueue = if (currentTrackToPlay === track) queue else queue.map { if (it.fullId == currentTrackToPlay.fullId) currentTrackToPlay else it }
             val index = updatedQueue.indexOfFirst { it.fullId == currentTrackToPlay.fullId }.coerceAtLeast(0)
-            // Моментальное сохранение обложки в реактивный кэш памяти и фоновая запись в БД Room
-            if (!currentTrackToPlay.coverUrl.isNullOrEmpty() && currentTrackToPlay.coverUrl != track.coverUrl) {
+
+            // Моментальный запуск воспроизведения без задержек
+            ensurePlaybackService { service ->
+                service.playQueue(updatedQueue, index)
+            }
+
+            // Фоновое разрешение и сохранение обложки для текущего трека (если ещё не загружена)
+            if (currentTrackToPlay.coverUrl.isNullOrEmpty() && !currentTrackToPlay.isLocal) {
+                launch(Dispatchers.IO) {
+                    val cover = apiClient.resolveTrackCover(currentTrackToPlay)
+                    if (!cover.isNullOrEmpty()) {
+                        withContext(Dispatchers.Main) {
+                            _resolvedCovers.value = _resolvedCovers.value + (currentTrackToPlay.fullId to cover)
+                        }
+                        try {
+                            database.trackDao().updateCover(currentTrackToPlay.fullId, cover)
+                        } catch (_: Exception) {}
+                        ensurePlaybackService { service ->
+                            service.updateTrackCover(currentTrackToPlay.fullId, cover)
+                        }
+                    }
+                }
+            } else if (!currentTrackToPlay.coverUrl.isNullOrEmpty() && _resolvedCovers.value[currentTrackToPlay.fullId] != currentTrackToPlay.coverUrl) {
                 _resolvedCovers.value = _resolvedCovers.value + (currentTrackToPlay.fullId to currentTrackToPlay.coverUrl!!)
-                viewModelScope.launch(Dispatchers.IO) {
+                launch(Dispatchers.IO) {
                     try {
                         database.trackDao().updateCover(currentTrackToPlay.fullId, currentTrackToPlay.coverUrl!!)
                     } catch (_: Exception) {}
                 }
-            }
-            ensurePlaybackService { service ->
-                service.playQueue(updatedQueue, index)
             }
         }
     }
@@ -883,6 +946,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         if (distinctNew.isNotEmpty()) {
                             _myTracks.value = _myTracks.value + distinctNew
                             _likedTrackIds.value = _likedTrackIds.value + distinctNew.map { it.fullId }
+                            preloadLibraryCovers(distinctNew)
                         }
                     }
                     if (page.rawCount < 100) {

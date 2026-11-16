@@ -32,12 +32,15 @@ import androidx.lifecycle.lifecycleScope
 import kotlinx.coroutines.launch
 import com.vktracks.player.BuildConfig
 import com.vktracks.player.data.model.AppUpdateInfo
+import com.vktracks.player.data.model.Track
 import com.vktracks.player.service.PlaybackService
 import com.vktracks.player.ui.components.ArtistDetailScreen
 import com.vktracks.player.ui.components.AuthDialog
+import com.vktracks.player.ui.components.CreatePlaylistDialog
 import com.vktracks.player.ui.components.FullPlayerSheet
 import com.vktracks.player.ui.components.MiniPlayer
 import com.vktracks.player.ui.components.PlaylistDetailSheet
+import com.vktracks.player.ui.components.TrackContextMenuBottomSheet
 import com.vktracks.player.ui.screens.LibraryScreen
 import com.vktracks.player.ui.screens.ListenNowScreen
 import com.vktracks.player.ui.screens.SearchScreen
@@ -116,6 +119,13 @@ class MainActivity : ComponentActivity() {
             PlaybackService.instance?.refreshNotification()
         }
     }
+
+    override fun onDestroy() {
+        if (isFinishing) {
+            PlaybackService.onToggleLikeListener = null
+        }
+        super.onDestroy()
+    }
 }
 
 @Composable
@@ -124,6 +134,8 @@ fun MainAppScreen(viewModel: MainViewModel) {
     val showFullPlayer by viewModel.showFullPlayer.collectAsState()
     var showAuthDialog by remember { mutableStateOf(false) }
     var showSettings by remember { mutableStateOf(false) }
+    var contextMenuTrack by remember { mutableStateOf<Track?>(null) }
+    var showCreatePlaylistDialog by remember { mutableStateOf(false) }
 
     val currentTrack by viewModel.currentTrack.collectAsState()
     val isPlaying by viewModel.isPlaying.collectAsState()
@@ -134,11 +146,8 @@ fun MainAppScreen(viewModel: MainViewModel) {
     val isAuthorized by viewModel.isAuthorized.collectAsState()
 
     val radioTracks by viewModel.radioTracks.collectAsState()
-    val mixBlocks by viewModel.mixBlocks.collectAsState()
     val recommendations by viewModel.recommendations.collectAsState()
     val playlists by viewModel.playlists.collectAsState()
-    val catalogBlocks by viewModel.catalogBlocks.collectAsState()
-    val chartTracks by viewModel.chartTracks.collectAsState()
     val searchResults by viewModel.searchResults.collectAsState()
     val searchPlaylists by viewModel.searchPlaylists.collectAsState()
     val searchArtists by viewModel.searchArtists.collectAsState()
@@ -146,6 +155,14 @@ fun MainAppScreen(viewModel: MainViewModel) {
     val downloadedTrackIds by viewModel.downloadedTrackIds.collectAsState()
     val resolvedCovers by viewModel.resolvedCovers.collectAsState()
     val isSearching by viewModel.isSearching.collectAsState()
+
+    val myTracks by viewModel.myTracks.collectAsState()
+    val downloadedTracks by viewModel.downloadedTracks.collectAsState()
+    val historyTracks by viewModel.historyTracks.collectAsState()
+    val isLoadingMoreTracks by viewModel.isLoadingMoreTracks.collectAsState()
+
+    val isCacheAllPlayed by viewModel.isCacheAllPlayed.collectAsState()
+    val isCacheOnlyFavorites by viewModel.isCacheOnlyFavorites.collectAsState()
 
     val selectedPlaylist by viewModel.selectedPlaylist.collectAsState()
     val selectedPlaylistTracks by viewModel.selectedPlaylistTracks.collectAsState()
@@ -197,7 +214,7 @@ fun MainAppScreen(viewModel: MainViewModel) {
                         tonalElevation = 8.dp,
                         containerColor = MaterialTheme.colorScheme.surface
                     ) {
-                        MainTab.values().forEach { tab ->
+                        MainTab.entries.forEach { tab ->
                             NavigationBarItem(
                                 selected = selectedTab == tab,
                                 onClick = {
@@ -233,11 +250,6 @@ fun MainAppScreen(viewModel: MainViewModel) {
                         )
                     }
                     MainTab.LIBRARY -> {
-                        val myTracks by viewModel.myTracks.collectAsState()
-                        val downloadedTracks by viewModel.downloadedTracks.collectAsState()
-                        val historyTracks by viewModel.historyTracks.collectAsState()
-                        val isLoadingMoreTracks by viewModel.isLoadingMoreTracks.collectAsState()
-
                         LibraryScreen(
                             myTracks = myTracks,
                             downloadedTracks = downloadedTracks,
@@ -256,7 +268,9 @@ fun MainAppScreen(viewModel: MainViewModel) {
                             onDownloadClick = { track, subfolder -> viewModel.downloadTrack(track, subfolder) },
                             onLoginClick = { showAuthDialog = true },
                             onSettingsClick = { showSettings = true },
-                            isAuthorized = isAuthorized
+                            isAuthorized = isAuthorized,
+                            onMoreTrackClick = { contextMenuTrack = it },
+                            onCreatePlaylistClick = { showCreatePlaylistDialog = true }
                         )
                     }
                     MainTab.SEARCH -> {
@@ -265,6 +279,7 @@ fun MainAppScreen(viewModel: MainViewModel) {
                             searchResults = searchResults,
                             searchPlaylists = searchPlaylists,
                             searchArtists = searchArtists,
+                            myLibraryTracks = myTracks,
                             isSearching = isSearching,
                             currentTrack = currentTrack,
                             isPlaying = isPlaying,
@@ -276,7 +291,8 @@ fun MainAppScreen(viewModel: MainViewModel) {
                             onPlaylistClick = { playlist -> viewModel.openPlaylist(playlist) },
                             onArtistClick = { artist -> viewModel.openArtist(artist) },
                             onLikeClick = { viewModel.toggleTrackLike(it) },
-                            onDownloadClick = { viewModel.downloadTrack(it) }
+                            onDownloadClick = { viewModel.downloadTrack(it) },
+                            onMoreTrackClick = { contextMenuTrack = it }
                         )
                     }
                 }
@@ -296,6 +312,7 @@ fun MainAppScreen(viewModel: MainViewModel) {
                             onAlbumClick = { album -> viewModel.openPlaylist(album) },
                             onToggleLike = { viewModel.toggleTrackLike(it) },
                             onDownloadTrackClick = { viewModel.downloadTrack(it) },
+                            onMoreTrackClick = { contextMenuTrack = it },
                             onDismiss = { viewModel.closeArtist() }
                         )
                     }
@@ -326,6 +343,7 @@ fun MainAppScreen(viewModel: MainViewModel) {
                             onDownloadTrackClick = { viewModel.downloadTrack(it, playlist.title) },
                             onToggleFollow = { viewModel.togglePlaylistFollow(it) },
                             onToggleLike = { viewModel.toggleTrackLike(it) },
+                            onMoreTrackClick = { contextMenuTrack = it },
                             onDismiss = { viewModel.closePlaylist() }
                         )
                     }
@@ -382,6 +400,8 @@ fun MainAppScreen(viewModel: MainViewModel) {
                 onToggleRepeat = { viewModel.toggleRepeat() },
                 onDownloadClick = { currentTrack?.let { viewModel.downloadTrack(it) } },
                 onTrackClick = { track, list -> viewModel.playTrack(track, list) },
+                onMoveQueueItem = { from, to -> viewModel.moveQueueItem(from, to) },
+                onRemoveQueueItem = { idx -> viewModel.removeQueueItem(idx) },
                 onDismiss = { viewModel.closeFullPlayer() }
             )
         }
@@ -412,7 +432,11 @@ fun MainAppScreen(viewModel: MainViewModel) {
                 cacheSizeDisplay = cacheSizeDisplay,
                 isCacheEnabled = isCacheEnabled,
                 maxCacheMb = maxCacheMb,
+                isCacheAllPlayed = isCacheAllPlayed,
+                isCacheOnlyFavorites = isCacheOnlyFavorites,
                 onToggleCacheEnabled = { viewModel.setCacheEnabled(it) },
+                onToggleCacheAllPlayed = { viewModel.setCacheAllPlayed(it) },
+                onToggleCacheOnlyFavorites = { viewModel.setCacheOnlyFavorites(it) },
                 onSelectMaxCacheMb = { viewModel.setCacheMaxMb(it) },
                 onClearCache = { viewModel.clearCache() },
                 onClearImageCache = { viewModel.clearImageCache() },
@@ -440,6 +464,51 @@ fun MainAppScreen(viewModel: MainViewModel) {
                 progress = updateProgress,
                 onInstall = { viewModel.installUpdate(update) },
                 onDismiss = { viewModel.dismissUpdate() }
+            )
+        }
+
+        // Контекстное меню трека (3 точки / долгое нажатие)
+        contextMenuTrack?.let { track ->
+            TrackContextMenuBottomSheet(
+                track = track,
+                playlists = playlists.filter { !it.isAlbum },
+                onDismiss = { contextMenuTrack = null },
+                onPlayNext = {
+                    viewModel.playNextInQueue(track)
+                    contextMenuTrack = null
+                },
+                onAddToQueueEnd = {
+                    viewModel.addToQueueEnd(track)
+                    contextMenuTrack = null
+                },
+                onOpenArtist = {
+                    contextMenuTrack = null
+                    val artistName = track.artist.split(",", "&", "feat.", "ft.").firstOrNull()?.trim() ?: track.artist
+                    if (artistName.isNotBlank()) {
+                        viewModel.openArtistByName(artistName)
+                    }
+                },
+                onAddToPlaylist = { playlist ->
+                    viewModel.addTrackToPlaylist(playlist, track)
+                    contextMenuTrack = null
+                },
+                onCreateNewPlaylist = { title, desc ->
+                    viewModel.createPlaylist(title, desc) { newPl ->
+                        viewModel.addTrackToPlaylist(newPl, track)
+                    }
+                    contextMenuTrack = null
+                }
+            )
+        }
+
+        // Диалог создания плейлиста
+        if (showCreatePlaylistDialog) {
+            CreatePlaylistDialog(
+                onDismiss = { showCreatePlaylistDialog = false },
+                onConfirm = { title, desc ->
+                    viewModel.createPlaylist(title, desc)
+                    showCreatePlaylistDialog = false
+                }
             )
         }
     }

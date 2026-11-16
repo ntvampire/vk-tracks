@@ -41,7 +41,11 @@ fun SettingsScreen(
     cacheSizeDisplay: String = "0 МБ",
     isCacheEnabled: Boolean = true,
     maxCacheMb: Int = 2048,
+    isCacheAllPlayed: Boolean = true,
+    isCacheOnlyFavorites: Boolean = false,
     onToggleCacheEnabled: (Boolean) -> Unit = {},
+    onToggleCacheAllPlayed: (Boolean) -> Unit = {},
+    onToggleCacheOnlyFavorites: (Boolean) -> Unit = {},
     onSelectMaxCacheMb: (Int) -> Unit = {},
     onClearCache: () -> Unit = {},
     onClearImageCache: () -> Unit = {},
@@ -111,7 +115,7 @@ fun SettingsScreen(
                     Text(downloadPathDisplay, fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     Spacer(modifier = Modifier.height(12.dp))
                     Text(
-                        "По умолчанию треки сохраняются в папку Music/VK Tracks устройства (избранное — в Favorites, плейлисты — в подпапки плейлистов).",
+                        "На Android 10+ аудиофайлы сохраняются в общедоступную системную папку Music/VK Tracks устройства (согласно стандартам Scoped Storage) с вшитыми ID3-тегами и обложками.",
                         fontSize = 12.sp,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -353,6 +357,22 @@ fun SettingsScreen(
                         onCheckedChange = onToggleCacheEnabled
                     )
                     if (isCacheEnabled) {
+                        HorizontalDivider(color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
+                        SettingsSwitchItem(
+                            icon = Icons.Default.PlayCircleOutline,
+                            title = "Кэшировать все проигрываемые треки",
+                            subtitle = "Автоматически сохранять любой включенный трек в кэш",
+                            checked = isCacheAllPlayed,
+                            onCheckedChange = onToggleCacheAllPlayed
+                        )
+                        HorizontalDivider(color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
+                        SettingsSwitchItem(
+                            icon = Icons.Default.Favorite,
+                            title = "Кэшировать только избранные",
+                            subtitle = "Кэшировать при воспроизведении только треки из вашего Избранного",
+                            checked = isCacheOnlyFavorites,
+                            onCheckedChange = onToggleCacheOnlyFavorites
+                        )
                         HorizontalDivider(color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
                         SettingsItem(
                             icon = Icons.Default.Storage,

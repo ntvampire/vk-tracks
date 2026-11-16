@@ -45,6 +45,7 @@ fun ArtistDetailScreen(
     onAlbumClick: (Playlist) -> Unit,
     onToggleLike: (Track) -> Unit,
     onDownloadTrackClick: (Track) -> Unit,
+    onMoreTrackClick: ((Track) -> Unit)? = null,
     onDismiss: () -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -227,7 +228,8 @@ fun ArtistDetailScreen(
                                 coverUrl = resolvedCovers[track.fullId] ?: track.coverUrl,
                                 onTrackClick = { onTrackClick(track, artistDetail.popularTracks) },
                                 onLikeClick = { onToggleLike(track) },
-                                onDownloadClick = { onDownloadTrackClick(track) }
+                                onDownloadClick = { onDownloadTrackClick(track) },
+                                onMoreClick = { onMoreTrackClick?.invoke(track) }
                             )
                         }
                     }

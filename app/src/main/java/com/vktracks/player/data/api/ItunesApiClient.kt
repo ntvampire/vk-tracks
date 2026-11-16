@@ -51,12 +51,10 @@ class ItunesApiClient(
         if (cleanArtist.isBlank() || cleanTitle.isBlank()) return@withContext null
 
         val query = "$cleanArtist $cleanTitle".trim()
-        val encodedQuery = withContext(Dispatchers.IO) {
-            try {
-                URLEncoder.encode(query, "UTF-8")
-            } catch (_: Exception) {
-                query
-            }
+        val encodedQuery = try {
+            URLEncoder.encode(query, "UTF-8")
+        } catch (_: Exception) {
+            query
         }
         val url = "https://itunes.apple.com/search?term=$encodedQuery&entity=song&limit=10"
 

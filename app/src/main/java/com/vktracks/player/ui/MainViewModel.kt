@@ -92,15 +92,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     val searchQuery: StateFlow<String> = _searchQuery.asStateFlow()
     private var searchJob: Job? = null
 
-    private val _mixBlocks = MutableStateFlow<List<CatalogBlock>>(emptyList())
-    val mixBlocks: StateFlow<List<CatalogBlock>> = _mixBlocks.asStateFlow()
-
-    private val _catalogBlocks = MutableStateFlow<List<CatalogBlock>>(emptyList())
-    val catalogBlocks: StateFlow<List<CatalogBlock>> = _catalogBlocks.asStateFlow()
-
-    private val _chartTracks = MutableStateFlow<List<Track>>(emptyList())
-    val chartTracks: StateFlow<List<Track>> = _chartTracks.asStateFlow()
-
     private val _vkMixSettings = MutableStateFlow(VkMixSettings())
     val vkMixSettings: StateFlow<VkMixSettings> = _vkMixSettings.asStateFlow()
 
@@ -197,6 +188,20 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     val isCacheEnabled: StateFlow<Boolean> = _isCacheEnabled.asStateFlow()
     private val _maxCacheMb = MutableStateFlow(cacheManager.getMaxCacheMb())
     val maxCacheMb: StateFlow<Int> = _maxCacheMb.asStateFlow()
+    private val _isCacheAllPlayed = MutableStateFlow(cacheManager.isCacheAllPlayed())
+    val isCacheAllPlayed: StateFlow<Boolean> = _isCacheAllPlayed.asStateFlow()
+    private val _isCacheOnlyFavorites = MutableStateFlow(cacheManager.isCacheOnlyFavorites())
+    val isCacheOnlyFavorites: StateFlow<Boolean> = _isCacheOnlyFavorites.asStateFlow()
+
+    fun setCacheAllPlayed(enabled: Boolean) {
+        cacheManager.setCacheAllPlayed(enabled)
+        _isCacheAllPlayed.value = enabled
+    }
+
+    fun setCacheOnlyFavorites(enabled: Boolean) {
+        cacheManager.setCacheOnlyFavorites(enabled)
+        _isCacheOnlyFavorites.value = enabled
+    }
 
     // История прослушивания
     val historyTracks: StateFlow<List<Track>> = database.trackDao().getHistoryTracks()
@@ -342,101 +347,64 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 _likedTrackIds.value = audios.map { it.fullId }.toSet()
                 _playlists.value = apiClient.getPlaylists(0, 100)
                 _recommendations.value = apiClient.getRecommendations(0, 50)
-
-                // 1. Секции для вкладки "Слушать" (VK MIX, Миксы по артистам, Миксы по жанрам)
-                _mixBlocks.value = apiClient.getCatalogMixes(audios)
-
-                // 2. Секции для вкладки "Обзор"
-                val exploreData = apiClient.getCatalogExplore()
-                _chartTracks.value = exploreData.first
-                _catalogBlocks.value = exploreData.second
             } catch (_: Exception) {}
             _isLoading.value = false
         }
     }
 
-    fun playStreamMix(mix: StreamMix) {
+    fun playNextInQueue(track: Track) {
+        ensurePlaybackService { service ->
+            service.playNextInQueue(track)
+        }
+    }
+
+    fun addToQueueEnd(track: Track) {
+        ensurePlaybackService { service ->
+            service.addToQueueEnd(track)
+        }
+    }
+
+    fun moveQueueItem(fromIndex: Int, toIndex: Int) {
+        ensurePlaybackService { service ->
+            service.moveQueueItem(fromIndex, toIndex)
+        }
+    }
+
+    fun removeQueueItem(index: Int) {
+        ensurePlaybackService { service ->
+            service.removeQueueItem(index)
+        }
+    }
+
+    fun createPlaylist(title: String, description: String = "", onCreated: ((Playlist) -> Unit)? = null) {
         viewModelScope.launch {
             _isLoading.value = true
             try {
-                val tracks = apiClient.getMixTracks(mix)
-                if (tracks.isNotEmpty()) {
-                    playTrack(tracks.first(), tracks)
+                val pl = apiClient.createPlaylist(title, description)
+                if (pl != null) {
+                    _playlists.value = listOf(pl) + _playlists.value
+                    onCreated?.invoke(pl)
                 }
             } catch (_: Exception) {}
             _isLoading.value = false
         }
     }
 
-    fun playCategory(button: CatalogButtonItem) {
+    fun addTrackToPlaylist(playlist: Playlist, track: Track, onResult: ((Boolean) -> Unit)? = null) {
         viewModelScope.launch {
-            _isLoading.value = true
             try {
-                val tracks = apiClient.getCategoryTracks(button.title)
-                if (tracks.isNotEmpty()) {
-                    playTrack(tracks.first(), tracks)
+                val ok = apiClient.addToPlaylist(playlist.id, playlist.ownerId, track)
+                if (ok) {
+                    playlistTracksCache.remove(playlist.fullId)
+                    // Обновляем счетчик треков в плейлисте
+                    _playlists.value = _playlists.value.map {
+                        if (it.fullId == playlist.fullId) it.copy(count = it.count + 1) else it
+                    }
                 }
-            } catch (_: Exception) {}
-            _isLoading.value = false
-        }
-    }
-
-    fun playAlgorithm(type: String) {
-        viewModelScope.launch {
-            _isLoading.value = true
-            try {
-                val tracks = if (type == "for_you") {
-                    _recommendations.value.ifEmpty { apiClient.getRecommendations(0, 50) }
-                } else {
-                    apiClient.getPersonalRadio()
-                }
-                if (tracks.isNotEmpty()) {
-                    playTrack(tracks.first(), tracks)
-                }
-            } catch (_: Exception) {}
-            _isLoading.value = false
-        }
-    }
-
-    fun openTopTracks() {
-        val tracks = historyTracks.value.ifEmpty { _myTracks.value }
-        if (tracks.isNotEmpty()) {
-            _selectedPlaylist.value = Playlist(
-                id = -101,
-                ownerId = 0,
-                title = "Топ прослушанных треков",
-                description = "Самые популярные треки из вашей истории",
-                count = tracks.size
-            )
-            _selectedPlaylistTracks.value = tracks
-        }
-    }
-
-    fun openTopArtists() {
-        val tracks = _myTracks.value
-        if (tracks.isNotEmpty()) {
-            _selectedPlaylist.value = Playlist(
-                id = -102,
-                ownerId = 0,
-                title = "Топ исполнителей",
-                description = "Треки ваших любимых исполнителей",
-                count = tracks.size
-            )
-            _selectedPlaylistTracks.value = tracks
-        }
-    }
-
-    fun openTopGenres() {
-        val tracks = _recommendations.value.ifEmpty { _myTracks.value }
-        if (tracks.isNotEmpty()) {
-            _selectedPlaylist.value = Playlist(
-                id = -103,
-                ownerId = 0,
-                title = "Топ жанров",
-                description = "Популярные жанровые направления",
-                count = tracks.size
-            )
-            _selectedPlaylistTracks.value = tracks
+                onResult?.invoke(ok)
+            } catch (_: Exception) {
+                onResult?.invoke(false)
+            }
         }
     }
 
@@ -471,8 +439,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 } else if (settings.familiarity == "discover" && _likedTrackIds.value.isNotEmpty()) {
                     val liked = _likedTrackIds.value
                     tracks = tracks.filter { !liked.contains(it.fullId) }
-                } else if (settings.familiarity == "popular" && _chartTracks.value.isNotEmpty()) {
-                    tracks = (_chartTracks.value.take(10) + tracks).distinctBy { it.fullId }
+                } else if (settings.familiarity == "popular") {
+                    val popular = apiClient.getChartTracks(15)
+                    if (popular.isNotEmpty()) {
+                        tracks = (popular.take(10) + tracks).distinctBy { it.fullId }
+                    }
                 }
                 if (tracks.isNotEmpty()) {
                     _radioTracks.value = tracks
@@ -671,6 +642,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun closeArtist() {
         _selectedArtist.value = null
         _selectedArtistDetail.value = null
+    }
+
+    fun openArtistByName(name: String) {
+        val trimmed = name.trim()
+        if (trimmed.isNotEmpty()) {
+            openArtist(Artist(id = "", name = trimmed))
+        }
     }
 
     fun downloadTrack(track: Track, subfolder: String? = null) {

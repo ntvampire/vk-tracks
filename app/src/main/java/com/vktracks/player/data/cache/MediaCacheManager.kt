@@ -11,6 +11,7 @@ import androidx.media3.datasource.FileDataSource
 import androidx.media3.datasource.TransferListener
 import androidx.media3.datasource.cache.CacheDataSink
 import androidx.media3.datasource.cache.CacheDataSource
+import androidx.media3.datasource.cache.CacheWriter
 import androidx.media3.datasource.cache.LeastRecentlyUsedCacheEvictor
 import androidx.media3.datasource.cache.SimpleCache
 import java.io.File
@@ -33,12 +34,15 @@ class MediaCacheManager private constructor(private val context: Context) {
 
         const val PREF_CACHE_ENABLED = "cache_enabled"
         const val PREF_CACHE_MAX_MB = "cache_max_mb"
+        const val PREF_CACHE_ALL_PLAYED = "cache_all_played"
+        const val PREF_CACHE_ONLY_FAVORITES = "cache_only_favorites"
         const val DEFAULT_MAX_MB = 2048 // 2 ГБ по умолчанию (как в VKX)
     }
 
     private val cacheDir = File(context.cacheDir, "media_stream_cache").apply { if (!exists()) mkdirs() }
     private val databaseProvider = StandaloneDatabaseProvider(context)
     val simpleCache: SimpleCache
+    var isUriFavoriteCheck: ((String) -> Boolean)? = null
 
     init {
         val maxMb = prefs.getInt(PREF_CACHE_MAX_MB, DEFAULT_MAX_MB)
@@ -53,6 +57,22 @@ class MediaCacheManager private constructor(private val context: Context) {
 
     fun setCacheEnabled(enabled: Boolean) {
         prefs.edit().putBoolean(PREF_CACHE_ENABLED, enabled).apply()
+    }
+
+    fun isCacheAllPlayed(): Boolean {
+        return prefs.getBoolean(PREF_CACHE_ALL_PLAYED, true)
+    }
+
+    fun setCacheAllPlayed(enabled: Boolean) {
+        prefs.edit().putBoolean(PREF_CACHE_ALL_PLAYED, enabled).apply()
+    }
+
+    fun isCacheOnlyFavorites(): Boolean {
+        return prefs.getBoolean(PREF_CACHE_ONLY_FAVORITES, false)
+    }
+
+    fun setCacheOnlyFavorites(enabled: Boolean) {
+        prefs.edit().putBoolean(PREF_CACHE_ONLY_FAVORITES, enabled).apply()
     }
 
     fun getMaxCacheMb(): Int {
@@ -155,7 +175,15 @@ class MediaCacheManager private constructor(private val context: Context) {
 
                     override fun open(dataSpec: DataSpec): Long {
                         val uriStr = dataSpec.uri.toString()
-                        activeSource = if (isLiveStreamUri(uriStr)) httpSource else cacheSource
+                        val isLive = isLiveStreamUri(uriStr)
+                        val shouldCache = if (isLive || !isCacheEnabled()) {
+                            false
+                        } else if (isCacheOnlyFavorites()) {
+                            isUriFavoriteCheck?.invoke(uriStr) ?: false
+                        } else {
+                            isCacheAllPlayed()
+                        }
+                        activeSource = if (shouldCache) cacheSource else httpSource
                         return activeSource.open(dataSpec)
                     }
 
@@ -173,5 +201,38 @@ class MediaCacheManager private constructor(private val context: Context) {
                 }
             }
         }
+    }
+
+    fun preloadTrack(url: String, bytesToPreload: Long = 1024L * 1024L) {
+        if (url.isBlank() || isLiveStreamUri(url) || !isCacheEnabled()) return
+        if (isCacheOnlyFavorites()) {
+            val isFav = isUriFavoriteCheck?.invoke(url) ?: false
+            if (!isFav) return
+        }
+        if (!isCacheAllPlayed()) return
+
+        try {
+            val uri = Uri.parse(url)
+            val dataSpec = DataSpec.Builder()
+                .setUri(uri)
+                .setLength(bytesToPreload)
+                .build()
+            val upstreamFactory = DefaultHttpDataSource.Factory()
+                .setUserAgent("VKTracks/1.0 (Android)")
+                .setConnectTimeoutMs(8000)
+                .setReadTimeoutMs(15000)
+                .setAllowCrossProtocolRedirects(true)
+            val cacheDataSource = CacheDataSource.Factory()
+                .setCache(simpleCache)
+                .setUpstreamDataSourceFactory(upstreamFactory)
+                .createDataSource()
+            val writer = CacheWriter(
+                cacheDataSource,
+                dataSpec,
+                null,
+                null
+            )
+            writer.cache()
+        } catch (_: Exception) {}
     }
 }

@@ -130,6 +130,7 @@ fun MainAppScreen(viewModel: MainViewModel) {
     val isShuffle by viewModel.isShuffle.collectAsState()
     val repeatMode by viewModel.repeatMode.collectAsState()
     val lyrics by viewModel.currentLyrics.collectAsState()
+    val isLyricsLoading by viewModel.isLyricsLoading.collectAsState()
     val isAuthorized by viewModel.isAuthorized.collectAsState()
 
     val radioTracks by viewModel.radioTracks.collectAsState()
@@ -352,6 +353,7 @@ fun MainAppScreen(viewModel: MainViewModel) {
                 isShuffle = isShuffle,
                 repeatMode = repeatMode,
                 lyrics = lyrics,
+                isLyricsLoading = isLyricsLoading,
                 queue = currentQueue,
                 isLiked = isCurrentLiked,
                 isDownloaded = isCurrentDownloaded,

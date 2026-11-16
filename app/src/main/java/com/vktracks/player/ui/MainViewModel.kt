@@ -10,13 +10,16 @@ import androidx.lifecycle.viewModelScope
 import androidx.media3.common.Player
 import androidx.media3.session.MediaController
 import androidx.media3.session.SessionToken
+import com.vktracks.player.data.api.LrclibApiClient
 import com.vktracks.player.data.api.VkApiClient
 import com.vktracks.player.data.api.VkAuthManager
 import com.vktracks.player.data.api.YandexMusicApiClient
 import com.vktracks.player.data.cache.MediaCacheManager
 import com.vktracks.player.data.downloader.TrackDownloader
 import com.vktracks.player.data.local.AppDatabase
+import com.vktracks.player.data.local.LyricsEntity
 import com.vktracks.player.data.local.TrackEntity
+import com.vktracks.player.data.local.toLyrics
 import com.vktracks.player.data.model.AppUpdateInfo
 import com.vktracks.player.data.model.Artist
 import com.vktracks.player.data.model.ArtistDetail
@@ -49,6 +52,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     val apiClient = VkApiClient(authManager)
     val downloader = TrackDownloader(application, database)
     val updateChecker = UpdateChecker(application)
+    val lrclibApiClient = LrclibApiClient()
 
     val isAuthorized = authManager.authState
 
@@ -125,6 +129,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     private val _currentLyrics = MutableStateFlow<Lyrics?>(null)
     val currentLyrics: StateFlow<Lyrics?> = _currentLyrics.asStateFlow()
+
+    private val _isLyricsLoading = MutableStateFlow(false)
+    val isLyricsLoading: StateFlow<Boolean> = _isLyricsLoading.asStateFlow()
 
     private val _availableUpdate = MutableStateFlow<AppUpdateInfo?>(null)
     val availableUpdate: StateFlow<AppUpdateInfo?> = _availableUpdate.asStateFlow()
@@ -251,6 +258,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 } else {
                     lastLyricsTrackId = null
                     _currentLyrics.value = null
+                    _isLyricsLoading.value = false
                 }
             }
         }
@@ -968,9 +976,79 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private fun loadLyrics(track: Track) {
         lyricsJob?.cancel()
         lyricsJob = viewModelScope.launch {
+            _isLyricsLoading.value = true
             _currentLyrics.value = null
-            val lyrics = apiClient.getLyrics(track)
-            _currentLyrics.value = lyrics
+
+            // Радиостанции не имеют фиксированных текстов песен
+            if (track.duration <= 0) {
+                _isLyricsLoading.value = false
+                return@launch
+            }
+
+            try {
+                // 1. Проверяем локальный кэш Room
+                val cached = withContext(Dispatchers.IO) {
+                    database.lyricsDao().getLyrics(track.fullId)
+                }
+                if (cached != null) {
+                    _currentLyrics.value = cached.toLyrics()
+                    _isLyricsLoading.value = false
+                    return@launch
+                }
+
+                // 2. Ищем в открытом LRCLIB (караоке-таймкоды + plain текст)
+                val lrclibResp = withContext(Dispatchers.IO) {
+                    lrclibApiClient.fetchLyrics(
+                        artist = track.artist,
+                        title = track.title,
+                        durationSec = track.duration
+                    )
+                }
+
+                if (lrclibResp != null) {
+                    val lyrics = lrclibResp.toLyrics()
+                    _currentLyrics.value = lyrics
+                    withContext(Dispatchers.IO) {
+                        database.lyricsDao().insertLyrics(
+                            LyricsEntity(
+                                trackId = track.fullId,
+                                plainText = lrclibResp.plainLyrics,
+                                syncedLyrics = lrclibResp.syncedLyrics,
+                                isInstrumental = lrclibResp.instrumental
+                            )
+                        )
+                    }
+                    _isLyricsLoading.value = false
+                    return@launch
+                }
+
+                // 3. Fallback: официальные треки ВК с валидным lyricsId
+                if (track.lyricsId != null && track.lyricsId > 0) {
+                    val vkLyrics = withContext(Dispatchers.IO) {
+                        apiClient.getLyrics(track)
+                    }
+                    if (vkLyrics != null && (vkLyrics.lines.isNotEmpty() || vkLyrics.plainText.isNotEmpty())) {
+                        _currentLyrics.value = vkLyrics
+                        withContext(Dispatchers.IO) {
+                            val plain = vkLyrics.plainText.joinToString("\n")
+                            database.lyricsDao().insertLyrics(
+                                LyricsEntity(
+                                    trackId = track.fullId,
+                                    plainText = plain,
+                                    syncedLyrics = null,
+                                    isInstrumental = false
+                                )
+                            )
+                        }
+                        _isLyricsLoading.value = false
+                        return@launch
+                    }
+                }
+            } catch (e: Exception) {
+                android.util.Log.w("MainViewModel", "Failed to load lyrics for ${track.fullId}", e)
+            } finally {
+                _isLyricsLoading.value = false
+            }
         }
     }
 

@@ -112,9 +112,26 @@ private val MIGRATION_7_8 = object : Migration(7, 8) {
     }
 }
 
-@Database(entities = [TrackEntity::class], version = 8, exportSchema = false)
+private val MIGRATION_8_9 = object : Migration(8, 9) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL(
+            """
+            CREATE TABLE IF NOT EXISTS track_lyrics (
+                trackId TEXT NOT NULL PRIMARY KEY,
+                plainText TEXT,
+                syncedLyrics TEXT,
+                isInstrumental INTEGER NOT NULL DEFAULT 0,
+                fetchedTimestamp INTEGER NOT NULL DEFAULT 0
+            )
+            """.trimIndent()
+        )
+    }
+}
+
+@Database(entities = [TrackEntity::class, LyricsEntity::class], version = 9, exportSchema = false)
 abstract class AppDatabase : RoomDatabase() {
     abstract fun trackDao(): TrackDao
+    abstract fun lyricsDao(): LyricsDao
 
     companion object {
         @Volatile
@@ -127,7 +144,10 @@ abstract class AppDatabase : RoomDatabase() {
                     AppDatabase::class.java,
                     "vk_tracks.db"
                 )
-                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8)
+                    .addMigrations(
+                        MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5,
+                        MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9
+                    )
                     .fallbackToDestructiveMigration()
                     .build()
                 INSTANCE = instance

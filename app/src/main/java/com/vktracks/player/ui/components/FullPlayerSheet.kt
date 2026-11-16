@@ -3,12 +3,20 @@ package com.vktracks.player.ui.components
 import android.content.Context
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.basicMarquee
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.Orientation
+import androidx.compose.foundation.gestures.draggable
+import androidx.compose.foundation.gestures.rememberDraggableState
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
@@ -28,10 +36,12 @@ import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.media3.common.Player
@@ -43,6 +53,7 @@ import com.vktracks.player.data.model.Track
 import com.vktracks.player.service.PlaybackService
 import com.vktracks.player.ui.theme.AppleRed
 import kotlinx.coroutines.launch
+import kotlin.math.roundToInt
 
 enum class PlayerCenterMode {
     COVER,
@@ -60,6 +71,7 @@ fun FullPlayerSheet(
     isShuffle: Boolean,
     repeatMode: Int,
     lyrics: Lyrics?,
+    isLyricsLoading: Boolean = false,
     queue: List<Track> = emptyList(),
     isLiked: Boolean = false,
     isDownloaded: Boolean = false,
@@ -79,8 +91,47 @@ fun FullPlayerSheet(
     val context = LocalContext.current
     var centerMode by remember { mutableStateOf(PlayerCenterMode.COVER) }
 
+    // Сворачивание плеера по свайпу вниз
+    val offsetY = remember { Animatable(0f) }
+    val coroutineScope = rememberCoroutineScope()
+    val density = LocalDensity.current
+    val dismissThresholdPx = with(density) { 140.dp.toPx() }
+
+    val dismissDraggableState = rememberDraggableState { delta ->
+        coroutineScope.launch {
+            offsetY.snapTo((offsetY.value + delta).coerceAtLeast(0f))
+        }
+    }
+
+    val swipeDismissModifier = Modifier.draggable(
+        state = dismissDraggableState,
+        orientation = Orientation.Vertical,
+        onDragStopped = { velocity ->
+            coroutineScope.launch {
+                if (offsetY.value > dismissThresholdPx || velocity > 1000f) {
+                    offsetY.animateTo(
+                        targetValue = 2500f,
+                        animationSpec = tween(durationMillis = 180, easing = FastOutSlowInEasing)
+                    )
+                    onDismiss()
+                    offsetY.snapTo(0f)
+                } else {
+                    offsetY.animateTo(
+                        targetValue = 0f,
+                        animationSpec = spring(
+                            dampingRatio = Spring.DampingRatioMediumBouncy,
+                            stiffness = Spring.StiffnessMediumLow
+                        )
+                    )
+                }
+            }
+        }
+    )
+
     Surface(
-        modifier = modifier.fillMaxSize(),
+        modifier = modifier
+            .fillMaxSize()
+            .offset { IntOffset(0, offsetY.value.roundToInt().coerceAtLeast(0)) },
         color = MaterialTheme.colorScheme.background
     ) {
         BackHandler(onBack = onDismiss)
@@ -93,10 +144,11 @@ fun FullPlayerSheet(
                 .padding(horizontal = 24.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            // Верхняя плашка управления (закрытие и режим очереди)
+            // Верхняя плашка управления (закрытие, handle-индикатор и режим очереди)
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
+                    .then(swipeDismissModifier)
                     .padding(vertical = 12.dp),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
@@ -141,34 +193,41 @@ fun FullPlayerSheet(
             ) {
                 when (centerMode) {
                     PlayerCenterMode.COVER -> {
-                        // Большая обложка альбома (Apple Music стиль)
+                        // Большая обложка альбома (Apple Music стиль с поддержкой свайпа вниз)
                         Box(
                             modifier = Modifier
-                                .size(280.dp)
-                                .shadow(24.dp, shape = RoundedCornerShape(20.dp), spotColor = Color.Black.copy(alpha = 0.4f))
-                                .clip(RoundedCornerShape(20.dp))
-                                .background(MaterialTheme.colorScheme.surfaceVariant),
+                                .fillMaxSize()
+                                .then(swipeDismissModifier),
                             contentAlignment = Alignment.Center
                         ) {
-                            Icon(
-                                imageVector = Icons.Default.MusicNote,
-                                contentDescription = null,
-                                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.45f),
-                                modifier = Modifier.size(80.dp)
-                            )
-                            if (!track.coverUrl.isNullOrEmpty()) {
-                                val bigCoverRequest = remember(track.coverUrl) {
-                                    ImageRequest.Builder(context)
-                                        .data(track.coverUrl)
-                                        .crossfade(true)
-                                        .build()
-                                }
-                                AsyncImage(
-                                    model = bigCoverRequest,
-                                    contentDescription = track.title,
-                                    modifier = Modifier.fillMaxSize(),
-                                    contentScale = ContentScale.Crop
+                            Box(
+                                modifier = Modifier
+                                    .size(280.dp)
+                                    .shadow(24.dp, shape = RoundedCornerShape(20.dp), spotColor = Color.Black.copy(alpha = 0.4f))
+                                    .clip(RoundedCornerShape(20.dp))
+                                    .background(MaterialTheme.colorScheme.surfaceVariant),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.MusicNote,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.45f),
+                                    modifier = Modifier.size(80.dp)
                                 )
+                                if (!track.coverUrl.isNullOrEmpty()) {
+                                    val bigCoverRequest = remember(track.coverUrl) {
+                                        ImageRequest.Builder(context)
+                                            .data(track.coverUrl)
+                                            .crossfade(true)
+                                            .build()
+                                    }
+                                    AsyncImage(
+                                        model = bigCoverRequest,
+                                        contentDescription = track.title,
+                                        modifier = Modifier.fillMaxSize(),
+                                        contentScale = ContentScale.Crop
+                                    )
+                                }
                             }
                         }
                     }
@@ -176,8 +235,10 @@ fun FullPlayerSheet(
                         // Караоке-текст (синхронизированные строки с автоскроллом)
                         LyricsView(
                             lyrics = lyrics,
+                            isLoading = isLyricsLoading,
                             currentPosMs = currentPosMs,
-                            onLineClick = onSeekTo
+                            onLineClick = onSeekTo,
+                            modifier = if (lyrics == null || lyrics.isInstrumental || isLyricsLoading) swipeDismissModifier else Modifier
                         )
                     }
                     PlayerCenterMode.QUEUE -> {
@@ -198,14 +259,15 @@ fun FullPlayerSheet(
 
             val isLiveStream = track.duration == 0
 
-            // Название трека, артист и кнопка сердечка (Apple Music style: изолированный компонент, 0 рекомпозиций при ходе таймлайна)
+            // Название трека, артист и кнопка сердечка (с поддержкой свайпа вниз)
             PlayerTrackHeader(
                 title = track.title,
                 artist = track.artist,
                 isExplicit = track.isExplicit,
                 isLiked = isLiked,
                 isLiveStream = isLiveStream,
-                onLikeClick = onLikeClick
+                onLikeClick = onLikeClick,
+                modifier = swipeDismissModifier
             )
 
             Spacer(modifier = Modifier.height(20.dp))
@@ -357,17 +419,79 @@ fun FullPlayerSheet(
 @Composable
 fun LyricsView(
     lyrics: Lyrics?,
+    isLoading: Boolean = false,
     currentPosMs: Long,
     onLineClick: (Long) -> Unit,
     modifier: Modifier = Modifier
 ) {
+    if (isLoading) {
+        Box(modifier = modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                CircularProgressIndicator(
+                    color = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(36.dp),
+                    strokeWidth = 3.dp
+                )
+                Spacer(modifier = Modifier.height(14.dp))
+                Text(
+                    text = "Поиск текста песни...",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    fontSize = 15.sp
+                )
+            }
+        }
+        return
+    }
+
+    if (lyrics?.isInstrumental == true) {
+        Box(modifier = modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                modifier = Modifier.padding(horizontal = 32.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.Default.MusicNote,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(48.dp)
+                )
+                Spacer(modifier = Modifier.height(16.dp))
+                Text(
+                    text = "Инструментальный трек",
+                    color = MaterialTheme.colorScheme.onBackground,
+                    fontSize = 18.sp,
+                    fontWeight = FontWeight.Bold
+                )
+                Spacer(modifier = Modifier.height(6.dp))
+                Text(
+                    text = "Композиция без слов",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    fontSize = 14.sp
+                )
+            }
+        }
+        return
+    }
+
     if (lyrics == null || (lyrics.lines.isEmpty() && lyrics.plainText.isEmpty())) {
         Box(modifier = modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-            Text(
-                text = "Текст песни недоступен",
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                fontSize = 16.sp
-            )
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                modifier = Modifier.padding(horizontal = 32.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.Default.FormatQuote,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
+                    modifier = Modifier.size(44.dp)
+                )
+                Spacer(modifier = Modifier.height(12.dp))
+                Text(
+                    text = "Текст песни не найден",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    fontSize = 16.sp
+                )
+            }
         }
         return
     }
@@ -565,10 +689,11 @@ private fun PlayerTrackHeader(
     isExplicit: Boolean,
     isLiked: Boolean,
     isLiveStream: Boolean,
-    onLikeClick: () -> Unit
+    onLikeClick: () -> Unit,
+    modifier: Modifier = Modifier
 ) {
     Row(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically
     ) {

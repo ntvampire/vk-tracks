@@ -12,6 +12,7 @@ import androidx.media3.session.MediaController
 import androidx.media3.session.SessionToken
 import com.vktracks.player.data.api.VkApiClient
 import com.vktracks.player.data.api.VkAuthManager
+import com.vktracks.player.data.api.YandexMusicApiClient
 import com.vktracks.player.data.cache.MediaCacheManager
 import com.vktracks.player.data.downloader.TrackDownloader
 import com.vktracks.player.data.local.AppDatabase
@@ -767,8 +768,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 !track.isLocal &&
                 track.coverUrl.isNullOrEmpty() &&
                 !_resolvedCovers.value.containsKey(track.fullId) &&
-                !VkApiClient.isCoverResolved(track.fullId)
-            }
+                !VkApiClient.isCoverResolved(track.fullId) &&
+                !YandexMusicApiClient.isGeneric(track.artist, track.title)
+            }.take(30)
             if (toResolve.isEmpty()) return@launch
 
             for (track in toResolve) {
@@ -782,7 +784,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         database.trackDao().updateCover(track.fullId, cover)
                     } catch (_: Exception) {}
                 }
-                delay(200)
+                delay(350)
             }
         }
     }

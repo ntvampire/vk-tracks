@@ -40,6 +40,7 @@ class VkApiClient(
         .build()
 
     private val itunesApiClient = ItunesApiClient()
+    private val yandexMusicApiClient = YandexMusicApiClient()
 
     // Официальные профили User-Agent (VK Музыка и VK Android)
     private val vkMusicUserAgent = "VKMusic/1.1.0 (Android 14; SDK 34; arm64-v8a; ru)"
@@ -816,9 +817,10 @@ class VkApiClient(
      * 1. Нативная обложка трека из VK API (если была в объекте VK)
      * 2. In-Memory кэш (положительный или отрицательный)
      * 3. Обложка альбома трека (кэш альбомов)
-     * 4. Официальная студийная HD-обложка из Apple Music (iTunes Search API, строгая фильтрация)
-     * 5. Официальная обложка релиза артиста из Apple Music (строгое совпадение имени)
-     * 6. Векторная нота-заглушка (null)
+     * 4. Проверка на дженерик-названия (Unknown artist, Untitled и т.д. — строго отсекаются)
+     * 5. Yandex Music Search API (официальная студийная HD-обложка, стабильная работа в РФ)
+     * 6. Apple Music / iTunes Search API (резервный источник)
+     * 7. Векторная нота-заглушка (null)
      */
     suspend fun resolveTrackCover(track: Track): String? = withContext(Dispatchers.IO) {
         // 0. Нативная обложка трека
@@ -841,7 +843,21 @@ class VkApiClient(
             return@withContext albumCached
         }
 
-        // 3. Apple Music / iTunes Search API — студийная обложка сингла/трека
+        // 3. Отсечение фиктивных/дженерик метаданных (Unknown artist, Untitled, трек без названия)
+        if (YandexMusicApiClient.isGeneric(track.artist, track.title)) {
+            trackCoverCache[track.fullId] = ""
+            return@withContext null
+        }
+
+        // 4. Yandex Music Search API — студийная обложка сингла/трека (высокий приоритет, стабилен в РФ)
+        val yandexCover = yandexMusicApiClient.fetchTrackCover(track.artist, track.title)
+        if (!yandexCover.isNullOrEmpty() && isValidImageUrl(yandexCover)) {
+            trackCoverCache[track.fullId] = yandexCover
+            albumKey(track.artist, track.albumTitle)?.let { albumCoverCache[it] = yandexCover }
+            return@withContext yandexCover
+        }
+
+        // 5. Apple Music / iTunes Search API — студийная обложка сингла/трека (резервный источник)
         val itunesCover = itunesApiClient.fetchTrackCover(track.artist, track.title)
         if (!itunesCover.isNullOrEmpty() && isValidImageUrl(itunesCover)) {
             trackCoverCache[track.fullId] = itunesCover
@@ -849,14 +865,14 @@ class VkApiClient(
             return@withContext itunesCover
         }
 
-        // 4. Apple Music / iTunes Search API — обложка официального релиза артиста (только строгое совпадение)
+        // 6. Apple Music / iTunes Search API — обложка официального релиза артиста (только строгое совпадение)
         val artistCover = itunesApiClient.fetchArtistCover(track.artist)
         if (!artistCover.isNullOrEmpty() && isValidImageUrl(artistCover)) {
             trackCoverCache[track.fullId] = artistCover
             return@withContext artistCover
         }
 
-        // 5. Отрицательный кэш — сохраняем пустую строку, чтобы не повторять сетевые запросы
+        // 7. Отрицательный кэш — сохраняем пустую строку, чтобы не повторять сетевые запросы
         trackCoverCache[track.fullId] = ""
         null
     }

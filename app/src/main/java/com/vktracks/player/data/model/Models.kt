@@ -64,7 +64,8 @@ data class LyricLine(
 
 data class Lyrics(
     val plainText: List<String> = emptyList(),
-    val lines: List<LyricLine> = emptyList()
+    val lines: List<LyricLine> = emptyList(),
+    val isInstrumental: Boolean = false
 ) {
     val isSynchronized: Boolean get() = lines.isNotEmpty()
 }

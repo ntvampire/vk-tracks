@@ -13,8 +13,8 @@ android {
         applicationId = "com.vktracks.player"
         minSdk = 26
         targetSdk = 34
-        versionCode = 55
-        versionName = "1.0.54"
+        versionCode = 56
+        versionName = "1.0.55"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
@@ -118,4 +118,7 @@ dependencies {
 
     // Security (EncryptedSharedPreferences)
     implementation("androidx.security:security-crypto:1.1.0-alpha06")
+
+    // Testing
+    testImplementation("junit:junit:4.13.2")
 }

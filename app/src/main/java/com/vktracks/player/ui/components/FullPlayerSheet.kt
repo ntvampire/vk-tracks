@@ -84,6 +84,8 @@ fun FullPlayerSheet(
     onToggleRepeat: () -> Unit,
     onDownloadClick: () -> Unit,
     onTrackClick: (Track, List<Track>) -> Unit = { _, _ -> },
+    onMoveQueueItem: (Int, Int) -> Unit = { _, _ -> },
+    onRemoveQueueItem: (Int) -> Unit = {},
     onDismiss: () -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -249,7 +251,9 @@ fun FullPlayerSheet(
                             isPlaying = isPlaying,
                             onTrackClick = { clickedTrack ->
                                 onTrackClick(clickedTrack, queue)
-                            }
+                            },
+                            onMoveItem = onMoveQueueItem,
+                            onRemoveItem = onRemoveQueueItem
                         )
                     }
                 }
@@ -564,6 +568,8 @@ fun PlayerQueueView(
     currentTrack: Track?,
     isPlaying: Boolean,
     onTrackClick: (Track) -> Unit,
+    onMoveItem: (fromIndex: Int, toIndex: Int) -> Unit = { _, _ -> },
+    onRemoveItem: (index: Int) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     if (queue.isEmpty()) {
@@ -608,7 +614,7 @@ fun PlayerQueueView(
                         .fillMaxWidth()
                         .clip(RoundedCornerShape(10.dp))
                         .clickable { onTrackClick(item) }
-                        .padding(horizontal = 4.dp, vertical = 6.dp),
+                        .padding(horizontal = 4.dp, vertical = 4.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     TrackCoverThumbnail(
@@ -668,13 +674,46 @@ fun PlayerQueueView(
                             tint = AppleRed,
                             modifier = Modifier.size(20.dp)
                         )
-                    } else if (item.duration > 0) {
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text(
-                            text = formatMs(item.duration * 1000L),
-                            fontSize = 12.sp,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
-                        )
+                    } else {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            if (index > 0) {
+                                IconButton(
+                                    onClick = { onMoveItem(index, index - 1) },
+                                    modifier = Modifier.size(28.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.KeyboardArrowUp,
+                                        contentDescription = "Выше",
+                                        tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                }
+                            }
+                            if (index < queue.lastIndex) {
+                                IconButton(
+                                    onClick = { onMoveItem(index, index + 1) },
+                                    modifier = Modifier.size(28.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.KeyboardArrowDown,
+                                        contentDescription = "Ниже",
+                                        tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                }
+                            }
+                            IconButton(
+                                onClick = { onRemoveItem(index) },
+                                modifier = Modifier.size(28.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Close,
+                                    contentDescription = "Удалить из очереди",
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+                                    modifier = Modifier.size(16.dp)
+                                )
+                            }
+                        }
                     }
                 }
             }

@@ -87,8 +87,23 @@ object Id3Tagger {
         out.write(textBytes)
     }
 
+    private fun detectMimeType(bytes: ByteArray): String {
+        if (bytes.size >= 3 && bytes[0] == 0xFF.toByte() && bytes[1] == 0xD8.toByte() && bytes[2] == 0xFF.toByte()) {
+            return "image/jpeg"
+        }
+        if (bytes.size >= 8 && bytes[0] == 0x89.toByte() && bytes[1] == 0x50.toByte() && bytes[2] == 0x4E.toByte() && bytes[3] == 0x47.toByte()) {
+            return "image/png"
+        }
+        if (bytes.size >= 12 && bytes[0] == 'R'.code.toByte() && bytes[1] == 'I'.code.toByte() && bytes[2] == 'F'.code.toByte() && bytes[3] == 'F'.code.toByte() &&
+            bytes[8] == 'W'.code.toByte() && bytes[9] == 'E'.code.toByte() && bytes[10] == 'B'.code.toByte() && bytes[11] == 'P'.code.toByte()) {
+            return "image/webp"
+        }
+        return "image/jpeg"
+    }
+
     private fun writePictureFrame(out: ByteArrayOutputStream, imageBytes: ByteArray) {
-        val mimeType = "image/jpeg".toByteArray(StandardCharsets.ISO_8859_1)
+        val mimeTypeStr = detectMimeType(imageBytes)
+        val mimeType = mimeTypeStr.toByteArray(StandardCharsets.ISO_8859_1)
         val bodySize = 1 + mimeType.size + 1 + 1 + 1 + imageBytes.size
 
         out.write("APIC".toByteArray(StandardCharsets.ISO_8859_1))

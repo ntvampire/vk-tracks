@@ -44,7 +44,8 @@ import com.vktracks.player.ui.components.TrackItem
 import com.vktracks.player.ui.theme.AppleRed
 
 enum class SearchTab(val title: String) {
-    TRACKS("Треки"),
+    MY_TRACKS("Мои треки"),
+    TRACKS("Все треки"),
     PLAYLISTS("Плейлисты"),
     ALBUMS("Альбомы"),
     ARTISTS("Исполнители")
@@ -56,6 +57,7 @@ fun SearchScreen(
     searchResults: List<Track>,
     searchPlaylists: List<Playlist> = emptyList(),
     searchArtists: List<Artist> = emptyList(),
+    myLibraryTracks: List<Track> = emptyList(),
     isSearching: Boolean,
     currentTrack: Track?,
     isPlaying: Boolean,
@@ -68,22 +70,29 @@ fun SearchScreen(
     onArtistClick: (Artist) -> Unit = {},
     onLikeClick: (Track) -> Unit = {},
     onDownloadClick: (Track) -> Unit,
+    onMoreTrackClick: ((Track) -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     var query by remember(searchQuery) { mutableStateOf(searchQuery) }
-    var selectedTab by remember { mutableStateOf(SearchTab.TRACKS) }
+    var selectedTab by remember { mutableStateOf(SearchTab.MY_TRACKS) }
     val focusRequester = remember { FocusRequester() }
     val context = LocalContext.current
     val clipboardManager = LocalClipboardManager.current
+
+    val myFilteredTracks = remember(query, myLibraryTracks) {
+        if (query.isBlank()) emptyList()
+        else {
+            val q = query.trim().lowercase()
+            myLibraryTracks.filter { track ->
+                track.title.lowercase().contains(q) || track.artist.lowercase().contains(q)
+            }
+        }
+    }
 
     LaunchedEffect(searchQuery) {
         if (searchQuery.isNotBlank()) {
             selectedTab = SearchTab.TRACKS
         }
-    }
-
-    LaunchedEffect(Unit) {
-        focusRequester.requestFocus()
     }
 
     val popularGenres = listOf(
@@ -183,7 +192,7 @@ fun SearchScreen(
                     divider = {},
                     modifier = Modifier.padding(vertical = 4.dp)
                 ) {
-                    SearchTab.values().forEach { tab ->
+                    SearchTab.entries.forEach { tab ->
                         Tab(
                             selected = selectedTab == tab,
                             onClick = { selectedTab = tab },
@@ -199,7 +208,7 @@ fun SearchScreen(
             }
         }
 
-        if (isSearching) {
+        if (isSearching && selectedTab != SearchTab.MY_TRACKS) {
             item {
                 Box(
                     modifier = Modifier
@@ -212,6 +221,30 @@ fun SearchScreen(
             }
         } else if (query.isNotBlank()) {
             when (selectedTab) {
+                SearchTab.MY_TRACKS -> {
+                    if (myFilteredTracks.isEmpty()) {
+                        item { EmptySearchMessage("В вашей медиатеке ничего не найдено") }
+                    } else {
+                        val currentPlayingCover = currentTrack?.coverUrl
+                        items(myFilteredTracks, key = { it.fullId }) { track ->
+                            val isCurrent = currentTrack?.fullId == track.fullId
+                            val itemCover = resolvedCovers[track.fullId]
+                                ?: if (isCurrent) currentPlayingCover ?: track.coverUrl else track.coverUrl
+                            TrackItem(
+                                track = track,
+                                isCurrent = isCurrent,
+                                isPlaying = isPlaying,
+                                coverUrl = itemCover,
+                                onTrackClick = { onTrackClick(track, myFilteredTracks) },
+                                isLiked = likedTrackIds.contains(track.fullId) || track.isLiked,
+                                isDownloaded = downloadedTrackIds.contains(track.fullId) || track.isLocal,
+                                onLikeClick = { onLikeClick(track) },
+                                onDownloadClick = { onDownloadClick(track) },
+                                onMoreClick = { onMoreTrackClick?.invoke(track) }
+                            )
+                        }
+                    }
+                }
                 SearchTab.TRACKS -> {
                     if (searchResults.isEmpty()) {
                         item { EmptySearchMessage("Треки не найдены") }
@@ -230,7 +263,8 @@ fun SearchScreen(
                                 isLiked = likedTrackIds.contains(track.fullId) || track.isLiked,
                                 isDownloaded = downloadedTrackIds.contains(track.fullId) || track.isLocal,
                                 onLikeClick = { onLikeClick(track) },
-                                onDownloadClick = { onDownloadClick(track) }
+                                onDownloadClick = { onDownloadClick(track) },
+                                onMoreClick = { onMoreTrackClick?.invoke(track) }
                             )
                         }
                     }

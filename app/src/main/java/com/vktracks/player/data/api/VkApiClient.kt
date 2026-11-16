@@ -243,6 +243,51 @@ class VkApiClient(
         emptyList()
     }
 
+    suspend fun createPlaylist(title: String, description: String = ""): Playlist? = withContext(Dispatchers.IO) {
+        val cleanTitle = title.trim()
+        if (cleanTitle.isEmpty()) return@withContext null
+        val userId = authManager.getUserId()
+        val params = mutableMapOf("title" to cleanTitle)
+        if (userId > 0) {
+            params["owner_id"] = userId.toString()
+        }
+        if (description.isNotBlank()) {
+            params["description"] = description.trim()
+        }
+        val json = callVkApi("audio.createPlaylist", params) ?: callVkApi("audio.savePlaylist", params)
+        if (json != null && !json.has("error")) {
+            val resp = json.optJSONObject("response") ?: json
+            val playlistObj = resp.optJSONObject("playlist") ?: resp
+            val id = playlistObj.optLong("id").takeIf { it > 0 } ?: playlistObj.optLong("playlist_id")
+            val resOwnerId = playlistObj.optLong("owner_id", userId)
+            if (id > 0) {
+                return@withContext Playlist(
+                    id = id,
+                    ownerId = resOwnerId,
+                    title = cleanTitle,
+                    description = description.takeIf { it.isNotBlank() },
+                    count = 0,
+                    isAlbum = false
+                )
+            }
+        }
+        null
+    }
+
+    suspend fun addToPlaylist(playlistId: Long, ownerId: Long, track: Track): Boolean = withContext(Dispatchers.IO) {
+        val fullAudioId = "${track.ownerId}_${track.id}"
+        val params = mapOf(
+            "playlist_id" to playlistId.toString(),
+            "owner_id" to ownerId.toString(),
+            "audio_ids" to fullAudioId
+        )
+        val json = callVkApi("audio.addToPlaylist", params)
+        if (json != null && !json.has("error")) {
+            return@withContext true
+        }
+        false
+    }
+
     suspend fun searchCatalog(query: String): SearchResult = withContext(Dispatchers.IO) {
         val q = query.trim()
         if (q.isEmpty()) return@withContext SearchResult()

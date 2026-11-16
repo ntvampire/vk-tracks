@@ -47,6 +47,7 @@ fun PlaylistDetailSheet(
     onDownloadTrackClick: (Track) -> Unit,
     onToggleFollow: (Playlist) -> Unit,
     onToggleLike: (Track) -> Unit,
+    onMoreTrackClick: ((Track) -> Unit)? = null,
     onDismiss: () -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -346,6 +347,20 @@ fun PlaylistDetailSheet(
                                         tint = if (isDownloaded) AppleRed else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
                                         modifier = Modifier.size(20.dp)
                                     )
+                                }
+
+                                if (onMoreTrackClick != null) {
+                                    IconButton(
+                                        onClick = { onMoreTrackClick(track) },
+                                        modifier = Modifier.size(36.dp)
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.MoreVert,
+                                            contentDescription = "Действия с треком",
+                                            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+                                            modifier = Modifier.size(20.dp)
+                                        )
+                                    }
                                 }
                             }
                         }

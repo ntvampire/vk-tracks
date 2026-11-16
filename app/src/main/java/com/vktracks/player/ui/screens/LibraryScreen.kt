@@ -10,6 +10,7 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Album
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Settings
@@ -56,6 +57,8 @@ fun LibraryScreen(
     onLoginClick: () -> Unit,
     onSettingsClick: () -> Unit,
     isAuthorized: Boolean,
+    onMoreTrackClick: ((Track) -> Unit)? = null,
+    onCreatePlaylistClick: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     var selectedTab by remember { mutableStateOf(LibraryTab.FAVORITES) }
@@ -116,7 +119,7 @@ fun LibraryScreen(
                 divider = {},
                 modifier = Modifier.padding(bottom = 8.dp)
             ) {
-                LibraryTab.values().forEach { tab ->
+                LibraryTab.entries.forEach { tab ->
                     Tab(
                         selected = selectedTab == tab,
                         onClick = { selectedTab = tab },
@@ -169,7 +172,8 @@ fun LibraryScreen(
                                 isLiked = isLiked,
                                 isDownloaded = isDownloaded,
                                 onLikeClick = remember(track.fullId) { { onLikeClick(track) } },
-                                onDownloadClick = remember(track.fullId) { { onDownloadClick(track, "Favorites") } }
+                                onDownloadClick = remember(track.fullId) { { onDownloadClick(track, "Favorites") } },
+                                onMoreClick = { onMoreTrackClick?.invoke(track) }
                             )
                         }
                         if (isLoadingMoreTracks) {
@@ -191,6 +195,35 @@ fun LibraryScreen(
                     }
                 }
                 LibraryTab.PLAYLISTS -> {
+                    item {
+                        Surface(
+                            onClick = onCreatePlaylistClick,
+                            shape = RoundedCornerShape(12.dp),
+                            color = AppleRed.copy(alpha = 0.12f),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 16.dp, vertical = 8.dp)
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Add,
+                                    contentDescription = null,
+                                    tint = AppleRed,
+                                    modifier = Modifier.size(22.dp)
+                                )
+                                Spacer(modifier = Modifier.width(12.dp))
+                                Text(
+                                    text = "Создать новый плейлист",
+                                    fontSize = 15.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = AppleRed
+                                )
+                            }
+                        }
+                    }
                     if (userPlaylists.isEmpty()) {
                         item {
                             EmptyLibraryMessage("Нет сохранённых плейлистов")
@@ -247,7 +280,8 @@ fun LibraryScreen(
                                 isLiked = isLiked,
                                 isDownloaded = true,
                                 onLikeClick = remember(track.fullId) { { onLikeClick(track) } },
-                                onDownloadClick = remember(track.fullId) { { onDownloadClick(track, null) } }
+                                onDownloadClick = remember(track.fullId) { { onDownloadClick(track, null) } },
+                                onMoreClick = { onMoreTrackClick?.invoke(track) }
                             )
                         }
                     }

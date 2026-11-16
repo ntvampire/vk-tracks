@@ -103,7 +103,7 @@ class PlaybackService : MediaLibraryService() {
             if (customCommand.customAction == ACTION_TOGGLE_LIKE) {
                 _currentTrack.value?.let { track ->
                     serviceScope.launch(Dispatchers.Main) {
-                        onToggleLikeListener?.invoke(track)
+                        handleToggleLike(track)
                     }
                 }
                 return Futures.immediateFuture(SessionResult(SessionResult.RESULT_SUCCESS))
@@ -402,6 +402,9 @@ class PlaybackService : MediaLibraryService() {
             .build()
 
         val cacheManager = MediaCacheManager.getInstance(this)
+        cacheManager.isUriFavoriteCheck = { uriStr ->
+            currentQueue.any { it.streamUrl == uriStr && isCurrentTrackLiked(it) }
+        }
 
         // Включаем CBR-поиск для MP3/AAC треков VK (исключает срыв таймлайна в 0:00)
         val extractorsFactory = DefaultExtractorsFactory()
@@ -473,6 +476,7 @@ class PlaybackService : MediaLibraryService() {
                     loadArtworkAsync(track)
                     updateNotificationLikeButton()
                     saveQueueState()
+                    preloadNextTrackInQueue(index + 1)
                 }
             }
 
@@ -597,42 +601,7 @@ class PlaybackService : MediaLibraryService() {
         _currentQueueFlow.value = tracks
 
         val mediaItems = tracks.map { track ->
-            val uri = when {
-                track.isLocal && !track.localFilePath.isNullOrEmpty() -> Uri.parse(track.localFilePath)
-                track.streamUrl.isNotEmpty() -> Uri.parse(track.streamUrl)
-                else -> Uri.parse(validTrack.streamUrl) // Защита: не передавать Uri.EMPTY в ExoPlayer
-            }
-
-            val metadata = MediaMetadata.Builder()
-                .setTitle(track.title)
-                .setArtist(track.artist)
-                .setDisplayTitle(track.title)
-                .setAlbumTitle(track.albumTitle)
-                .setArtworkUri(track.coverUrl?.let { Uri.parse(it) })
-                .build()
-
-            val builder = MediaItem.Builder()
-                .setMediaId(track.fullId)
-                .setUri(uri)
-                .setMediaMetadata(metadata)
-
-            val uriStr = uri.toString()
-            if (track.duration == 0 || MediaCacheManager.getInstance(this).isLiveStreamUri(uriStr)) {
-                // Прямой эфир радио: фиксируем скорость 1.0x (запрет time-stretching артефактов / скрипов)
-                builder.setLiveConfiguration(
-                    MediaItem.LiveConfiguration.Builder()
-                        .setMaxPlaybackSpeed(1.0f)
-                        .setMinPlaybackSpeed(1.0f)
-                        .build()
-                )
-                if (uriStr.contains("studio21", ignoreCase = true) || uriStr.contains("s21", ignoreCase = true)) {
-                    builder.setMimeType(MimeTypes.AUDIO_MPEG)
-                } else if (uriStr.contains("radiorecord", ignoreCase = true) || uriStr.contains(".aacp", ignoreCase = true)) {
-                    builder.setMimeType(MimeTypes.AUDIO_AAC)
-                }
-            }
-
-            builder.build()
+            buildMediaItem(track, validTrack.streamUrl)
         }
 
         currentNotificationBitmap = null
@@ -643,6 +612,117 @@ class PlaybackService : MediaLibraryService() {
         _durationMs.value = (validTrack.duration.toLong() * 1000L).coerceAtLeast(0)
         loadArtworkAsync(validTrack)
         updateNotificationLikeButton()
+        saveQueueState()
+        preloadNextTrackInQueue(startIndex + 1)
+    }
+
+    fun buildMediaItem(track: Track, fallbackStreamUrl: String = ""): MediaItem {
+        val uri = when {
+            track.isLocal && !track.localFilePath.isNullOrEmpty() -> Uri.parse(track.localFilePath)
+            track.streamUrl.isNotEmpty() -> Uri.parse(track.streamUrl)
+            fallbackStreamUrl.isNotEmpty() -> Uri.parse(fallbackStreamUrl)
+            else -> Uri.EMPTY
+        }
+
+        val metadata = MediaMetadata.Builder()
+            .setTitle(track.title)
+            .setArtist(track.artist)
+            .setDisplayTitle(track.title)
+            .setAlbumTitle(track.albumTitle)
+            .setArtworkUri(track.coverUrl?.let { Uri.parse(it) })
+            .build()
+
+        val builder = MediaItem.Builder()
+            .setMediaId(track.fullId)
+            .setUri(uri)
+            .setMediaMetadata(metadata)
+
+        val uriStr = uri.toString()
+        if (track.duration == 0 || MediaCacheManager.getInstance(this).isLiveStreamUri(uriStr)) {
+            // Прямой эфир радио: фиксируем скорость 1.0x (запрет time-stretching артефактов / скрипов)
+            builder.setLiveConfiguration(
+                MediaItem.LiveConfiguration.Builder()
+                    .setMaxPlaybackSpeed(1.0f)
+                    .setMinPlaybackSpeed(1.0f)
+                    .build()
+            )
+            if (uriStr.contains("studio21", ignoreCase = true) || uriStr.contains("s21", ignoreCase = true)) {
+                builder.setMimeType(MimeTypes.AUDIO_MPEG)
+            } else if (uriStr.contains("radiorecord", ignoreCase = true) || uriStr.contains(".aacp", ignoreCase = true)) {
+                builder.setMimeType(MimeTypes.AUDIO_AAC)
+            }
+        }
+
+        return builder.build()
+    }
+
+    fun playNextInQueue(track: Track) {
+        if (currentQueue.isEmpty()) {
+            playQueue(listOf(track), 0)
+            return
+        }
+        val curIndex = player.currentMediaItemIndex
+        val insertIndex = (curIndex + 1).coerceIn(0, currentQueue.size)
+        val mediaItem = buildMediaItem(track)
+
+        val newQueue = currentQueue.toMutableList()
+        newQueue.add(insertIndex, track)
+        currentQueue = newQueue
+        _currentQueueFlow.value = newQueue
+
+        player.addMediaItem(insertIndex, mediaItem)
+        saveQueueState()
+    }
+
+    fun addToQueueEnd(track: Track) {
+        if (currentQueue.isEmpty()) {
+            playQueue(listOf(track), 0)
+            return
+        }
+        val mediaItem = buildMediaItem(track)
+
+        val newQueue = currentQueue.toMutableList()
+        newQueue.add(track)
+        currentQueue = newQueue
+        _currentQueueFlow.value = newQueue
+
+        player.addMediaItem(mediaItem)
+        saveQueueState()
+    }
+
+    fun moveQueueItem(fromIndex: Int, toIndex: Int) {
+        if (fromIndex !in currentQueue.indices || toIndex !in currentQueue.indices || fromIndex == toIndex) return
+        val newQueue = currentQueue.toMutableList()
+        val item = newQueue.removeAt(fromIndex)
+        newQueue.add(toIndex, item)
+        currentQueue = newQueue
+        _currentQueueFlow.value = newQueue
+
+        player.moveMediaItem(fromIndex, toIndex)
+        saveQueueState()
+    }
+
+    fun removeQueueItem(index: Int) {
+        if (index !in currentQueue.indices) return
+        val curIndex = player.currentMediaItemIndex
+        val isRemovingCurrent = curIndex == index
+
+        val newQueue = currentQueue.toMutableList()
+        newQueue.removeAt(index)
+        currentQueue = newQueue
+        _currentQueueFlow.value = newQueue
+
+        player.removeMediaItem(index)
+        if (isRemovingCurrent && currentQueue.isNotEmpty()) {
+            val newCur = player.currentMediaItemIndex
+            if (newCur in currentQueue.indices) {
+                val newTrack = currentQueue[newCur]
+                _currentTrack.value = newTrack
+                _durationMs.value = (newTrack.duration.toLong() * 1000L).coerceAtLeast(0)
+                loadArtworkAsync(newTrack)
+                updateNotificationLikeButton()
+            }
+        }
         saveQueueState()
     }
 
@@ -921,16 +1001,22 @@ class PlaybackService : MediaLibraryService() {
         }
     }
 
-    // Сохранение состояния очереди и позиции (VKX QueueSaveHolder)
+    // Сохранение состояния очереди и позиции (VKX QueueSaveHolder) с адаптивным скользящим окном
     private fun saveQueueState() {
         try {
             val queue = currentQueue
             if (queue.isEmpty()) return
-            val currentIndex = player.currentMediaItemIndex
+            val currentIndex = player.currentMediaItemIndex.coerceIn(0, queue.lastIndex)
             val currentPos = player.currentPosition.coerceAtLeast(0)
 
+            // Скользящее окно сохранения вокруг текущего трека (защита от потери контекста в больших плейлистах)
+            val windowStart = (currentIndex - 30).coerceAtLeast(0)
+            val windowEnd = (windowStart + 150).coerceAtMost(queue.size)
+            val slice = queue.subList(windowStart, windowEnd)
+            val relativeSavedIndex = (currentIndex - windowStart).coerceIn(0, (slice.size - 1).coerceAtLeast(0))
+
             val jsonArray = JSONArray()
-            queue.take(150).forEach { track ->
+            slice.forEach { track ->
                 val obj = JSONObject().apply {
                     put("id", track.id)
                     put("ownerId", track.ownerId)
@@ -954,11 +1040,59 @@ class PlaybackService : MediaLibraryService() {
             val prefs = getSharedPreferences("playback_state_prefs", Context.MODE_PRIVATE)
             prefs.edit()
                 .putString("saved_queue_json", jsonArray.toString())
-                .putInt("saved_queue_index", currentIndex)
+                .putInt("saved_queue_index", relativeSavedIndex)
                 .putLong("saved_position_ms", currentPos)
                 .apply()
         } catch (e: Exception) {
             android.util.Log.e("PlaybackService", "Error saving queue state", e)
+        }
+    }
+
+    private fun handleToggleLike(track: Track) {
+        val listener = onToggleLikeListener
+        if (listener != null) {
+            listener.invoke(track)
+        } else {
+            serviceScope.launch(Dispatchers.IO) {
+                try {
+                    val authManager = com.vktracks.player.data.api.VkAuthManager(applicationContext)
+                    val db = AppDatabase.getInstance(applicationContext)
+                    val isCurrentlyLiked = isCurrentTrackLiked(track)
+                    val newLikedState = !isCurrentlyLiked
+
+                    val currentIds = likedTrackIds.toMutableSet()
+                    if (newLikedState) currentIds.add(track.fullId) else currentIds.remove(track.fullId)
+                    likedTrackIds = currentIds
+                    db.trackDao().updateLike(track.fullId, newLikedState)
+
+                    withContext(Dispatchers.Main) {
+                        updateNotificationLikeButton()
+                    }
+
+                    val apiClient = com.vktracks.player.data.api.VkApiClient(authManager)
+                    if (newLikedState) {
+                        apiClient.addAudio(track.id, track.ownerId)
+                    } else {
+                        apiClient.deleteAudio(track.id, track.ownerId)
+                    }
+                } catch (e: Exception) {
+                    android.util.Log.e("PlaybackService", "Failed to toggle like in background", e)
+                }
+            }
+        }
+    }
+
+    private fun preloadNextTrackInQueue(nextIndex: Int) {
+        if (nextIndex in currentQueue.indices) {
+            val nextTrack = currentQueue[nextIndex]
+            if (!nextTrack.isLocal && nextTrack.streamUrl.isNotBlank() && nextTrack.duration > 0) {
+                serviceScope.launch(Dispatchers.IO) {
+                    delay(3000)
+                    if (isActive && player.isPlaying) {
+                        MediaCacheManager.getInstance(applicationContext).preloadTrack(nextTrack.streamUrl)
+                    }
+                }
+            }
         }
     }
 

@@ -402,6 +402,7 @@ fun MainAppScreen(viewModel: MainViewModel) {
                 onTrackClick = { track, list -> viewModel.playTrack(track, list) },
                 onMoveQueueItem = { from, to -> viewModel.moveQueueItem(from, to) },
                 onRemoveQueueItem = { idx -> viewModel.removeQueueItem(idx) },
+                onMoreClick = { contextMenuTrack = currentTrack },
                 onDismiss = { viewModel.closeFullPlayer() }
             )
         }
@@ -481,12 +482,11 @@ fun MainAppScreen(viewModel: MainViewModel) {
                     viewModel.addToQueueEnd(track)
                     contextMenuTrack = null
                 },
-                onOpenArtist = {
+                onSearchArtist = { artistName ->
                     contextMenuTrack = null
-                    val artistName = track.artist.split(",", "&", "feat.", "ft.").firstOrNull()?.trim() ?: track.artist
-                    if (artistName.isNotBlank()) {
-                        viewModel.openArtistByName(artistName)
-                    }
+                    viewModel.closeFullPlayer()
+                    selectedTab = MainTab.SEARCH
+                    viewModel.search(artistName)
                 },
                 onAddToPlaylist = { playlist ->
                     viewModel.addTrackToPlaylist(playlist, track)

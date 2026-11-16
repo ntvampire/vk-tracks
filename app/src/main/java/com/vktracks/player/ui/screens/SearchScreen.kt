@@ -1,5 +1,6 @@
 package com.vktracks.player.ui.screens
 
+import android.app.SearchManager
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
@@ -47,8 +48,7 @@ enum class SearchTab(val title: String) {
     MY_TRACKS("Мои треки"),
     TRACKS("Все треки"),
     PLAYLISTS("Плейлисты"),
-    ALBUMS("Альбомы"),
-    ARTISTS("Исполнители")
+    ALBUMS("Альбомы")
 }
 
 @Composable
@@ -300,59 +300,6 @@ fun SearchScreen(
                         }
                     }
                 }
-                SearchTab.ARTISTS -> {
-                    if (searchArtists.isEmpty()) {
-                        item { EmptySearchMessage("Исполнители не найдены") }
-                    } else {
-                        items(searchArtists, key = { it.id }) { artist ->
-                            ListItem(
-                                leadingContent = {
-                                    Box(
-                                        modifier = Modifier
-                                            .size(54.dp)
-                                            .clip(CircleShape)
-                                            .background(MaterialTheme.colorScheme.surfaceVariant),
-                                        contentAlignment = Alignment.Center
-                                    ) {
-                                        Icon(
-                                            imageVector = Icons.Default.Person,
-                                            contentDescription = null,
-                                            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.45f),
-                                            modifier = Modifier.size(28.dp)
-                                        )
-                                        if (!artist.photoUrl.isNullOrEmpty()) {
-                                            AsyncImage(
-                                                model = artist.photoUrl,
-                                                contentDescription = artist.name,
-                                                modifier = Modifier.fillMaxSize(),
-                                                contentScale = ContentScale.Crop
-                                            )
-                                        }
-                                    }
-                                },
-                                headlineContent = {
-                                    Text(
-                                        text = artist.name,
-                                        fontWeight = FontWeight.SemiBold,
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis
-                                    )
-                                },
-                                supportingContent = { Text("Исполнитель") },
-                                trailingContent = {
-                                    Icon(
-                                        imageVector = Icons.Default.ChevronRight,
-                                        contentDescription = null,
-                                        tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)
-                                    )
-                                },
-                                modifier = Modifier.clickable {
-                                    onArtistClick(artist)
-                                }
-                            )
-                        }
-                    }
-                }
             }
         } else {
             // Подсказки / Популярные жанры
@@ -467,13 +414,23 @@ private fun SearchPlaylistItem(
  */
 private fun launchGoogleSoundSearch(context: Context) {
     val soundSearchIntents = listOf(
-        Intent("com.google.android.googlequicksearchbox.MUSIC_SEARCH"),
+        // 1. Актуальная активность Google Sound Search (шторка / виджет Android)
         Intent().apply {
             setClassName(
                 "com.google.android.googlequicksearchbox",
-                "com.google.android.apps.gsa.sidekick.main.SoundSearchShortcutActivity"
+                "com.google.android.apps.search.soundsearch.SoundSearchActivity"
             )
         },
+        // 2. Современный экшен тайла Google Sound Search
+        Intent("com.google.android.googlequicksearchbox.action.SOUND_SEARCH"),
+        // 3. Google Voice Assist (открывает окно Google с результатом поиска песни в сети)
+        Intent("android.intent.action.VOICE_ASSIST").apply {
+            putExtra("query", "Что это за песня")
+        },
+        Intent(Intent.ACTION_VOICE_COMMAND).apply {
+            putExtra("query", "Что это за песня")
+        },
+        // 4. Полноэкранный поиск Google с запросом
         Intent("android.intent.action.MAIN").apply {
             setClassName(
                 "com.google.android.googlequicksearchbox",
@@ -481,7 +438,10 @@ private fun launchGoogleSoundSearch(context: Context) {
             )
             putExtra("query", "Что это за песня")
         },
-        Intent(Intent.ACTION_VOICE_COMMAND),
+        Intent(Intent.ACTION_WEB_SEARCH).apply {
+            putExtra(SearchManager.QUERY, "Что это за песня")
+        },
+        // 5. Сторонний распознаватель Shazam при наличии
         Intent(Intent.ACTION_VIEW, Uri.parse("shazam://"))
     )
 

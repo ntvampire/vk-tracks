@@ -8,6 +8,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.PlaylistAdd
 import androidx.compose.material.icons.automirrored.filled.QueueMusic
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
@@ -32,7 +33,7 @@ fun TrackContextMenuBottomSheet(
     onDismiss: () -> Unit,
     onPlayNext: () -> Unit,
     onAddToQueueEnd: () -> Unit,
-    onOpenArtist: (() -> Unit)? = null,
+    onSearchArtist: ((String) -> Unit)? = null,
     onOpenAlbum: (() -> Unit)? = null,
     onAddToPlaylist: (Playlist) -> Unit,
     onCreateNewPlaylist: (String, String) -> Unit
@@ -45,7 +46,12 @@ fun TrackContextMenuBottomSheet(
     if (showTrackInfoDialog) {
         TrackInfoDialog(
             track = track,
-            onDismiss = { showTrackInfoDialog = false }
+            onDismiss = { showTrackInfoDialog = false },
+            onSearchArtist = { artistName ->
+                showTrackInfoDialog = false
+                onDismiss()
+                onSearchArtist?.invoke(artistName)
+            }
         )
     }
 
@@ -127,7 +133,26 @@ fun TrackContextMenuBottomSheet(
                 color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
             )
 
-            // Пункты контекстного меню
+            // 1. Информация о треке (первым в меню)
+            ContextMenuActionItem(
+                icon = Icons.Default.Info,
+                title = "Информация о треке",
+                onClick = {
+                    showTrackInfoDialog = true
+                }
+            )
+
+            // 2. Поделиться (вторым в меню)
+            ContextMenuActionItem(
+                icon = Icons.Default.Share,
+                title = "Поделиться",
+                onClick = {
+                    shareTrack(context, track)
+                    onDismiss()
+                }
+            )
+
+            // 3. Воспроизвести следующим
             ContextMenuActionItem(
                 icon = Icons.AutoMirrored.Filled.QueueMusic,
                 title = "Воспроизвести следующим",
@@ -137,8 +162,9 @@ fun TrackContextMenuBottomSheet(
                 }
             )
 
+            // 4. Добавить в конец очереди
             ContextMenuActionItem(
-                icon = Icons.Default.PlaylistAdd,
+                icon = Icons.AutoMirrored.Filled.PlaylistAdd,
                 title = "Добавить в конец очереди",
                 onClick = {
                     onAddToQueueEnd()
@@ -146,6 +172,7 @@ fun TrackContextMenuBottomSheet(
                 }
             )
 
+            // 5. Добавить в плейлист
             ContextMenuActionItem(
                 icon = Icons.Default.LibraryAdd,
                 title = "Добавить в плейлист...",
@@ -154,17 +181,19 @@ fun TrackContextMenuBottomSheet(
                 }
             )
 
-            if (onOpenArtist != null && track.artist.isNotBlank()) {
+            // 6. Поиск по исполнителю (переход в поиск)
+            if (onSearchArtist != null && track.artist.isNotBlank()) {
                 ContextMenuActionItem(
-                    icon = Icons.Default.Person,
-                    title = "Перейти к исполнителю: ${track.artist}",
+                    icon = Icons.Default.Search,
+                    title = "Поиск по исполнителю: ${track.artist}",
                     onClick = {
-                        onOpenArtist()
                         onDismiss()
+                        onSearchArtist(track.artist)
                     }
                 )
             }
 
+            // 7. Перейти к альбому (если доступен)
             if (onOpenAlbum != null && !track.albumTitle.isNullOrBlank()) {
                 ContextMenuActionItem(
                     icon = Icons.Default.Album,
@@ -175,23 +204,6 @@ fun TrackContextMenuBottomSheet(
                     }
                 )
             }
-
-            ContextMenuActionItem(
-                icon = Icons.Default.Info,
-                title = "Информация о треке",
-                onClick = {
-                    showTrackInfoDialog = true
-                }
-            )
-
-            ContextMenuActionItem(
-                icon = Icons.Default.Share,
-                title = "Поделиться",
-                onClick = {
-                    shareTrack(context, track)
-                    onDismiss()
-                }
-            )
         }
     }
 }
@@ -231,20 +243,21 @@ private fun ContextMenuActionItem(
 @Composable
 fun TrackInfoDialog(
     track: Track,
-    onDismiss: () -> Unit
+    onDismiss: () -> Unit,
+    onSearchArtist: ((String) -> Unit)? = null
 ) {
+    val context = LocalContext.current
+    var bitrateInfo by remember(track.fullId) { mutableStateOf<String?>("Определение...") }
+
+    LaunchedEffect(track.fullId) {
+        bitrateInfo = com.vktracks.player.data.utils.TrackBitrateResolver.resolveBitrate(context, track)
+    }
+
     val durationFormatted = if (track.duration > 0) {
         val min = track.duration / 60
         val sec = track.duration % 60
         String.format("%d:%02d", min, sec)
     } else "Прямой эфир"
-
-    val formatDisplay = when {
-        track.streamUrl.contains(".m3u8") -> "HLS (AAC / MP3)"
-        track.isLocal -> "Локальный MP3"
-        track.streamUrl.isNotEmpty() -> "Прямой MP3 поток"
-        else -> "Неизвестно"
-    }
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -252,15 +265,38 @@ fun TrackInfoDialog(
             Text(text = "Информация о треке", fontWeight = FontWeight.Bold)
         },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 InfoRow(label = "Название", value = track.title)
-                InfoRow(label = "Исполнитель", value = track.artist)
+
+                // Кликабельный исполнитель (открывает поиск по исполнителю)
+                Column {
+                    Text(
+                        text = "Исполнитель",
+                        fontSize = 12.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                    Spacer(modifier = Modifier.height(2.dp))
+                    Text(
+                        text = track.artist,
+                        fontSize = 14.sp,
+                        color = if (onSearchArtist != null) AppleRed else MaterialTheme.colorScheme.onSurface,
+                        fontWeight = if (onSearchArtist != null) FontWeight.Medium else FontWeight.Normal,
+                        maxLines = 3,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = if (onSearchArtist != null) {
+                            Modifier.clickable {
+                                onSearchArtist(track.artist)
+                            }
+                        } else Modifier
+                    )
+                }
+
                 if (!track.albumTitle.isNullOrBlank()) {
                     InfoRow(label = "Альбом", value = track.albumTitle)
                 }
                 InfoRow(label = "Длительность", value = durationFormatted)
-                InfoRow(label = "Формат", value = formatDisplay)
-                InfoRow(label = "ID ВКонтакте", value = track.fullId)
+                InfoRow(label = "Формат и битрейт", value = bitrateInfo ?: "Определение...")
                 if (track.isLocal && !track.localFilePath.isNullOrBlank()) {
                     InfoRow(label = "Файл на диске", value = track.localFilePath)
                 }
@@ -352,7 +388,7 @@ fun AddToPlaylistDialog(
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
                                 Icon(
-                                    imageVector = Icons.Default.QueueMusic,
+                                    imageVector = Icons.AutoMirrored.Filled.QueueMusic,
                                     contentDescription = null,
                                     tint = MaterialTheme.colorScheme.onSurfaceVariant,
                                     modifier = Modifier.size(24.dp)

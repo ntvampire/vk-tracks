@@ -86,6 +86,7 @@ fun FullPlayerSheet(
     onTrackClick: (Track, List<Track>) -> Unit = { _, _ -> },
     onMoveQueueItem: (Int, Int) -> Unit = { _, _ -> },
     onRemoveQueueItem: (Int) -> Unit = {},
+    onMoreClick: () -> Unit = {},
     onDismiss: () -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -412,6 +413,16 @@ fun FullPlayerSheet(
                         imageVector = if (isTrackSaved) Icons.Default.CheckCircle else Icons.Default.Download,
                         contentDescription = if (isTrackSaved) "Скачано (нажмите для удаления)" else "Скачать на телефон",
                         tint = if (isTrackSaved) AppleRed else MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.size(24.dp)
+                    )
+                }
+
+                // Контекстное меню трека (3 точки)
+                IconButton(onClick = onMoreClick) {
+                    Icon(
+                        imageVector = Icons.Default.MoreVert,
+                        contentDescription = "Действия с треком",
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.size(24.dp)
                     )
                 }

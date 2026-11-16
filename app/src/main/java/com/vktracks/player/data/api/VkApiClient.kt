@@ -294,109 +294,30 @@ class VkApiClient(
 
         var tracks = emptyList<Track>()
         var playlists = emptyList<Playlist>()
-        var artists = emptyList<Artist>()
 
-        // 1. Полноценный каталог поиска ВК (catalog.getAudioSearch из официального VK Music API)
+        // 1. Прямой официальный поиск треков VK API (audio.search)
+        // Гарантирует точное соответствие запросу (без случайных чартов и чужих исполнителей)
         try {
-            val json = callVkApi("catalog.getAudioSearch", mapOf(
-                "query" to q,
-                "need_blocks" to "1"
+            val audioSearchJson = callVkApi("audio.search", mapOf(
+                "q" to q,
+                "auto_complete" to "1",
+                "count" to "100"
             ))
-            if (json != null && !json.has("error")) {
-                val resp = json.optJSONObject("response")
-                if (resp != null) {
-                    val audiosArr = resp.optJSONArray("audios")
-                    if (audiosArr != null && audiosArr.length() > 0) {
-                        tracks = parseTracksArray(audiosArr)
-                    }
-                    val playlistsArr = resp.optJSONArray("playlists")
-                    if (playlistsArr != null && playlistsArr.length() > 0) {
-                        playlists = parsePlaylistsArray(playlistsArr)
-                    }
-                    val artistsArr = resp.optJSONArray("artists")
-                    if (artistsArr != null && artistsArr.length() > 0) {
-                        artists = parseArtistsArray(artistsArr)
-                    }
-
-                    // Каталожные секции и блоки поиска
-                    val catalog = resp.optJSONObject("catalog")
-                    val sections = catalog?.optJSONArray("sections") ?: resp.optJSONArray("sections")
-                    if (sections != null) {
-                        for (s in 0 until sections.length()) {
-                            val sec = sections.optJSONObject(s) ?: continue
-                            val blocks = sec.optJSONArray("blocks") ?: continue
-                            for (b in 0 until blocks.length()) {
-                                val blk = blocks.optJSONObject(b) ?: continue
-                                val dt = blk.optString("data_type").lowercase()
-                                val items = blk.optJSONArray("items")
-                                    ?: blk.optJSONArray("audios")
-                                    ?: blk.optJSONArray("playlists")
-                                    ?: blk.optJSONArray("artists")
-                                if (items != null && items.length() > 0) {
-                                    if ((dt.contains("artist") || blk.optString("layout_name").contains("artist")) && artists.isEmpty()) {
-                                        artists = parseArtistsArray(items)
-                                    } else if (dt.contains("playlist") && playlists.isEmpty()) {
-                                        playlists = parsePlaylistsArray(items)
-                                    } else if ((dt.contains("audio") || dt.contains("track")) && tracks.isEmpty()) {
-                                        tracks = parseTracksArray(items)
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
+            if (audioSearchJson != null && !audioSearchJson.has("error")) {
+                tracks = parseTracksList(audioSearchJson)
             }
         } catch (e: Exception) {
-            Log.w("VkApiClient", "catalog.getAudioSearch failed for '$q'", e)
+            Log.w("VkApiClient", "audio.search failed for '$q'", e)
         }
 
-        // 2. Поиск артистов через прямой audio.searchArtists если каталог не вернул
-        if (artists.isEmpty()) {
-            try {
-                val artJson = callVkApi("audio.searchArtists", mapOf(
-                    "q" to q,
-                    "count" to "30"
-                ))
-                if (artJson != null && !artJson.has("error")) {
-                    val artResp = artJson.optJSONObject("response")
-                    val artItems = artResp?.optJSONArray("items")
-                        ?: artJson.optJSONArray("response")
-                        ?: artResp?.optJSONArray("artists")
-                    if (artItems != null && artItems.length() > 0) {
-                        artists = parseArtistsArray(artItems)
-                    }
-                }
-            } catch (e: Exception) {
-                Log.w("VkApiClient", "audio.searchArtists failed for '$q'", e)
-            }
+        // 2. Прямой поиск плейлистов и альбомов VK API (audio.searchPlaylists)
+        try {
+            playlists = searchPlaylists(q, 30)
+        } catch (e: Exception) {
+            Log.w("VkApiClient", "audio.searchPlaylists failed for '$q'", e)
         }
 
-        // 2. Если треки не получены через каталог, вызываем прямой audio.search
-        if (tracks.isEmpty()) {
-            try {
-                val audioSearchJson = callVkApi("audio.search", mapOf(
-                    "q" to q,
-                    "auto_complete" to "1",
-                    "count" to "50"
-                ))
-                if (audioSearchJson != null && !audioSearchJson.has("error")) {
-                    tracks = parseTracksList(audioSearchJson)
-                }
-            } catch (e: Exception) {
-                Log.w("VkApiClient", "audio.search failed for '$q'", e)
-            }
-        }
-
-        // 3. Если плейлисты не найдены через каталог, ищем через audio.searchPlaylists
-        if (playlists.isEmpty()) {
-            try {
-                playlists = searchPlaylists(q, 20)
-            } catch (e: Exception) {
-                Log.w("VkApiClient", "audio.searchPlaylists failed for '$q'", e)
-            }
-        }
-
-        SearchResult(tracks = tracks, playlists = playlists, artists = artists)
+        SearchResult(tracks = tracks, playlists = playlists, artists = emptyList())
     }
 
     suspend fun searchAudios(query: String, offset: Int = 0, count: Int = 50): List<Track> = withContext(Dispatchers.IO) {

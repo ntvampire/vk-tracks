@@ -181,8 +181,8 @@ fun MainAppScreen(viewModel: MainViewModel) {
         PlaybackService.updateLikedTrackIds(likedTrackIds)
     }
 
-    // Обработка кнопки назад (сворачивание плеера, настроек, открытого альбома/плейлиста или карточки артиста)
-    BackHandler(enabled = showFullPlayer || showSettings || selectedPlaylist != null || selectedArtist != null) {
+    // Обработка кнопки назад (сворачивание плеера, настроек, открытого альбома/плейлиста, карточки артиста или возврат на первую вкладку)
+    BackHandler(enabled = showFullPlayer || showSettings || selectedPlaylist != null || selectedArtist != null || selectedTab != MainTab.LISTEN_NOW) {
         if (showFullPlayer) {
             viewModel.closeFullPlayer()
         } else if (showSettings) {
@@ -191,6 +191,11 @@ fun MainAppScreen(viewModel: MainViewModel) {
             viewModel.closePlaylist()
         } else if (selectedArtist != null) {
             viewModel.closeArtist()
+        } else if (selectedTab == MainTab.SEARCH) {
+            viewModel.search("")
+            selectedTab = MainTab.LISTEN_NOW
+        } else if (selectedTab != MainTab.LISTEN_NOW) {
+            selectedTab = MainTab.LISTEN_NOW
         }
     }
 

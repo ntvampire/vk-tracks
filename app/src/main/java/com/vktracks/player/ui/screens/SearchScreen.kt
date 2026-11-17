@@ -419,19 +419,19 @@ private fun SearchPlaylistItem(
  */
 private fun launchGoogleSoundSearch(context: Context) {
     val soundSearchIntents = listOf(
-        // 1. Стандартный интент Google Sound Search с категорией DEFAULT (вызывает музыкальный сканер)
-        Intent("com.google.android.googlequicksearchbox.MUSIC_SEARCH").apply {
-            setPackage("com.google.android.googlequicksearchbox")
-            addCategory(Intent.CATEGORY_DEFAULT)
+        // 1. Прямой вызов SoundSearchActivity (экран оверлея "Включите или напойте мелодию", как из тайла в шторке)
+        Intent().apply {
+            setClassName(
+                "com.google.android.googlequicksearchbox",
+                "com.google.android.apps.search.soundsearch.SoundSearchActivity"
+            )
         },
-        // 2. Прямой вызов активности SoundSearchActivity через ACTION_VIEW (экран оверлея "Включите или напойте мелодию")
         Intent(Intent.ACTION_VIEW).apply {
             component = ComponentName(
                 "com.google.android.googlequicksearchbox",
                 "com.google.android.apps.search.soundsearch.SoundSearchActivity"
             )
         },
-        // 3. Прямой вызов активности SoundSearchActivity через ACTION_MAIN с категорией DEFAULT
         Intent(Intent.ACTION_MAIN).apply {
             component = ComponentName(
                 "com.google.android.googlequicksearchbox",
@@ -439,11 +439,7 @@ private fun launchGoogleSoundSearch(context: Context) {
             )
             addCategory(Intent.CATEGORY_DEFAULT)
         },
-        // 4. MUSIC_SEARCH без жесткой привязки к пакету (для кастомных/системных распознавателей в прошивке)
-        Intent("com.google.android.googlequicksearchbox.MUSIC_SEARCH").apply {
-            addCategory(Intent.CATEGORY_DEFAULT)
-        },
-        // 5. Альтернативный шорткат активности SoundSearch в Google App
+        // 2. Альтернативный шорткат активности SoundSearch в Google App
         Intent(Intent.ACTION_MAIN).apply {
             component = ComponentName(
                 "com.google.android.googlequicksearchbox",
@@ -451,7 +447,16 @@ private fun launchGoogleSoundSearch(context: Context) {
             )
             addCategory(Intent.CATEGORY_DEFAULT)
         },
-        // 6. Распознавание через Shazam при наличии на устройстве
+        // 3. Стандартный интент Google Sound Search с категорией DEFAULT (fallback на голосовой поиск с вкладкой треков)
+        Intent("com.google.android.googlequicksearchbox.MUSIC_SEARCH").apply {
+            setPackage("com.google.android.googlequicksearchbox")
+            addCategory(Intent.CATEGORY_DEFAULT)
+        },
+        // 4. MUSIC_SEARCH без жесткой привязки к пакету (для кастомных/системных распознавателей в прошивке)
+        Intent("com.google.android.googlequicksearchbox.MUSIC_SEARCH").apply {
+            addCategory(Intent.CATEGORY_DEFAULT)
+        },
+        // 5. Распознавание через Shazam при наличии на устройстве
         Intent(Intent.ACTION_VIEW, Uri.parse("shazam://")),
         Intent().apply {
             setPackage("com.shazam.android")

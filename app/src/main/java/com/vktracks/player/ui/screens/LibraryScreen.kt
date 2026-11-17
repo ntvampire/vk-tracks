@@ -1,5 +1,6 @@
 package com.vktracks.player.ui.screens
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -97,6 +98,16 @@ fun LibraryScreen(
         // При смене вкладки сбрасываем режим множественного выбора
         isSelectionMode = false
         selectedTrackIds = emptySet()
+    }
+
+    // Обработка кнопки Назад: отмена выбора и закрытие диалогов вместо сворачивания приложения
+    BackHandler(enabled = isSelectionMode || showPlaylistChooserDialog) {
+        if (showPlaylistChooserDialog) {
+            showPlaylistChooserDialog = false
+        } else {
+            isSelectionMode = false
+            selectedTrackIds = emptySet()
+        }
     }
 
     Box(modifier = modifier.fillMaxSize()) {

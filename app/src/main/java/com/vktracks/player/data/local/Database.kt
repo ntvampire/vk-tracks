@@ -39,6 +39,15 @@ interface TrackDao {
     @Query("SELECT * FROM tracks WHERE isDownloaded = 1 ORDER BY title ASC")
     fun getDownloadedTracks(): Flow<List<TrackEntity>>
 
+    @Query("SELECT * FROM tracks WHERE isDownloaded = 1 ORDER BY title ASC")
+    suspend fun getDownloadedTracksList(): List<TrackEntity>
+
+    @Query("SELECT * FROM tracks WHERE isLiked = 1 ORDER BY title ASC")
+    suspend fun getLikedTracksList(): List<TrackEntity>
+
+    @Query("SELECT * FROM tracks WHERE title LIKE '%' || :query || '%' OR artist LIKE '%' || :query || '%' ORDER BY title ASC LIMIT 50")
+    suspend fun searchTracks(query: String): List<TrackEntity>
+
     @Query("SELECT * FROM tracks WHERE lastPlayedTimestamp > 0 ORDER BY lastPlayedTimestamp DESC LIMIT 100")
     fun getHistoryTracks(): Flow<List<TrackEntity>>
 

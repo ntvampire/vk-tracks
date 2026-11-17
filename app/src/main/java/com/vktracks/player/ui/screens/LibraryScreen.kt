@@ -13,11 +13,15 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Album
 import androidx.compose.material.icons.filled.ChevronRight
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Download
+import androidx.compose.material.icons.filled.PlaylistAdd
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -54,6 +58,10 @@ fun LibraryScreen(
     onPlaylistClick: (Playlist) -> Unit,
     onLikeClick: (Track) -> Unit = {},
     onDownloadClick: (Track, String?) -> Unit,
+    onBatchDownloadClick: ((List<Track>) -> Unit)? = null,
+    onBatchDeleteDownloadedClick: ((List<Track>) -> Unit)? = null,
+    onBatchRemoveFavoritesClick: ((List<Track>) -> Unit)? = null,
+    onBatchAddToPlaylistClick: ((Playlist, List<Track>) -> Unit)? = null,
     onLoginClick: () -> Unit,
     onSettingsClick: () -> Unit,
     isAuthorized: Boolean,
@@ -62,6 +70,9 @@ fun LibraryScreen(
     modifier: Modifier = Modifier
 ) {
     var selectedTab by remember { mutableStateOf(LibraryTab.FAVORITES) }
+    var isSelectionMode by remember { mutableStateOf(false) }
+    var selectedTrackIds by remember { mutableStateOf(emptySet<String>()) }
+    var showPlaylistChooserDialog by remember { mutableStateOf(false) }
 
     val userPlaylists = remember(playlists) { playlists.filter { !it.isAlbum } }
     val userAlbums = remember(playlists) { playlists.filter { it.isAlbum } }
@@ -82,57 +93,80 @@ fun LibraryScreen(
         }
     }
 
-    LazyColumn(
-        state = listState,
-        modifier = modifier
-            .fillMaxSize()
-            .statusBarsPadding(),
-        contentPadding = PaddingValues(bottom = 120.dp)
-    ) {
-        item {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 20.dp, vertical = 12.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(
-                    text = "Медиатека",
-                    fontSize = 34.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.onBackground
-                )
-                IconButton(onClick = onSettingsClick) {
-                    Icon(
-                        imageVector = Icons.Default.Settings,
-                        contentDescription = "Настройки",
-                        tint = MaterialTheme.colorScheme.onBackground
-                    )
-                }
-            }
+    LaunchedEffect(selectedTab) {
+        // При смене вкладки сбрасываем режим множественного выбора
+        isSelectionMode = false
+        selectedTrackIds = emptySet()
+    }
 
-            // Переключатель разделов (Избранное, Плейлисты, Альбомы, Скачанное)
-            ScrollableTabRow(
-                selectedTabIndex = selectedTab.ordinal,
-                edgePadding = 20.dp,
-                divider = {},
-                modifier = Modifier.padding(bottom = 8.dp)
-            ) {
-                LibraryTab.entries.forEach { tab ->
-                    Tab(
-                        selected = selectedTab == tab,
-                        onClick = { selectedTab = tab },
-                        text = {
-                            Text(
-                                text = tab.title,
-                                fontWeight = if (selectedTab == tab) FontWeight.Bold else FontWeight.Medium
+    Box(modifier = modifier.fillMaxSize()) {
+        LazyColumn(
+            state = listState,
+            modifier = Modifier
+                .fillMaxSize()
+                .statusBarsPadding(),
+            contentPadding = PaddingValues(bottom = 120.dp)
+        ) {
+            item {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 20.dp, vertical = 12.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "Медиатека",
+                        fontSize = 34.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onBackground
+                    )
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        if (selectedTab == LibraryTab.FAVORITES || selectedTab == LibraryTab.DOWNLOADED) {
+                            TextButton(
+                                onClick = {
+                                    isSelectionMode = !isSelectionMode
+                                    if (!isSelectionMode) selectedTrackIds = emptySet()
+                                }
+                            ) {
+                                Text(
+                                    text = if (isSelectionMode) "Готово" else "Выбрать",
+                                    color = AppleRed,
+                                    fontWeight = FontWeight.SemiBold
+                                )
+                            }
+                        }
+                        IconButton(onClick = onSettingsClick) {
+                            Icon(
+                                imageVector = Icons.Default.Settings,
+                                contentDescription = "Настройки",
+                                tint = MaterialTheme.colorScheme.onBackground
                             )
                         }
-                    )
+                    }
+                }
+
+                // Переключатель разделов (Избранное, Плейлисты, Альбомы, Скачанное)
+                ScrollableTabRow(
+                    selectedTabIndex = selectedTab.ordinal,
+                    edgePadding = 20.dp,
+                    divider = {},
+                    modifier = Modifier.padding(bottom = 8.dp)
+                ) {
+                    LibraryTab.entries.forEach { tab ->
+                        Tab(
+                            selected = selectedTab == tab,
+                            onClick = { selectedTab = tab },
+                            text = {
+                                Text(
+                                    text = tab.title,
+                                    fontWeight = if (selectedTab == tab) FontWeight.Bold else FontWeight.Medium
+                                )
+                            }
+                        )
+                    }
                 }
             }
-        }
 
         if (!isAuthorized && selectedTab != LibraryTab.DOWNLOADED) {
             item {
@@ -173,7 +207,16 @@ fun LibraryScreen(
                                 isDownloaded = isDownloaded,
                                 onLikeClick = remember(track.fullId) { { onLikeClick(track) } },
                                 onDownloadClick = remember(track.fullId) { { onDownloadClick(track, "Favorites") } },
-                                onMoreClick = { onMoreTrackClick?.invoke(track) }
+                                onMoreClick = { onMoreTrackClick?.invoke(track) },
+                                isSelectionMode = isSelectionMode,
+                                isSelected = selectedTrackIds.contains(track.fullId),
+                                onToggleSelect = { selected ->
+                                    selectedTrackIds = if (selected) selectedTrackIds + track.fullId else selectedTrackIds - track.fullId
+                                },
+                                onLongClick = {
+                                    isSelectionMode = true
+                                    selectedTrackIds = selectedTrackIds + track.fullId
+                                }
                             )
                         }
                         if (isLoadingMoreTracks) {
@@ -281,12 +324,139 @@ fun LibraryScreen(
                                 isDownloaded = true,
                                 onLikeClick = remember(track.fullId) { { onLikeClick(track) } },
                                 onDownloadClick = remember(track.fullId) { { onDownloadClick(track, null) } },
-                                onMoreClick = { onMoreTrackClick?.invoke(track) }
+                                onMoreClick = { onMoreTrackClick?.invoke(track) },
+                                isSelectionMode = isSelectionMode,
+                                isSelected = selectedTrackIds.contains(track.fullId),
+                                onToggleSelect = { selected ->
+                                    selectedTrackIds = if (selected) selectedTrackIds + track.fullId else selectedTrackIds - track.fullId
+                                },
+                                onLongClick = {
+                                    isSelectionMode = true
+                                    selectedTrackIds = selectedTrackIds + track.fullId
+                                }
                             )
                         }
                     }
                 }
             }
+        }
+    }
+
+        // Плавающая панель пакетных действий
+        if (isSelectionMode) {
+            val currentTracksList = if (selectedTab == LibraryTab.FAVORITES) myTracks else downloadedTracks
+            val selectedTracks = currentTracksList.filter { selectedTrackIds.contains(it.fullId) }
+
+            Surface(
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .padding(horizontal = 16.dp, vertical = 76.dp)
+                    .fillMaxWidth(),
+                shape = RoundedCornerShape(16.dp),
+                tonalElevation = 6.dp,
+                shadowElevation = 8.dp,
+                color = MaterialTheme.colorScheme.surfaceVariant
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 8.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "Выбрано: ${selectedTrackIds.size}",
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 14.sp
+                    )
+
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        TextButton(
+                            onClick = {
+                                selectedTrackIds = if (selectedTrackIds.size == currentTracksList.size) {
+                                    emptySet()
+                                } else {
+                                    currentTracksList.map { it.fullId }.toSet()
+                                }
+                            }
+                        ) {
+                            Text(
+                                text = if (selectedTrackIds.size == currentTracksList.size) "Снять" else "Все",
+                                color = AppleRed,
+                                fontSize = 13.sp
+                            )
+                        }
+
+                        if (selectedTab == LibraryTab.FAVORITES) {
+                            IconButton(
+                                onClick = {
+                                    onBatchDownloadClick?.invoke(selectedTracks)
+                                    isSelectionMode = false
+                                    selectedTrackIds = emptySet()
+                                },
+                                enabled = selectedTracks.isNotEmpty()
+                            ) {
+                                Icon(Icons.Default.Download, contentDescription = "Скачать выбранные", tint = AppleRed)
+                            }
+                        }
+
+                        IconButton(
+                            onClick = {
+                                showPlaylistChooserDialog = true
+                            },
+                            enabled = selectedTracks.isNotEmpty() && userPlaylists.isNotEmpty()
+                        ) {
+                            Icon(Icons.Default.PlaylistAdd, contentDescription = "В плейлист", tint = MaterialTheme.colorScheme.onSurface)
+                        }
+
+                        IconButton(
+                            onClick = {
+                                if (selectedTab == LibraryTab.FAVORITES) {
+                                    onBatchRemoveFavoritesClick?.invoke(selectedTracks)
+                                } else {
+                                    onBatchDeleteDownloadedClick?.invoke(selectedTracks)
+                                }
+                                isSelectionMode = false
+                                selectedTrackIds = emptySet()
+                            },
+                            enabled = selectedTracks.isNotEmpty()
+                        ) {
+                            Icon(Icons.Default.Delete, contentDescription = "Удалить выбранные", tint = Color(0xFFFF3B30))
+                        }
+                    }
+                }
+            }
+        }
+
+        // Диалог выбора плейлиста для пакетного добавления
+        if (showPlaylistChooserDialog) {
+            val currentTracksList = if (selectedTab == LibraryTab.FAVORITES) myTracks else downloadedTracks
+            val selectedTracks = currentTracksList.filter { selectedTrackIds.contains(it.fullId) }
+
+            AlertDialog(
+                onDismissRequest = { showPlaylistChooserDialog = false },
+                title = { Text("Добавить в плейлист", fontWeight = FontWeight.Bold) },
+                text = {
+                    LazyColumn(modifier = Modifier.fillMaxWidth().heightIn(max = 300.dp)) {
+                        items(userPlaylists, key = { it.fullId }) { pl ->
+                            ListItem(
+                                headlineContent = { Text(pl.title, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                                modifier = Modifier.clickable {
+                                    onBatchAddToPlaylistClick?.invoke(pl, selectedTracks)
+                                    showPlaylistChooserDialog = false
+                                    isSelectionMode = false
+                                    selectedTrackIds = emptySet()
+                                }
+                            )
+                        }
+                    }
+                },
+                confirmButton = {
+                    TextButton(onClick = { showPlaylistChooserDialog = false }) {
+                        Text("Отмена")
+                    }
+                }
+            )
         }
     }
 }

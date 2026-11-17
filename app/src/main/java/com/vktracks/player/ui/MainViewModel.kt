@@ -16,6 +16,7 @@ import com.vktracks.player.data.api.VkAuthManager
 import com.vktracks.player.data.api.YandexMusicApiClient
 import com.vktracks.player.data.cache.MediaCacheManager
 import com.vktracks.player.data.downloader.TrackDownloader
+import com.vktracks.player.data.settings.PlayerSettingsManager
 import com.vktracks.player.data.local.AppDatabase
 import com.vktracks.player.data.local.LyricsEntity
 import com.vktracks.player.data.local.TrackEntity
@@ -201,6 +202,32 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun setCacheOnlyFavorites(enabled: Boolean) {
         cacheManager.setCacheOnlyFavorites(enabled)
         _isCacheOnlyFavorites.value = enabled
+    }
+
+    // Настройки воспроизведения и Bluetooth
+    val playerSettings = PlayerSettingsManager.getInstance(application)
+    private val _isBtAutoResume = MutableStateFlow(playerSettings.isBtAutoResumeEnabled)
+    val isBtAutoResume: StateFlow<Boolean> = _isBtAutoResume.asStateFlow()
+
+    private val _isBtAutoPause = MutableStateFlow(playerSettings.isBtAutoPauseEnabled)
+    val isBtAutoPause: StateFlow<Boolean> = _isBtAutoPause.asStateFlow()
+
+    private val _isSoftFading = MutableStateFlow(playerSettings.isSoftFadingEnabled)
+    val isSoftFading: StateFlow<Boolean> = _isSoftFading.asStateFlow()
+
+    fun setBtAutoResume(enabled: Boolean) {
+        playerSettings.isBtAutoResumeEnabled = enabled
+        _isBtAutoResume.value = enabled
+    }
+
+    fun setBtAutoPause(enabled: Boolean) {
+        playerSettings.isBtAutoPauseEnabled = enabled
+        _isBtAutoPause.value = enabled
+    }
+
+    fun setSoftFading(enabled: Boolean) {
+        playerSettings.isSoftFadingEnabled = enabled
+        _isSoftFading.value = enabled
     }
 
     // История прослушивания
@@ -708,6 +735,72 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 }
             }
             Toast.makeText(getApplication(), "Загрузка завершена: сохранено $count из ${tracks.size} треков", Toast.LENGTH_LONG).show()
+        }
+    }
+
+    fun downloadTracks(tracks: List<Track>, subfolder: String? = null) {
+        if (tracks.isEmpty()) return
+        viewModelScope.launch {
+            Toast.makeText(getApplication(), "Начато скачивание ${tracks.size} треков...", Toast.LENGTH_SHORT).show()
+            var count = 0
+            for (track in tracks) {
+                if (downloadedTrackIds.value.contains(track.fullId) || track.isLocal) {
+                    count++
+                    continue
+                }
+                var targetTrack = track
+                if (targetTrack.streamUrl.isEmpty()) {
+                    val resolved = apiClient.resolveTrackUrl(targetTrack)
+                    if (!resolved.isNullOrEmpty()) {
+                        targetTrack = targetTrack.copy(streamUrl = resolved)
+                    } else {
+                        continue
+                    }
+                }
+                val res = downloader.downloadTrack(targetTrack, subfolder)
+                if (res.isSuccess) count++
+            }
+            Toast.makeText(getApplication(), "Скачивание завершено: $count из ${tracks.size} треков сохранено", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    fun deleteDownloadedTracks(tracks: List<Track>) {
+        if (tracks.isEmpty()) return
+        viewModelScope.launch {
+            var count = 0
+            for (track in tracks) {
+                if (downloader.deleteDownloadedTrack(track)) {
+                    count++
+                }
+            }
+            Toast.makeText(getApplication(), "Удалено $count треков из памяти", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    fun removeTracksFromFavorites(tracks: List<Track>) {
+        if (tracks.isEmpty()) return
+        viewModelScope.launch {
+            for (track in tracks) {
+                apiClient.deleteAudio(track.id, track.ownerId)
+                database.trackDao().updateLike(track.fullId, false)
+            }
+            val idsToRemove = tracks.map { it.fullId }.toSet()
+            _likedTrackIds.value = _likedTrackIds.value - idsToRemove
+            _myTracks.value = _myTracks.value.filterNot { idsToRemove.contains(it.fullId) }
+            Toast.makeText(getApplication(), "Удалено ${tracks.size} треков из избранного", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    fun addTracksToPlaylist(playlist: Playlist, tracks: List<Track>) {
+        if (tracks.isEmpty()) return
+        viewModelScope.launch {
+            var count = 0
+            for (track in tracks) {
+                val ok = apiClient.addToPlaylist(playlist.id, playlist.ownerId, track)
+                if (ok) count++
+            }
+            playlistTracksCache.remove(playlist.fullId)
+            Toast.makeText(getApplication(), "Добавлено $count треков в «${playlist.title}»", Toast.LENGTH_SHORT).show()
         }
     }
 

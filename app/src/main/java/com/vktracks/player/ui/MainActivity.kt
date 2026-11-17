@@ -266,6 +266,10 @@ fun MainAppScreen(viewModel: MainViewModel) {
                             onPlaylistClick = { playlist -> viewModel.openPlaylist(playlist) },
                             onLikeClick = { viewModel.toggleTrackLike(it) },
                             onDownloadClick = { track, subfolder -> viewModel.downloadTrack(track, subfolder) },
+                            onBatchDownloadClick = { tracks -> viewModel.downloadTracks(tracks, "Favorites") },
+                            onBatchDeleteDownloadedClick = { tracks -> viewModel.deleteDownloadedTracks(tracks) },
+                            onBatchRemoveFavoritesClick = { tracks -> viewModel.removeTracksFromFavorites(tracks) },
+                            onBatchAddToPlaylistClick = { playlist, tracks -> viewModel.addTracksToPlaylist(playlist, tracks) },
                             onLoginClick = { showAuthDialog = true },
                             onSettingsClick = { showSettings = true },
                             isAuthorized = isAuthorized,
@@ -427,6 +431,9 @@ fun MainAppScreen(viewModel: MainViewModel) {
             val cacheSizeDisplay by viewModel.cacheSizeDisplay.collectAsState()
             val isCacheEnabled by viewModel.isCacheEnabled.collectAsState()
             val maxCacheMb by viewModel.maxCacheMb.collectAsState()
+            val isBtAutoResume by viewModel.isBtAutoResume.collectAsState()
+            val isBtAutoPause by viewModel.isBtAutoPause.collectAsState()
+            val isSoftFading by viewModel.isSoftFading.collectAsState()
 
             SettingsScreen(
                 authManager = viewModel.authManager,
@@ -442,6 +449,12 @@ fun MainAppScreen(viewModel: MainViewModel) {
                 onSelectMaxCacheMb = { viewModel.setCacheMaxMb(it) },
                 onClearCache = { viewModel.clearCache() },
                 onClearImageCache = { viewModel.clearImageCache() },
+                isBtAutoResume = isBtAutoResume,
+                isBtAutoPause = isBtAutoPause,
+                isSoftFading = isSoftFading,
+                onToggleBtAutoResume = { viewModel.setBtAutoResume(it) },
+                onToggleBtAutoPause = { viewModel.setBtAutoPause(it) },
+                onToggleSoftFading = { viewModel.setSoftFading(it) },
                 onLoginClick = {
                     showSettings = false
                     showAuthDialog = true

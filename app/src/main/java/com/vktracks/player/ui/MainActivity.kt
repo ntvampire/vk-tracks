@@ -292,7 +292,8 @@ fun MainAppScreen(viewModel: MainViewModel) {
                             onArtistClick = { artist -> viewModel.openArtist(artist) },
                             onLikeClick = { viewModel.toggleTrackLike(it) },
                             onDownloadClick = { viewModel.downloadTrack(it) },
-                            onMoreTrackClick = { contextMenuTrack = it }
+                            onMoreTrackClick = { contextMenuTrack = it },
+                            onPausePlayback = { if (isPlaying) viewModel.togglePlayPause() }
                         )
                     }
                 }

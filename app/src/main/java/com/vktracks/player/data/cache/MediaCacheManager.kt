@@ -204,35 +204,7 @@ class MediaCacheManager private constructor(private val context: Context) {
     }
 
     fun preloadTrack(url: String, bytesToPreload: Long = 1024L * 1024L) {
-        if (url.isBlank() || isLiveStreamUri(url) || !isCacheEnabled()) return
-        if (isCacheOnlyFavorites()) {
-            val isFav = isUriFavoriteCheck?.invoke(url) ?: false
-            if (!isFav) return
-        }
-        if (!isCacheAllPlayed()) return
-
-        try {
-            val uri = Uri.parse(url)
-            val dataSpec = DataSpec.Builder()
-                .setUri(uri)
-                .setLength(bytesToPreload)
-                .build()
-            val upstreamFactory = DefaultHttpDataSource.Factory()
-                .setUserAgent("VKTracks/1.0 (Android)")
-                .setConnectTimeoutMs(8000)
-                .setReadTimeoutMs(15000)
-                .setAllowCrossProtocolRedirects(true)
-            val cacheDataSource = CacheDataSource.Factory()
-                .setCache(simpleCache)
-                .setUpstreamDataSourceFactory(upstreamFactory)
-                .createDataSource()
-            val writer = CacheWriter(
-                cacheDataSource,
-                dataSpec,
-                null,
-                null
-            )
-            writer.cache()
-        } catch (_: Exception) {}
+        // Убрана агрессивная ручная предварительная загрузка через CacheWriter, 
+        // так как ExoPlayer с DefaultLoadControl самостоятельно буферизирует аудиопоток без блокировок.
     }
 }

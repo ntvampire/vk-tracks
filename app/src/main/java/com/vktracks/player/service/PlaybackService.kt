@@ -403,7 +403,11 @@ class PlaybackService : MediaLibraryService() {
 
         val cacheManager = MediaCacheManager.getInstance(this)
         cacheManager.isUriFavoriteCheck = { uriStr ->
-            currentQueue.any { it.streamUrl == uriStr && isCurrentTrackLiked(it) }
+            try {
+                currentQueue.any { it.streamUrl == uriStr && isCurrentTrackLiked(it) }
+            } catch (_: Exception) {
+                false
+            }
         }
 
         // Включаем CBR-поиск для MP3/AAC треков VK (исключает срыв таймлайна в 0:00)
@@ -452,31 +456,38 @@ class PlaybackService : MediaLibraryService() {
 
         player.addListener(object : Player.Listener {
             override fun onIsPlayingChanged(isPlaying: Boolean) {
-                _isPlaying.value = isPlaying
-                if (isPlaying) {
-                    startProgressUpdates()
-                } else {
-                    stopProgressUpdates()
-                    saveQueueState()
+                try {
+                    _isPlaying.value = isPlaying
+                    if (isPlaying) {
+                        startProgressUpdates()
+                    } else {
+                        stopProgressUpdates()
+                        saveQueueState()
+                    }
+                    updateNotificationLikeButton()
+                } catch (e: Exception) {
+                    android.util.Log.e("PlaybackService", "Error in onIsPlayingChanged", e)
                 }
-                updateNotificationLikeButton()
             }
 
             override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
-                if (reason == Player.MEDIA_ITEM_TRANSITION_REASON_PLAYLIST_CHANGED) {
-                    return
-                }
-                val index = player.currentMediaItemIndex
-                if (index in currentQueue.indices) {
-                    val track = currentQueue[index]
-                    _currentTrack.value = track
-                    _durationMs.value = (track.duration.toLong() * 1000L).coerceAtLeast(0)
-                    currentNotificationBitmap = null
-                    saveHistory(track)
-                    loadArtworkAsync(track)
-                    updateNotificationLikeButton()
-                    saveQueueState()
-                    preloadNextTrackInQueue(index + 1)
+                try {
+                    if (reason == Player.MEDIA_ITEM_TRANSITION_REASON_PLAYLIST_CHANGED) {
+                        return
+                    }
+                    val index = player.currentMediaItemIndex
+                    if (index in currentQueue.indices) {
+                        val track = currentQueue[index]
+                        _currentTrack.value = track
+                        _durationMs.value = (track.duration.toLong() * 1000L).coerceAtLeast(0)
+                        currentNotificationBitmap = null
+                        saveHistory(track)
+                        loadArtworkAsync(track)
+                        updateNotificationLikeButton()
+                        saveQueueState()
+                    }
+                } catch (e: Exception) {
+                    android.util.Log.e("PlaybackService", "Error in onMediaItemTransition", e)
                 }
             }
 
@@ -613,7 +624,6 @@ class PlaybackService : MediaLibraryService() {
         loadArtworkAsync(validTrack)
         updateNotificationLikeButton()
         saveQueueState()
-        preloadNextTrackInQueue(startIndex + 1)
     }
 
     fun buildMediaItem(track: Track, fallbackStreamUrl: String = ""): MediaItem {
@@ -848,12 +858,16 @@ class PlaybackService : MediaLibraryService() {
     private var lastNotifiedLikedState: Boolean? = null
 
     fun updateNotificationLikeButton() {
-        val track = _currentTrack.value
-        val isLiked = if (track != null) isCurrentTrackLiked(track) else false
-        if (lastNotifiedLikedState == isLiked) return
-        lastNotifiedLikedState = isLiked
-        val likeButton = createLikeCommandButton(isLiked)
-        mediaSession?.setCustomLayout(listOf(likeButton))
+        try {
+            val track = _currentTrack.value
+            val isLiked = if (track != null) isCurrentTrackLiked(track) else false
+            if (lastNotifiedLikedState == isLiked) return
+            lastNotifiedLikedState = isLiked
+            val likeButton = createLikeCommandButton(isLiked)
+            mediaSession?.setCustomLayout(listOf(likeButton))
+        } catch (e: Exception) {
+            android.util.Log.w("PlaybackService", "Failed to update notification like button", e)
+        }
     }
 
     private fun createLikeCommandButton(isLiked: Boolean): CommandButton {
@@ -1004,7 +1018,7 @@ class PlaybackService : MediaLibraryService() {
     // Сохранение состояния очереди и позиции (VKX QueueSaveHolder) с адаптивным скользящим окном
     private fun saveQueueState() {
         try {
-            val queue = currentQueue
+            val queue = currentQueue.toList()
             if (queue.isEmpty()) return
             val currentIndex = player.currentMediaItemIndex.coerceIn(0, queue.lastIndex)
             val currentPos = player.currentPosition.coerceAtLeast(0)
@@ -1077,20 +1091,6 @@ class PlaybackService : MediaLibraryService() {
                     }
                 } catch (e: Exception) {
                     android.util.Log.e("PlaybackService", "Failed to toggle like in background", e)
-                }
-            }
-        }
-    }
-
-    private fun preloadNextTrackInQueue(nextIndex: Int) {
-        if (nextIndex in currentQueue.indices) {
-            val nextTrack = currentQueue[nextIndex]
-            if (!nextTrack.isLocal && nextTrack.streamUrl.isNotBlank() && nextTrack.duration > 0) {
-                serviceScope.launch(Dispatchers.IO) {
-                    delay(3000)
-                    if (isActive && player.isPlaying) {
-                        MediaCacheManager.getInstance(applicationContext).preloadTrack(nextTrack.streamUrl)
-                    }
                 }
             }
         }

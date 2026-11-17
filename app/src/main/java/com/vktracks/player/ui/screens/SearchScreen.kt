@@ -1,6 +1,7 @@
 package com.vktracks.player.ui.screens
 
 import android.app.SearchManager
+import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
@@ -71,6 +72,7 @@ fun SearchScreen(
     onLikeClick: (Track) -> Unit = {},
     onDownloadClick: (Track) -> Unit,
     onMoreTrackClick: ((Track) -> Unit)? = null,
+    onPausePlayback: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     var query by remember(searchQuery) { mutableStateOf(searchQuery) }
@@ -160,6 +162,9 @@ fun SearchScreen(
                         }
 
                         IconButton(onClick = {
+                            if (isPlaying) {
+                                onPausePlayback()
+                            }
                             launchGoogleSoundSearch(context)
                         }) {
                             Icon(
@@ -410,48 +415,58 @@ private fun SearchPlaylistItem(
 }
 
 /**
- * Запуск встроенного поиска музыки по звуку (Google Sound Search / Google Ассистент).
+ * Запуск встроенного распознавания музыки по звуку (Google Sound Search "Включите или напойте мелодию").
  */
 private fun launchGoogleSoundSearch(context: Context) {
     val soundSearchIntents = listOf(
-        // 1. Актуальная активность Google Sound Search (шторка / виджет Android)
-        Intent().apply {
-            setClassName(
+        // 1. Стандартный интент Google Sound Search с категорией DEFAULT (вызывает музыкальный сканер)
+        Intent("com.google.android.googlequicksearchbox.MUSIC_SEARCH").apply {
+            setPackage("com.google.android.googlequicksearchbox")
+            addCategory(Intent.CATEGORY_DEFAULT)
+        },
+        // 2. Прямой вызов активности SoundSearchActivity через ACTION_VIEW (экран оверлея "Включите или напойте мелодию")
+        Intent(Intent.ACTION_VIEW).apply {
+            component = ComponentName(
                 "com.google.android.googlequicksearchbox",
                 "com.google.android.apps.search.soundsearch.SoundSearchActivity"
             )
         },
-        // 2. Современный экшен тайла Google Sound Search
-        Intent("com.google.android.googlequicksearchbox.action.SOUND_SEARCH"),
-        // 3. Google Voice Assist (открывает окно Google с результатом поиска песни в сети)
-        Intent("android.intent.action.VOICE_ASSIST").apply {
-            putExtra("query", "Что это за песня")
-        },
-        Intent(Intent.ACTION_VOICE_COMMAND).apply {
-            putExtra("query", "Что это за песня")
-        },
-        // 4. Полноэкранный поиск Google с запросом
-        Intent("android.intent.action.MAIN").apply {
-            setClassName(
+        // 3. Прямой вызов активности SoundSearchActivity через ACTION_MAIN с категорией DEFAULT
+        Intent(Intent.ACTION_MAIN).apply {
+            component = ComponentName(
                 "com.google.android.googlequicksearchbox",
-                "com.google.android.googlequicksearchbox.SearchActivity"
+                "com.google.android.apps.search.soundsearch.SoundSearchActivity"
             )
-            putExtra("query", "Что это за песня")
+            addCategory(Intent.CATEGORY_DEFAULT)
         },
-        Intent(Intent.ACTION_WEB_SEARCH).apply {
-            putExtra(SearchManager.QUERY, "Что это за песня")
+        // 4. MUSIC_SEARCH без жесткой привязки к пакету (для кастомных/системных распознавателей в прошивке)
+        Intent("com.google.android.googlequicksearchbox.MUSIC_SEARCH").apply {
+            addCategory(Intent.CATEGORY_DEFAULT)
         },
-        // 5. Сторонний распознаватель Shazam при наличии
-        Intent(Intent.ACTION_VIEW, Uri.parse("shazam://"))
+        // 5. Альтернативный шорткат активности SoundSearch в Google App
+        Intent(Intent.ACTION_MAIN).apply {
+            component = ComponentName(
+                "com.google.android.googlequicksearchbox",
+                "com.google.android.apps.gsa.sidekick.main.SoundSearchShortcutActivity"
+            )
+            addCategory(Intent.CATEGORY_DEFAULT)
+        },
+        // 6. Распознавание через Shazam при наличии на устройстве
+        Intent(Intent.ACTION_VIEW, Uri.parse("shazam://")),
+        Intent().apply {
+            setPackage("com.shazam.android")
+            action = Intent.ACTION_MAIN
+            addCategory(Intent.CATEGORY_LAUNCHER)
+        }
     )
 
     for (intent in soundSearchIntents) {
         try {
-            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
             context.startActivity(intent)
             return
         } catch (_: Exception) {}
     }
 
-    Toast.makeText(context, "Поиск по звуку Google не найден на устройстве", Toast.LENGTH_SHORT).show()
+    Toast.makeText(context, "Музыкальный поиск Google не найден на устройстве", Toast.LENGTH_SHORT).show()
 }

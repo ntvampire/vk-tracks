@@ -201,7 +201,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun setCacheOnlyFavorites(enabled: Boolean) {
         cacheManager.setCacheOnlyFavorites(enabled)
+        cacheManager.setCacheAllPlayed(!enabled)
         _isCacheOnlyFavorites.value = enabled
+        _isCacheAllPlayed.value = !enabled
     }
 
     // Настройки воспроизведения и Bluetooth

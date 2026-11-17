@@ -69,6 +69,12 @@ fun SettingsScreen(
     var downloadPathDisplay by remember { mutableStateOf(downloader.getDownloadPathDisplay()) }
     var showFolderDialog by remember { mutableStateOf(false) }
     var showCacheLimitDialog by remember { mutableStateOf(false) }
+    var showCacheModeDialog by remember { mutableStateOf(false) }
+
+    val cacheModeOptions = listOf(
+        false to Pair("Все проигрываемые треки", "Автоматически сохранять любой воспроизводимый трек в кэш"),
+        true to Pair("Только избранные треки", "Кэшировать при воспроизведении только треки из Избранного")
+    )
 
     val cacheLimitOptions = listOf(
         500 to "500 МБ",
@@ -197,6 +203,68 @@ fun SettingsScreen(
             },
             confirmButton = {
                 TextButton(onClick = { showCacheLimitDialog = false }) {
+                    Text("Закрыть")
+                }
+            }
+        )
+    }
+
+    if (showCacheModeDialog) {
+        AlertDialog(
+            onDismissRequest = { showCacheModeDialog = false },
+            title = { Text("Кэширование треков") },
+            text = {
+                Column {
+                    Text(
+                        "Выберите, какие треки сохранять во временный кэш при прослушивании:",
+                        fontSize = 13.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Spacer(modifier = Modifier.height(12.dp))
+                    cacheModeOptions.forEach { (onlyFav, info) ->
+                        val (label, desc) = info
+                        val selected = isCacheOnlyFavorites == onlyFav
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable {
+                                    onToggleCacheOnlyFavorites(onlyFav)
+                                    showCacheModeDialog = false
+                                    Toast.makeText(context, label, Toast.LENGTH_SHORT).show()
+                                }
+                                .padding(vertical = 10.dp, horizontal = 4.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            RadioButton(
+                                selected = selected,
+                                onClick = {
+                                    onToggleCacheOnlyFavorites(onlyFav)
+                                    showCacheModeDialog = false
+                                    Toast.makeText(context, label, Toast.LENGTH_SHORT).show()
+                                },
+                                colors = RadioButtonDefaults.colors(selectedColor = AppleRed)
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Column {
+                                Text(
+                                    text = label,
+                                    fontSize = 15.sp,
+                                    fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
+                                    color = MaterialTheme.colorScheme.onSurface
+                                )
+                                Spacer(modifier = Modifier.height(2.dp))
+                                Text(
+                                    text = desc,
+                                    fontSize = 12.sp,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { showCacheModeDialog = false }) {
                     Text("Закрыть")
                 }
             }
@@ -336,7 +404,7 @@ fun SettingsScreen(
                     SettingsSwitchItem(
                         icon = Icons.Default.Bluetooth,
                         title = "Автовоспроизведение Bluetooth",
-                        subtitle = "Возобновлять воспроизведение при подключении к автомагнитоле (Pioneer, Android Auto) или наушникам",
+                        subtitle = "Автоматически возобновлять воспроизведение при подключении Bluetooth-устройства",
                         checked = isBtAutoResume,
                         onCheckedChange = onToggleBtAutoResume
                     )
@@ -388,10 +456,10 @@ fun SettingsScreen(
                 }
             }
 
-            // Кэширование (VKX & Murglar style)
+            // Кэширование
             item {
                 Spacer(modifier = Modifier.height(20.dp))
-                SettingsHeader("КЭШИРОВАНИЕ (VKX)")
+                SettingsHeader("КЭШИРОВАНИЕ")
                 SettingsCard {
                     SettingsSwitchItem(
                         icon = Icons.Default.CloudSync,
@@ -402,20 +470,11 @@ fun SettingsScreen(
                     )
                     if (isCacheEnabled) {
                         HorizontalDivider(color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
-                        SettingsSwitchItem(
-                            icon = Icons.Default.PlayCircleOutline,
-                            title = "Кэшировать все проигрываемые треки",
-                            subtitle = "Автоматически сохранять любой включенный трек в кэш",
-                            checked = isCacheAllPlayed,
-                            onCheckedChange = onToggleCacheAllPlayed
-                        )
-                        HorizontalDivider(color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
-                        SettingsSwitchItem(
-                            icon = Icons.Default.Favorite,
-                            title = "Кэшировать только избранные",
-                            subtitle = "Кэшировать при воспроизведении только треки из вашего Избранного",
-                            checked = isCacheOnlyFavorites,
-                            onCheckedChange = onToggleCacheOnlyFavorites
+                        SettingsItem(
+                            icon = Icons.Default.FilterList,
+                            title = "Кэшировать все / только избранные треки",
+                            subtitle = if (isCacheOnlyFavorites) "Только избранные треки" else "Все проигрываемые треки",
+                            onClick = { showCacheModeDialog = true }
                         )
                         HorizontalDivider(color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
                         SettingsItem(

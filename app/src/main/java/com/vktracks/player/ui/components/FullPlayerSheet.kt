@@ -15,8 +15,10 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.basicMarquee
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.Orientation
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.draggable
 import androidx.compose.foundation.gestures.rememberDraggableState
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
@@ -196,7 +198,10 @@ fun FullPlayerSheet(
             ) {
                 when (centerMode) {
                     PlayerCenterMode.COVER -> {
-                        // Большая обложка альбома (Apple Music стиль с поддержкой свайпа вниз)
+                        // Большая обложка альбома (Apple Music стиль: свайп вниз закрывает, свайпы влево/вправо переключают трек)
+                        val coroutineScope = rememberCoroutineScope()
+                        val coverOffsetX = remember { Animatable(0f) }
+
                         Box(
                             modifier = Modifier
                                 .fillMaxSize()
@@ -205,10 +210,42 @@ fun FullPlayerSheet(
                         ) {
                             Box(
                                 modifier = Modifier
+                                    .offset { IntOffset(coverOffsetX.value.roundToInt(), 0) }
                                     .size(280.dp)
                                     .shadow(24.dp, shape = RoundedCornerShape(20.dp), spotColor = Color.Black.copy(alpha = 0.4f))
                                     .clip(RoundedCornerShape(20.dp))
-                                    .background(MaterialTheme.colorScheme.surfaceVariant),
+                                    .background(MaterialTheme.colorScheme.surfaceVariant)
+                                    .pointerInput(track.fullId) {
+                                        detectHorizontalDragGestures(
+                                            onDragEnd = {
+                                                coroutineScope.launch {
+                                                    val currentOffset = coverOffsetX.value
+                                                    val threshold = 120f
+                                                    if (currentOffset < -threshold) {
+                                                        // Свайп влево: следующий трек
+                                                        coverOffsetX.animateTo(-500f, tween(160))
+                                                        onNextClick()
+                                                        coverOffsetX.snapTo(500f)
+                                                        coverOffsetX.animateTo(0f, spring(dampingRatio = Spring.DampingRatioMediumBouncy))
+                                                    } else if (currentOffset > threshold) {
+                                                        // Свайп вправо: предыдущий трек
+                                                        coverOffsetX.animateTo(500f, tween(160))
+                                                        onPrevClick()
+                                                        coverOffsetX.snapTo(-500f)
+                                                        coverOffsetX.animateTo(0f, spring(dampingRatio = Spring.DampingRatioMediumBouncy))
+                                                    } else {
+                                                        coverOffsetX.animateTo(0f, spring(dampingRatio = Spring.DampingRatioMediumBouncy))
+                                                    }
+                                                }
+                                            },
+                                            onHorizontalDrag = { change, dragAmount ->
+                                                change.consume()
+                                                coroutineScope.launch {
+                                                    coverOffsetX.snapTo(coverOffsetX.value + dragAmount)
+                                                }
+                                            }
+                                        )
+                                    },
                                 contentAlignment = Alignment.Center
                             ) {
                                 Icon(

@@ -9,10 +9,15 @@ import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.drawable.BitmapDrawable
 import androidx.core.content.ContextCompat
+import android.media.AudioDeviceCallback
+import android.media.AudioDeviceInfo
+import android.media.AudioManager
 import android.media.audiofx.AudioEffect
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
@@ -41,11 +46,13 @@ import com.google.common.collect.ImmutableList
 import com.vktracks.player.data.api.VkApiClient
 import com.google.common.util.concurrent.Futures
 import com.google.common.util.concurrent.ListenableFuture
+import com.google.common.util.concurrent.SettableFuture
 import com.vktracks.player.R
 import com.vktracks.player.data.local.AppDatabase
 import com.vktracks.player.data.local.TrackEntity
 import com.vktracks.player.data.model.Track
 import com.vktracks.player.data.model.TrackRestriction
+import com.vktracks.player.data.settings.PlayerSettingsManager
 import com.vktracks.player.ui.MainActivity
 import org.json.JSONArray
 import org.json.JSONObject
@@ -58,6 +65,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
 import java.io.ByteArrayOutputStream
 
@@ -74,6 +82,9 @@ class PlaybackService : MediaLibraryService() {
     private var currentNotificationBitmap: Bitmap? = null
     private var lastSeekTimestamp: Long = 0L
     private var lastSeekPositionMs: Long = 0L
+    private var audioDeviceCallback: AudioDeviceCallback? = null
+    private var bluetoothResumeJob: Job? = null
+    private var fadeJob: Job? = null
 
     private val sessionCallback = object : MediaLibrarySession.Callback {
         override fun onConnect(
@@ -111,6 +122,44 @@ class PlaybackService : MediaLibraryService() {
             return super.onCustomCommand(session, controller, customCommand, args)
         }
 
+        override fun onSetMediaItems(
+            mediaSession: MediaSession,
+            controller: MediaSession.ControllerInfo,
+            mediaItems: MutableList<MediaItem>,
+            startIndex: Int,
+            startPositionMs: Long
+        ): ListenableFuture<MediaSession.MediaItemsWithStartPosition> {
+            val resolvedItems = mutableListOf<MediaItem>()
+            val db = AppDatabase.getInstance(applicationContext)
+            for (item in mediaItems) {
+                if (item.requestMetadata.mediaUri != null || item.localConfiguration?.uri != null) {
+                    resolvedItems.add(item)
+                } else {
+                    val rawId = item.mediaId.removePrefix("TRACK_")
+                    val entity = runBlocking(Dispatchers.IO) {
+                        try { db.trackDao().getTrackById(rawId) } catch (_: Exception) { null }
+                    }
+                    if (entity != null) {
+                        val uri = if (!entity.localFilePath.isNullOrEmpty()) Uri.parse(entity.localFilePath) else Uri.parse(entity.streamUrl)
+                        resolvedItems.add(
+                            item.buildUpon()
+                                .setUri(uri)
+                                .build()
+                        )
+                    } else {
+                        resolvedItems.add(item)
+                    }
+                }
+            }
+            return Futures.immediateFuture(
+                MediaSession.MediaItemsWithStartPosition(
+                    if (resolvedItems.isNotEmpty()) resolvedItems else mediaItems,
+                    startIndex,
+                    startPositionMs
+                )
+            )
+        }
+
         override fun onPlaybackResumption(
             mediaSession: MediaSession,
             controller: MediaSession.ControllerInfo
@@ -136,7 +185,7 @@ class PlaybackService : MediaLibraryService() {
             )
         }
 
-        // Поддержка Android Auto / MediaLibraryService (VKX стиль)
+        // Поддержка Android Auto / MediaLibraryService
         override fun onGetLibraryRoot(
             session: MediaLibrarySession,
             browser: MediaSession.ControllerInfo,
@@ -168,12 +217,26 @@ class PlaybackService : MediaLibraryService() {
                 "ROOT" -> {
                     items.add(
                         MediaItem.Builder()
-                            .setMediaId("NODE_RADIO")
+                            .setMediaId("NODE_DOWNLOADS")
                             .setMediaMetadata(
                                 MediaMetadata.Builder()
                                     .setIsBrowsable(true)
                                     .setIsPlayable(false)
-                                    .setTitle("Радио (Прямой эфир)")
+                                    .setTitle("Скачанное (Офлайн)")
+                                    .setSubtitle("Треки на устройстве")
+                                    .build()
+                            )
+                            .build()
+                    )
+                    items.add(
+                        MediaItem.Builder()
+                            .setMediaId("NODE_FAVORITES")
+                            .setMediaMetadata(
+                                MediaMetadata.Builder()
+                                    .setIsBrowsable(true)
+                                    .setIsPlayable(false)
+                                    .setTitle("Мои треки (Избранное)")
+                                    .setSubtitle("Любимая музыка")
                                     .build()
                             )
                             .build()
@@ -190,6 +253,77 @@ class PlaybackService : MediaLibraryService() {
                             )
                             .build()
                     )
+                    items.add(
+                        MediaItem.Builder()
+                            .setMediaId("NODE_RADIO")
+                            .setMediaMetadata(
+                                MediaMetadata.Builder()
+                                    .setIsBrowsable(true)
+                                    .setIsPlayable(false)
+                                    .setTitle("Радио (Прямой эфир)")
+                                    .build()
+                            )
+                            .build()
+                    )
+                    return Futures.immediateFuture(LibraryResult.ofItemList(ImmutableList.copyOf(items), params))
+                }
+                "NODE_DOWNLOADS" -> {
+                    val future = SettableFuture.create<LibraryResult<ImmutableList<MediaItem>>>()
+                    serviceScope.launch(Dispatchers.IO) {
+                        try {
+                            val db = AppDatabase.getInstance(applicationContext)
+                            val downloaded = db.trackDao().getDownloadedTracksList()
+                            val mediaItems = downloaded.map { entity ->
+                                val uri = if (!entity.localFilePath.isNullOrEmpty()) Uri.parse(entity.localFilePath) else Uri.parse(entity.streamUrl)
+                                MediaItem.Builder()
+                                    .setMediaId("TRACK_${entity.id}")
+                                    .setUri(uri)
+                                    .setMediaMetadata(
+                                        MediaMetadata.Builder()
+                                            .setIsBrowsable(false)
+                                            .setIsPlayable(true)
+                                            .setTitle(entity.title)
+                                            .setArtist(entity.artist)
+                                            .setArtworkUri(entity.coverUrl?.let { Uri.parse(it) })
+                                            .build()
+                                    )
+                                    .build()
+                            }
+                            future.set(LibraryResult.ofItemList(ImmutableList.copyOf(mediaItems), params))
+                        } catch (e: Exception) {
+                            future.set(LibraryResult.ofItemList(ImmutableList.of(), params))
+                        }
+                    }
+                    return future
+                }
+                "NODE_FAVORITES" -> {
+                    val future = SettableFuture.create<LibraryResult<ImmutableList<MediaItem>>>()
+                    serviceScope.launch(Dispatchers.IO) {
+                        try {
+                            val db = AppDatabase.getInstance(applicationContext)
+                            val liked = db.trackDao().getLikedTracksList()
+                            val mediaItems = liked.map { entity ->
+                                val uri = if (!entity.localFilePath.isNullOrEmpty()) Uri.parse(entity.localFilePath) else Uri.parse(entity.streamUrl)
+                                MediaItem.Builder()
+                                    .setMediaId("TRACK_${entity.id}")
+                                    .setUri(uri)
+                                    .setMediaMetadata(
+                                        MediaMetadata.Builder()
+                                            .setIsBrowsable(false)
+                                            .setIsPlayable(true)
+                                            .setTitle(entity.title)
+                                            .setArtist(entity.artist)
+                                            .setArtworkUri(entity.coverUrl?.let { Uri.parse(it) })
+                                            .build()
+                                    )
+                                    .build()
+                            }
+                            future.set(LibraryResult.ofItemList(ImmutableList.copyOf(mediaItems), params))
+                        } catch (e: Exception) {
+                            future.set(LibraryResult.ofItemList(ImmutableList.of(), params))
+                        }
+                    }
+                    return future
                 }
                 "NODE_RADIO" -> {
                     items.add(
@@ -320,6 +454,38 @@ class PlaybackService : MediaLibraryService() {
                     return Futures.immediateFuture(LibraryResult.ofItem(item, null))
                 }
             }
+            if (mediaId.startsWith("TRACK_")) {
+                val rawId = mediaId.removePrefix("TRACK_")
+                val future = SettableFuture.create<LibraryResult<MediaItem>>()
+                serviceScope.launch(Dispatchers.IO) {
+                    try {
+                        val db = AppDatabase.getInstance(applicationContext)
+                        val entity = db.trackDao().getTrackById(rawId)
+                        if (entity != null) {
+                            val uri = if (!entity.localFilePath.isNullOrEmpty()) Uri.parse(entity.localFilePath) else Uri.parse(entity.streamUrl)
+                            val item = MediaItem.Builder()
+                                .setMediaId(mediaId)
+                                .setUri(uri)
+                                .setMediaMetadata(
+                                    MediaMetadata.Builder()
+                                        .setTitle(entity.title)
+                                        .setArtist(entity.artist)
+                                        .setArtworkUri(entity.coverUrl?.let { Uri.parse(it) })
+                                        .setIsBrowsable(false)
+                                        .setIsPlayable(true)
+                                        .build()
+                                )
+                                .build()
+                            future.set(LibraryResult.ofItem(item, null))
+                        } else {
+                            future.set(LibraryResult.ofError(LibraryResult.RESULT_ERROR_BAD_VALUE))
+                        }
+                    } catch (e: Exception) {
+                        future.set(LibraryResult.ofError(LibraryResult.RESULT_ERROR_BAD_VALUE))
+                    }
+                }
+                return future
+            }
             val track = currentQueue.firstOrNull { it.fullId == mediaId }
             if (track != null) {
                 val uri = if (track.isLocal && !track.localFilePath.isNullOrEmpty()) Uri.parse(track.localFilePath) else Uri.parse(track.streamUrl)
@@ -337,6 +503,53 @@ class PlaybackService : MediaLibraryService() {
                 return Futures.immediateFuture(LibraryResult.ofItem(item, null))
             }
             return Futures.immediateFuture(LibraryResult.ofError(LibraryResult.RESULT_ERROR_BAD_VALUE))
+        }
+
+        override fun onSearch(
+            session: MediaLibrarySession,
+            browser: MediaSession.ControllerInfo,
+            query: String,
+            params: LibraryParams?
+        ): ListenableFuture<LibraryResult<Void>> {
+            session.notifySearchResultChanged(browser, query, 50, params)
+            return Futures.immediateFuture(LibraryResult.ofVoid(params))
+        }
+
+        override fun onGetSearchResult(
+            session: MediaLibrarySession,
+            browser: MediaSession.ControllerInfo,
+            query: String,
+            page: Int,
+            pageSize: Int,
+            params: LibraryParams?
+        ): ListenableFuture<LibraryResult<ImmutableList<MediaItem>>> {
+            val future = SettableFuture.create<LibraryResult<ImmutableList<MediaItem>>>()
+            serviceScope.launch(Dispatchers.IO) {
+                try {
+                    val db = AppDatabase.getInstance(applicationContext)
+                    val results = db.trackDao().searchTracks(query)
+                    val items = results.map { entity ->
+                        val uri = if (!entity.localFilePath.isNullOrEmpty()) Uri.parse(entity.localFilePath) else Uri.parse(entity.streamUrl)
+                        MediaItem.Builder()
+                            .setMediaId("TRACK_${entity.id}")
+                            .setUri(uri)
+                            .setMediaMetadata(
+                                MediaMetadata.Builder()
+                                    .setIsBrowsable(false)
+                                    .setIsPlayable(true)
+                                    .setTitle(entity.title)
+                                    .setArtist(entity.artist)
+                                    .setArtworkUri(entity.coverUrl?.let { Uri.parse(it) })
+                                    .build()
+                            )
+                            .build()
+                    }
+                    future.set(LibraryResult.ofItemList(ImmutableList.copyOf(items), params))
+                } catch (e: Exception) {
+                    future.set(LibraryResult.ofItemList(ImmutableList.of(), params))
+                }
+            }
+            return future
         }
     }
 
@@ -454,6 +667,37 @@ class PlaybackService : MediaLibraryService() {
             .setSessionActivity(sessionActivityIntent)
             .build()
 
+        // Автоматическое определение подключения/отключения Bluetooth аудиоустройств (Pioneer, гарнитуры)
+        val audioManager = getSystemService(Context.AUDIO_SERVICE) as? AudioManager
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && audioManager != null) {
+            audioDeviceCallback = object : AudioDeviceCallback() {
+                override fun onAudioDevicesAdded(addedDevices: Array<out AudioDeviceInfo>?) {
+                    val hasBtAudio = addedDevices?.any {
+                        it.type == AudioDeviceInfo.TYPE_BLUETOOTH_A2DP ||
+                        it.type == AudioDeviceInfo.TYPE_BLUETOOTH_SCO ||
+                        (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && 
+                            (it.type == AudioDeviceInfo.TYPE_BLE_HEADSET || it.type == AudioDeviceInfo.TYPE_BLE_SPEAKER))
+                    } == true
+                    if (hasBtAudio) {
+                        handleBluetoothConnected()
+                    }
+                }
+
+                override fun onAudioDevicesRemoved(removedDevices: Array<out AudioDeviceInfo>?) {
+                    val hasBtAudio = removedDevices?.any {
+                        it.type == AudioDeviceInfo.TYPE_BLUETOOTH_A2DP ||
+                        it.type == AudioDeviceInfo.TYPE_BLUETOOTH_SCO ||
+                        (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && 
+                            (it.type == AudioDeviceInfo.TYPE_BLE_HEADSET || it.type == AudioDeviceInfo.TYPE_BLE_SPEAKER))
+                    } == true
+                    if (hasBtAudio) {
+                        handleBluetoothDisconnected()
+                    }
+                }
+            }
+            audioManager.registerAudioDeviceCallback(audioDeviceCallback, Handler(Looper.getMainLooper()))
+        }
+
         player.addListener(object : Player.Listener {
             override fun onIsPlayingChanged(isPlaying: Boolean) {
                 try {
@@ -569,6 +813,14 @@ class PlaybackService : MediaLibraryService() {
     }
 
     override fun onDestroy() {
+        audioDeviceCallback?.let { callback ->
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                val audioManager = getSystemService(Context.AUDIO_SERVICE) as? AudioManager
+                audioManager?.unregisterAudioDeviceCallback(callback)
+            }
+        }
+        bluetoothResumeJob?.cancel()
+        fadeJob?.cancel()
         saveQueueState()
         progressJob?.cancel()
         mediaSession?.run {
@@ -796,7 +1048,75 @@ class PlaybackService : MediaLibraryService() {
     }
 
     fun togglePlayPause() {
-        if (player.isPlaying) player.pause() else player.play()
+        if (player.isPlaying) softPause() else softPlay()
+    }
+
+    private fun handleBluetoothConnected() {
+        val settings = PlayerSettingsManager.getInstance(this)
+        if (!settings.isBtAutoResumeEnabled) return
+
+        val audioManager = getSystemService(Context.AUDIO_SERVICE) as? AudioManager
+        if (audioManager?.isMusicActive == true && !player.isPlaying) return
+
+        if (!player.isPlaying && (_currentTrack.value != null || player.currentMediaItem != null || currentQueue.isNotEmpty())) {
+            bluetoothResumeJob?.cancel()
+            bluetoothResumeJob = serviceScope.launch(Dispatchers.Main) {
+                delay(700)
+                if (!player.isPlaying) {
+                    softPlay()
+                }
+            }
+        }
+    }
+
+    private fun handleBluetoothDisconnected() {
+        val settings = PlayerSettingsManager.getInstance(this)
+        if (!settings.isBtAutoPauseEnabled) return
+        bluetoothResumeJob?.cancel()
+        if (player.isPlaying) {
+            softPause()
+        }
+    }
+
+    fun softPlay(durationMs: Long = 150L) {
+        val settings = PlayerSettingsManager.getInstance(this)
+        if (!settings.isSoftFadingEnabled) {
+            player.volume = 1.0f
+            player.play()
+            return
+        }
+        fadeJob?.cancel()
+        fadeJob = serviceScope.launch(Dispatchers.Main) {
+            player.volume = 0.0f
+            player.play()
+            val steps = 5
+            val stepDelay = durationMs / steps
+            for (i in 1..steps) {
+                delay(stepDelay)
+                player.volume = (i.toFloat() / steps.toFloat()).coerceIn(0.0f, 1.0f)
+            }
+            player.volume = 1.0f
+        }
+    }
+
+    fun softPause(durationMs: Long = 150L) {
+        val settings = PlayerSettingsManager.getInstance(this)
+        if (!settings.isSoftFadingEnabled) {
+            player.pause()
+            player.volume = 1.0f
+            return
+        }
+        fadeJob?.cancel()
+        fadeJob = serviceScope.launch(Dispatchers.Main) {
+            val steps = 5
+            val stepDelay = durationMs / steps
+            for (i in (steps - 1) downTo 0) {
+                delay(stepDelay)
+                player.volume = (i.toFloat() / steps.toFloat()).coerceIn(0.0f, 1.0f)
+            }
+            player.pause()
+            player.volume = 1.0f
+        }
     }
 
     fun playNext() {

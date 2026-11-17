@@ -49,6 +49,12 @@ fun SettingsScreen(
     onSelectMaxCacheMb: (Int) -> Unit = {},
     onClearCache: () -> Unit = {},
     onClearImageCache: () -> Unit = {},
+    isBtAutoResume: Boolean = true,
+    isBtAutoPause: Boolean = true,
+    isSoftFading: Boolean = true,
+    onToggleBtAutoResume: (Boolean) -> Unit = {},
+    onToggleBtAutoPause: (Boolean) -> Unit = {},
+    onToggleSoftFading: (Boolean) -> Unit = {},
     onLoginClick: () -> Unit,
     onCheckUpdateClick: () -> Unit,
     onDismiss: () -> Unit,
@@ -304,6 +310,44 @@ fun SettingsScreen(
                             Text("Войти через ВКонтакте", fontWeight = FontWeight.SemiBold)
                         }
                     }
+                }
+            }
+
+            // Воспроизведение и переходы
+            item {
+                Spacer(modifier = Modifier.height(20.dp))
+                SettingsHeader("ВОСПРОИЗВЕДЕНИЕ")
+                SettingsCard {
+                    SettingsSwitchItem(
+                        icon = Icons.Default.Tune,
+                        title = "Плавное затухание (микро-фейдинг)",
+                        subtitle = "Мягкое нарастание и затухание звука (150 мс) при старте, паузе и переключении",
+                        checked = isSoftFading,
+                        onCheckedChange = onToggleSoftFading
+                    )
+                }
+            }
+
+            // Автомобиль и Bluetooth
+            item {
+                Spacer(modifier = Modifier.height(20.dp))
+                SettingsHeader("АВТОМОБИЛЬ И BLUETOOTH")
+                SettingsCard {
+                    SettingsSwitchItem(
+                        icon = Icons.Default.Bluetooth,
+                        title = "Автовоспроизведение Bluetooth",
+                        subtitle = "Возобновлять воспроизведение при подключении к автомагнитоле (Pioneer, Android Auto) или наушникам",
+                        checked = isBtAutoResume,
+                        onCheckedChange = onToggleBtAutoResume
+                    )
+                    HorizontalDivider(color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
+                    SettingsSwitchItem(
+                        icon = Icons.Default.Pause,
+                        title = "Автопауза при отключении",
+                        subtitle = "Автоматически ставить на паузу при разрыве Bluetooth-соединения",
+                        checked = isBtAutoPause,
+                        onCheckedChange = onToggleBtAutoPause
+                    )
                 }
             }
 

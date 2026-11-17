@@ -1,7 +1,9 @@
 package com.vktracks.player.ui.components
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -10,7 +12,6 @@ import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.FavoriteBorder
 import androidx.compose.material.icons.filled.MoreVert
-import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
@@ -27,6 +28,7 @@ import coil.compose.AsyncImage
 import com.vktracks.player.data.model.Track
 import com.vktracks.player.ui.theme.AppleRed
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun TrackItem(
     track: Track,
@@ -39,26 +41,52 @@ fun TrackItem(
     onMoreClick: (() -> Unit)? = null,
     modifier: Modifier = Modifier,
     isPlaying: Boolean = false,
-    coverUrl: String? = track.coverUrl
+    coverUrl: String? = track.coverUrl,
+    isSelectionMode: Boolean = false,
+    isSelected: Boolean = false,
+    onToggleSelect: ((Boolean) -> Unit)? = null,
+    onLongClick: (() -> Unit)? = null
 ) {
     val context = LocalContext.current
     Row(
         modifier = modifier
             .fillMaxWidth()
-            .clickable {
-                if (track.isRestricted) {
-                    android.widget.Toast.makeText(
-                        context,
-                        "Воспроизведение недоступно: ${track.displayRestriction}",
-                        android.widget.Toast.LENGTH_SHORT
-                    ).show()
-                } else {
-                    onTrackClick()
+            .combinedClickable(
+                onClick = {
+                    if (isSelectionMode) {
+                        onToggleSelect?.invoke(!isSelected)
+                    } else if (track.isRestricted) {
+                        android.widget.Toast.makeText(
+                            context,
+                            "Воспроизведение недоступно: ${track.displayRestriction}",
+                            android.widget.Toast.LENGTH_SHORT
+                        ).show()
+                    } else {
+                        onTrackClick()
+                    }
+                },
+                onLongClick = {
+                    onLongClick?.invoke()
                 }
-            }
+            )
             .padding(horizontal = 16.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
+        // Чекбокс режима множественного выбора (пакетные операции)
+        AnimatedVisibility(visible = isSelectionMode) {
+            Row {
+                Checkbox(
+                    checked = isSelected,
+                    onCheckedChange = { onToggleSelect?.invoke(it) },
+                    colors = CheckboxDefaults.colors(
+                        checkedColor = AppleRed,
+                        uncheckedColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
+                    ),
+                    modifier = Modifier.padding(end = 8.dp)
+                )
+            }
+        }
+
         // Миниатюра обложки (выделяет ~80 КБ в RAM вместо 4 МБ)
         TrackCoverThumbnail(
             coverUrl = coverUrl,
@@ -124,58 +152,60 @@ fun TrackItem(
             )
         }
 
-        // Кнопка добавления в медиатеку (сердечко)
-        if (onLikeClick != null) {
-            IconButton(
-                onClick = onLikeClick,
-                modifier = Modifier.size(36.dp)
-            ) {
-                Icon(
-                    imageVector = if (isLiked) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
-                    contentDescription = if (isLiked) "В медиатеке" else "Добавить в медиатеку",
-                    tint = if (isLiked) AppleRed else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
-                    modifier = Modifier.size(20.dp)
-                )
-            }
-        }
-
-        // Кнопка скачивания
-        if (onDownloadClick != null) {
-            val isTrackSaved = isDownloaded || track.isLocal
-            IconButton(
-                onClick = onDownloadClick,
-                modifier = Modifier.size(36.dp)
-            ) {
-                if (isTrackSaved) {
+        if (!isSelectionMode) {
+            // Кнопка добавления в медиатеку (сердечко)
+            if (onLikeClick != null) {
+                IconButton(
+                    onClick = onLikeClick,
+                    modifier = Modifier.size(36.dp)
+                ) {
                     Icon(
-                        imageVector = Icons.Default.CheckCircle,
-                        contentDescription = "Скачано (нажмите для удаления)",
-                        tint = AppleRed,
-                        modifier = Modifier.size(20.dp)
-                    )
-                } else {
-                    Icon(
-                        imageVector = Icons.Default.Download,
-                        contentDescription = "Скачать",
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+                        imageVector = if (isLiked) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
+                        contentDescription = if (isLiked) "В медиатеке" else "Добавить в медиатеку",
+                        tint = if (isLiked) AppleRed else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
                         modifier = Modifier.size(20.dp)
                     )
                 }
             }
-        }
 
-        // Кнопка контекстного меню (3 точки)
-        if (onMoreClick != null) {
-            IconButton(
-                onClick = onMoreClick,
-                modifier = Modifier.size(36.dp)
-            ) {
-                Icon(
-                    imageVector = Icons.Default.MoreVert,
-                    contentDescription = "Действия с треком",
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
-                    modifier = Modifier.size(20.dp)
-                )
+            // Кнопка скачивания
+            if (onDownloadClick != null) {
+                val isTrackSaved = isDownloaded || track.isLocal
+                IconButton(
+                    onClick = onDownloadClick,
+                    modifier = Modifier.size(36.dp)
+                ) {
+                    if (isTrackSaved) {
+                        Icon(
+                            imageVector = Icons.Default.CheckCircle,
+                            contentDescription = "Скачано (нажмите для удаления)",
+                            tint = AppleRed,
+                            modifier = Modifier.size(20.dp)
+                        )
+                    } else {
+                        Icon(
+                            imageVector = Icons.Default.Download,
+                            contentDescription = "Скачать",
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+                            modifier = Modifier.size(20.dp)
+                        )
+                    }
+                }
+            }
+
+            // Кнопка контекстного меню (3 точки)
+            if (onMoreClick != null) {
+                IconButton(
+                    onClick = onMoreClick,
+                    modifier = Modifier.size(36.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.MoreVert,
+                        contentDescription = "Действия с треком",
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+                        modifier = Modifier.size(20.dp)
+                    )
+                }
             }
         }
     }

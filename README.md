@@ -1,6 +1,6 @@
 # 📦 VK Tracks
 
-[![Релиз](https://img.shields.io/badge/Релиз-v1.0.62%20(Stable)-FA2D48?style=flat-square)](https://github.com/ntvampire/vk-tracks/releases/latest)
+[![Релиз](https://img.shields.io/badge/Релиз-v1.0.63%20(Stable)-FA2D48?style=flat-square)](https://github.com/ntvampire/vk-tracks/releases/latest)
 [![Статус](https://img.shields.io/badge/Статус-Активен-brightgreen?style=flat-square)](https://github.com/ntvampire/vk-tracks)
 [![Платформа](https://img.shields.io/badge/Платформа-Android%208.0%2B-0078D6?style=flat-square)](https://developer.android.com)
 [![Стек](https://img.shields.io/badge/Стек-Kotlin%20%7C%20Compose%20%7C%20Media3-7F52FF?style=flat-square)](https://github.com/ntvampire/vk-tracks)
@@ -18,7 +18,7 @@ VK Tracks решает задачу удобного, быстрого и авт
 
 | Ресурс | Ссылка |
 | :--- | :--- |
-| **Прямое скачивание APK** | [VK-Tracks-1.0.62.apk](https://ntvampire.github.io/vk-tracks/VK-Tracks-1.0.62.apk) |
+| **Прямое скачивание APK** | [VK-Tracks-1.0.63.apk](https://ntvampire.github.io/vk-tracks/VK-Tracks-1.0.63.apk) |
 | **Манифест автообновления** | `https://ntvampire.github.io/vk-tracks/update.json` |
 
 ---

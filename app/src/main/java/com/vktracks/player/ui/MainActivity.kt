@@ -32,6 +32,7 @@ import androidx.lifecycle.lifecycleScope
 import kotlinx.coroutines.launch
 import com.vktracks.player.BuildConfig
 import com.vktracks.player.data.model.AppUpdateInfo
+import com.vktracks.player.data.model.Playlist
 import com.vktracks.player.data.model.Track
 import com.vktracks.player.service.PlaybackService
 import com.vktracks.player.ui.components.ArtistDetailScreen
@@ -135,6 +136,7 @@ fun MainAppScreen(viewModel: MainViewModel) {
     var showAuthDialog by remember { mutableStateOf(false) }
     var showSettings by remember { mutableStateOf(false) }
     var contextMenuTrack by remember { mutableStateOf<Track?>(null) }
+    var contextMenuPlaylist by remember { mutableStateOf<Playlist?>(null) }
     var showCreatePlaylistDialog by remember { mutableStateOf(false) }
 
     val currentTrack by viewModel.currentTrack.collectAsState()
@@ -353,7 +355,10 @@ fun MainAppScreen(viewModel: MainViewModel) {
                             onDownloadTrackClick = { viewModel.downloadTrack(it, playlist.title) },
                             onToggleFollow = { viewModel.togglePlaylistFollow(it) },
                             onToggleLike = { viewModel.toggleTrackLike(it) },
-                            onMoreTrackClick = { contextMenuTrack = it },
+                            onMoreTrackClick = {
+                                contextMenuPlaylist = playlist
+                                contextMenuTrack = it
+                            },
                             onDismiss = { viewModel.closePlaylist() }
                         )
                     }
@@ -412,7 +417,10 @@ fun MainAppScreen(viewModel: MainViewModel) {
                 onTrackClick = { track, list -> viewModel.playTrack(track, list) },
                 onMoveQueueItem = { from, to -> viewModel.moveQueueItem(from, to) },
                 onRemoveQueueItem = { idx -> viewModel.removeQueueItem(idx) },
-                onMoreClick = { contextMenuTrack = currentTrack },
+                onMoreClick = {
+                    contextMenuPlaylist = selectedPlaylist
+                    contextMenuTrack = currentTrack
+                },
                 onDismiss = { viewModel.closeFullPlayer() }
             )
         }
@@ -489,20 +497,38 @@ fun MainAppScreen(viewModel: MainViewModel) {
 
         // Контекстное меню трека (3 точки / долгое нажатие)
         contextMenuTrack?.let { track ->
+            val isDownloaded = downloadedTrackIds.contains(track.fullId) || track.isLocal
             TrackContextMenuBottomSheet(
                 track = track,
                 playlists = playlists.filter { !it.isAlbum },
-                onDismiss = { contextMenuTrack = null },
+                isDownloaded = isDownloaded,
+                onDownloadClick = {
+                    viewModel.downloadTrack(track)
+                },
+                currentPlaylist = contextMenuPlaylist,
+                onRemoveFromPlaylist = { playlist, trackToRemove ->
+                    viewModel.removeTrackFromPlaylist(playlist, trackToRemove) { success ->
+                        val msg = if (success) "Трек удален из плейлиста" else "Не удалось удалить трек"
+                        Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
+                    }
+                },
+                onDismiss = {
+                    contextMenuTrack = null
+                    contextMenuPlaylist = null
+                },
                 onPlayNext = {
                     viewModel.playNextInQueue(track)
                     contextMenuTrack = null
+                    contextMenuPlaylist = null
                 },
                 onAddToQueueEnd = {
                     viewModel.addToQueueEnd(track)
                     contextMenuTrack = null
+                    contextMenuPlaylist = null
                 },
                 onSearchArtist = { artistName ->
                     contextMenuTrack = null
+                    contextMenuPlaylist = null
                     viewModel.closeFullPlayer()
                     selectedTab = MainTab.SEARCH
                     viewModel.search(artistName)
@@ -510,12 +536,14 @@ fun MainAppScreen(viewModel: MainViewModel) {
                 onAddToPlaylist = { playlist ->
                     viewModel.addTrackToPlaylist(playlist, track)
                     contextMenuTrack = null
+                    contextMenuPlaylist = null
                 },
                 onCreateNewPlaylist = { title, desc ->
                     viewModel.createPlaylist(title, desc) { newPl ->
                         viewModel.addTrackToPlaylist(newPl, track)
                     }
                     contextMenuTrack = null
+                    contextMenuPlaylist = null
                 }
             )
         }

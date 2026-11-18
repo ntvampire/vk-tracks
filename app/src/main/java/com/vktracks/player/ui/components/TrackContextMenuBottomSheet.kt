@@ -15,6 +15,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -36,7 +37,11 @@ fun TrackContextMenuBottomSheet(
     onSearchArtist: ((String) -> Unit)? = null,
     onOpenAlbum: (() -> Unit)? = null,
     onAddToPlaylist: (Playlist) -> Unit,
-    onCreateNewPlaylist: (String, String) -> Unit
+    onCreateNewPlaylist: (String, String) -> Unit,
+    isDownloaded: Boolean = false,
+    onDownloadClick: (() -> Unit)? = null,
+    currentPlaylist: Playlist? = null,
+    onRemoveFromPlaylist: ((Playlist, Track) -> Unit)? = null
 ) {
     val context = LocalContext.current
     var showTrackInfoDialog by remember { mutableStateOf(false) }
@@ -133,7 +138,21 @@ fun TrackContextMenuBottomSheet(
                 color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
             )
 
-            // 1. Информация о треке (первым в меню)
+            // 1. Скачать / Удалить из скачанных (первым пунктом в меню)
+            if (onDownloadClick != null) {
+                val isTrackSaved = isDownloaded || track.isLocal
+                ContextMenuActionItem(
+                    icon = if (isTrackSaved) Icons.Default.CheckCircle else Icons.Default.Download,
+                    title = if (isTrackSaved) "Удалить из скачанных" else "Скачать",
+                    iconTint = if (isTrackSaved) AppleRed else MaterialTheme.colorScheme.onSurfaceVariant,
+                    onClick = {
+                        onDownloadClick()
+                        onDismiss()
+                    }
+                )
+            }
+
+            // 2. Информация о треке
             ContextMenuActionItem(
                 icon = Icons.Default.Info,
                 title = "Информация о треке",
@@ -142,7 +161,7 @@ fun TrackContextMenuBottomSheet(
                 }
             )
 
-            // 2. Поделиться (вторым в меню)
+            // 3. Поделиться
             ContextMenuActionItem(
                 icon = Icons.Default.Share,
                 title = "Поделиться",
@@ -152,7 +171,7 @@ fun TrackContextMenuBottomSheet(
                 }
             )
 
-            // 3. Воспроизвести следующим
+            // 4. Воспроизвести следующим
             ContextMenuActionItem(
                 icon = Icons.AutoMirrored.Filled.QueueMusic,
                 title = "Воспроизвести следующим",
@@ -162,7 +181,7 @@ fun TrackContextMenuBottomSheet(
                 }
             )
 
-            // 4. Добавить в конец очереди
+            // 5. Добавить в конец очереди
             ContextMenuActionItem(
                 icon = Icons.AutoMirrored.Filled.PlaylistAdd,
                 title = "Добавить в конец очереди",
@@ -172,7 +191,7 @@ fun TrackContextMenuBottomSheet(
                 }
             )
 
-            // 5. Добавить в плейлист
+            // 6. Добавить в плейлист
             ContextMenuActionItem(
                 icon = Icons.Default.LibraryAdd,
                 title = "Добавить в плейлист...",
@@ -181,7 +200,7 @@ fun TrackContextMenuBottomSheet(
                 }
             )
 
-            // 6. Поиск по исполнителю (переход в поиск)
+            // 7. Поиск по исполнителю (переход в поиск)
             if (onSearchArtist != null && track.artist.isNotBlank()) {
                 ContextMenuActionItem(
                     icon = Icons.Default.Search,
@@ -193,13 +212,27 @@ fun TrackContextMenuBottomSheet(
                 )
             }
 
-            // 7. Перейти к альбому (если доступен)
+            // 8. Перейти к альбому (если доступен)
             if (onOpenAlbum != null && !track.albumTitle.isNullOrBlank()) {
                 ContextMenuActionItem(
                     icon = Icons.Default.Album,
                     title = "Перейти к альбому: ${track.albumTitle}",
                     onClick = {
                         onOpenAlbum()
+                        onDismiss()
+                    }
+                )
+            }
+
+            // 9. Удалить из плейлиста (последним пунктом в меню, если трек в плейлисте)
+            if (currentPlaylist != null && onRemoveFromPlaylist != null && !currentPlaylist.isAlbum) {
+                ContextMenuActionItem(
+                    icon = Icons.Default.DeleteOutline,
+                    title = "Удалить из плейлиста",
+                    iconTint = MaterialTheme.colorScheme.error,
+                    textColor = MaterialTheme.colorScheme.error,
+                    onClick = {
+                        onRemoveFromPlaylist(currentPlaylist, track)
                         onDismiss()
                     }
                 )
@@ -213,7 +246,9 @@ private fun ContextMenuActionItem(
     icon: ImageVector,
     title: String,
     onClick: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    iconTint: Color = MaterialTheme.colorScheme.onSurfaceVariant,
+    textColor: Color = MaterialTheme.colorScheme.onSurface
 ) {
     Row(
         modifier = modifier
@@ -225,14 +260,14 @@ private fun ContextMenuActionItem(
         Icon(
             imageVector = icon,
             contentDescription = null,
-            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+            tint = iconTint,
             modifier = Modifier.size(24.dp)
         )
         Spacer(modifier = Modifier.width(16.dp))
         Text(
             text = title,
             fontSize = 15.sp,
-            color = MaterialTheme.colorScheme.onSurface,
+            color = textColor,
             fontWeight = FontWeight.Medium,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis

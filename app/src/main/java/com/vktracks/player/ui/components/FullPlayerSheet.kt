@@ -84,7 +84,7 @@ fun FullPlayerSheet(
     onSeekTo: (Long) -> Unit,
     onToggleShuffle: () -> Unit,
     onToggleRepeat: () -> Unit,
-    onDownloadClick: () -> Unit,
+    onDownloadClick: () -> Unit = {},
     onTrackClick: (Track, List<Track>) -> Unit = { _, _ -> },
     onMoveQueueItem: (Int, Int) -> Unit = { _, _ -> },
     onRemoveQueueItem: (Int) -> Unit = {},
@@ -423,12 +423,13 @@ fun FullPlayerSheet(
 
             Spacer(modifier = Modifier.height(24.dp))
 
-            // Нижняя панель действий (Текст песни, Скачивание)
+            // Нижняя панель действий (Текст песни, Контекстное меню)
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
+                    .padding(horizontal = 32.dp)
                     .padding(bottom = 16.dp),
-                horizontalArrangement = Arrangement.SpaceEvenly,
+                horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 // Текст песни
@@ -440,17 +441,6 @@ fun FullPlayerSheet(
                         contentDescription = "Текст песни",
                         tint = if (centerMode == PlayerCenterMode.LYRICS) AppleRed else MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.size(26.dp)
-                    )
-                }
-
-                // Скачивание трека в MP3
-                val isTrackSaved = isDownloaded || track.isLocal
-                IconButton(onClick = onDownloadClick) {
-                    Icon(
-                        imageVector = if (isTrackSaved) Icons.Default.CheckCircle else Icons.Default.Download,
-                        contentDescription = if (isTrackSaved) "Скачано (нажмите для удаления)" else "Скачать на телефон",
-                        tint = if (isTrackSaved) AppleRed else MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.size(24.dp)
                     )
                 }
 

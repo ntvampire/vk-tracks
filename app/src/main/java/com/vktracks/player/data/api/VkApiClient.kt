@@ -375,6 +375,20 @@ class VkApiClient(
         false
     }
 
+    suspend fun removeFromPlaylist(playlistId: Long, ownerId: Long, track: Track): Boolean = withContext(Dispatchers.IO) {
+        val fullAudioId = "${track.ownerId}_${track.id}"
+        val params = mapOf(
+            "playlist_id" to playlistId.toString(),
+            "owner_id" to ownerId.toString(),
+            "audio_ids" to fullAudioId
+        )
+        val json = callVkApi("audio.removeFromPlaylist", params)
+        if (json != null && !json.has("error")) {
+            return@withContext true
+        }
+        false
+    }
+
     suspend fun searchCatalog(query: String): SearchResult = withContext(Dispatchers.IO) {
         val q = query.trim()
         if (q.isEmpty()) return@withContext SearchResult()

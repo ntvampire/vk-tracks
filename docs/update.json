@@ -1,7 +1,7 @@
 ﻿{
-    "versionCode": 63,
-    "versionName": "1.0.62",
-    "downloadUrl": "https://github.com/ntvampire/vk-tracks/releases/download/v1.0.62/VK-Tracks-1.0.62.apk",
-    "mirrorUrl": "https://ntvampire.github.io/vk-tracks/VK-Tracks-1.0.62.apk",
-    "changelog": "1. Окно авторизации: исправлен баг блокировки кнопки «Войти» при входе по ссылке из браузера. 2. Однострочное компактное поле ввода (singleLine) предотвращает раздувание экрана ссылкой. 3. Добавлена смарт-кнопка «Вставить из буфера и войти» для авторизации в 1 клик. 4. Добавлена плавная вертикальная прокрутка и поддержка экранной клавиатуры (imePadding)."
+    "versionCode": 64,
+    "versionName": "1.0.63",
+    "downloadUrl": "https://github.com/ntvampire/vk-tracks/releases/download/v1.0.63/VK-Tracks-1.0.63.apk",
+    "mirrorUrl": "https://ntvampire.github.io/vk-tracks/VK-Tracks-1.0.63.apk",
+    "changelog": "Медиаконтроллер в шторке и на экране блокировки: исправлен визуальный дефект иконки неотмеченного сердечка (устранён артефакт закрашенного левого угла контура ic_heart_border)."
 }

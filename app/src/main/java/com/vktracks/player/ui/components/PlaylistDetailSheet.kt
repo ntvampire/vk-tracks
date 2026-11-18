@@ -26,6 +26,7 @@ import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import com.vktracks.player.data.model.Playlist
 import com.vktracks.player.data.model.Track
+import com.vktracks.player.data.model.toTrackCountString
 import com.vktracks.player.ui.theme.AppleRed
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -170,7 +171,7 @@ fun PlaylistDetailSheet(
 
                             Spacer(modifier = Modifier.height(4.dp))
                             Text(
-                                text = "${tracks.size.takeIf { it > 0 } ?: playlist.count} треков",
+                                text = (tracks.size.takeIf { it > 0 } ?: playlist.count).toTrackCountString(),
                                 fontSize = 13.sp,
                                 fontWeight = FontWeight.Medium,
                                 color = AppleRed

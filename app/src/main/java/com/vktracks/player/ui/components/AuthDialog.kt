@@ -9,6 +9,8 @@ import android.webkit.WebResourceRequest
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import androidx.compose.foundation.background
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -221,14 +223,19 @@ fun AuthDialog(
                         }
                     }
                 } else {
-                    // Вход по Access Token (как в VKX)
+                    // Вход по Access Token или ссылке из браузера
+                    val scrollState = rememberScrollState()
+
                     Column(
                         modifier = Modifier
                             .fillMaxSize()
+                            .verticalScroll(scrollState)
+                            .imePadding()
                             .navigationBarsPadding()
                             .padding(20.dp),
                         verticalArrangement = Arrangement.spacedBy(16.dp)
                     ) {
+                        // Шаг 1: Получение ссылки через браузер
                         Card(
                             shape = RoundedCornerShape(16.dp),
                             colors = CardDefaults.cardColors(
@@ -237,18 +244,39 @@ fun AuthDialog(
                         ) {
                             Column(modifier = Modifier.padding(16.dp)) {
                                 Text(
-                                    text = "Прямой вход по токену",
+                                    text = "Шаг 1. Получите ссылку в браузере",
                                     style = MaterialTheme.typography.titleMedium,
                                     fontWeight = FontWeight.Bold
                                 )
                                 Spacer(modifier = Modifier.height(4.dp))
                                 Text(
-                                    text = "Самый надежный способ авторизации без ввода паролей в приложении. Поддерживаются токены VK Музыки, официального приложения VK или полные ссылки blank.html.",
+                                    text = "1. Нажмите кнопку ниже — откроется официальная страница входа VK.\n2. Подтвердите вход в браузере (в 1 клик).\n3. Скопируйте адрес из адресной строки браузера (blank.html).",
                                     style = MaterialTheme.typography.bodyMedium,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    lineHeight = 20.sp
                                 )
+                                Spacer(modifier = Modifier.height(12.dp))
+                                OutlinedButton(
+                                    onClick = {
+                                        val intent = Intent(Intent.ACTION_VIEW, Uri.parse(VkAuthManager.getOAuthUrl()))
+                                        context.startActivity(intent)
+                                    },
+                                    modifier = Modifier.fillMaxWidth(),
+                                    shape = RoundedCornerShape(12.dp)
+                                ) {
+                                    Icon(Icons.Default.OpenInBrowser, contentDescription = null, modifier = Modifier.size(18.dp))
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Text("Открыть страницу входа в браузере")
+                                }
                             }
                         }
+
+                        // Шаг 2: Вставка и вход
+                        Text(
+                            text = "Шаг 2. Завершите вход",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold
+                        )
 
                         OutlinedTextField(
                             value = tokenInput,
@@ -256,21 +284,34 @@ fun AuthDialog(
                                 tokenInput = it
                                 tokenErrorMessage = null
                             },
-                            label = { Text("Access Token или ссылка blank.html") },
-                            placeholder = { Text("vk1.a... или https://oauth.vk.com/blank.html#access_token=...") },
+                            label = { Text("Ссылка blank.html или токен") },
+                            placeholder = { Text("https://oauth.vk.com/blank.html#... или vk1.a...") },
                             modifier = Modifier.fillMaxWidth(),
+                            singleLine = true,
+                            maxLines = 1,
                             shape = RoundedCornerShape(12.dp),
                             trailingIcon = {
-                                IconButton(
-                                    onClick = {
-                                        val clipText = clipboardManager.getText()?.text
-                                        if (!clipText.isNullOrEmpty()) {
-                                            tokenInput = clipText
+                                if (tokenInput.isNotEmpty()) {
+                                    IconButton(
+                                        onClick = {
+                                            tokenInput = ""
                                             tokenErrorMessage = null
                                         }
+                                    ) {
+                                        Icon(Icons.Default.Close, contentDescription = "Очистить")
                                     }
-                                ) {
-                                    Icon(Icons.Default.ContentPaste, contentDescription = "Вставить из буфера")
+                                } else {
+                                    IconButton(
+                                        onClick = {
+                                            val clipText = clipboardManager.getText()?.text?.trim()
+                                            if (!clipText.isNullOrEmpty()) {
+                                                tokenInput = clipText
+                                                tokenErrorMessage = null
+                                            }
+                                        }
+                                    ) {
+                                        Icon(Icons.Default.ContentPaste, contentDescription = "Вставить из буфера")
+                                    }
                                 }
                             },
                             isError = tokenErrorMessage != null,
@@ -283,19 +324,27 @@ fun AuthDialog(
 
                         Button(
                             onClick = {
-                                if (tokenInput.isBlank()) {
-                                    tokenErrorMessage = "Пожалуйста, вставьте токен"
-                                    return@Button
+                                val targetInput = if (tokenInput.isNotBlank()) {
+                                    tokenInput.trim()
+                                } else {
+                                    val clipText = clipboardManager.getText()?.text?.trim()
+                                    if (clipText.isNullOrBlank()) {
+                                        tokenErrorMessage = "Буфер обмена пуст. Скопируйте ссылку в браузере."
+                                        return@Button
+                                    }
+                                    tokenInput = clipText
+                                    clipText
                                 }
+
                                 isCheckingToken = true
                                 tokenErrorMessage = null
                                 coroutineScope.launch {
-                                    val success = apiClient.validateAndSaveToken(tokenInput)
+                                    val success = apiClient.validateAndSaveToken(targetInput)
                                     isCheckingToken = false
                                     if (success) {
                                         onSuccess()
                                     } else {
-                                        tokenErrorMessage = "Не удалось авторизоваться. Проверьте правильность токена."
+                                        tokenErrorMessage = "Не удалось авторизоваться. Проверьте правильность ссылки или токена."
                                     }
                                 }
                             },
@@ -306,38 +355,13 @@ fun AuthDialog(
                         ) {
                             if (isCheckingToken) {
                                 CircularProgressIndicator(color = Color.White, modifier = Modifier.size(24.dp))
+                            } else if (tokenInput.isBlank()) {
+                                Icon(Icons.Default.ContentPaste, contentDescription = null, modifier = Modifier.size(18.dp))
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text("Вставить из буфера и войти", fontSize = 16.sp, fontWeight = FontWeight.Bold)
                             } else {
                                 Text("Войти по токену", fontSize = 16.sp, fontWeight = FontWeight.Bold)
                             }
-                        }
-
-                        Divider(modifier = Modifier.padding(vertical = 8.dp))
-
-                        // Инструкция для получения токена в браузере
-                        Text(
-                            text = "Как получить токен в 1 клик:",
-                            style = MaterialTheme.typography.titleSmall,
-                            fontWeight = FontWeight.SemiBold
-                        )
-
-                        Text(
-                            text = "1. Нажмите кнопку ниже — откроется официальная страница VK в вашем браузере.\n2. Подтвердите вход (если уже авторизованы в браузере — в 1 клик).\n3. Скопируйте адрес из адресной строки браузера и вставьте в поле выше.",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            lineHeight = 20.sp
-                        )
-
-                        OutlinedButton(
-                            onClick = {
-                                val intent = Intent(Intent.ACTION_VIEW, Uri.parse(VkAuthManager.getOAuthUrl()))
-                                context.startActivity(intent)
-                            },
-                            modifier = Modifier.fillMaxWidth(),
-                            shape = RoundedCornerShape(12.dp)
-                        ) {
-                            Icon(Icons.Default.OpenInBrowser, contentDescription = null, modifier = Modifier.size(18.dp))
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Text("Получить токен через браузер")
                         }
                     }
                 }

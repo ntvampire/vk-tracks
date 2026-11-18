@@ -1,7 +1,7 @@
 ﻿{
-    "versionCode": 66,
-    "versionName": "1.0.65",
-    "downloadUrl": "https://github.com/ntvampire/vk-tracks/releases/download/v1.0.65/VK-Tracks-1.0.65.apk",
-    "mirrorUrl": "https://ntvampire.github.io/vk-tracks/VK-Tracks-1.0.65.apk",
-    "changelog": "Интерфейс: кнопка скачивания перенесена в меню по троеточию (первым пунктом), в меню треков плейлиста добавлен пункт «Удалить из плейлиста», исправлено отображение недоступных треков (серый цвет без дефектов верстки), компактная кнопка «Перемешать» в шапке плейлиста."
+    "versionCode": 67,
+    "versionName": "1.0.66",
+    "downloadUrl": "https://github.com/ntvampire/vk-tracks/releases/download/v1.0.66/VK-Tracks-1.0.66.apk",
+    "mirrorUrl": "https://ntvampire.github.io/vk-tracks/VK-Tracks-1.0.66.apk",
+    "changelog": "Медиатека: пакетное выделение и операции с треками плейлиста (выделить все, скачать, скопировать в плейлист, удалить из плейлиста). Редактирование своих плейлистов: изменение названия, описания и выбор обложки из галереи устройства. Дизайн: гармоничная светлая палитра экрана «Слушать» с мягкими пастельными карточками."
 }

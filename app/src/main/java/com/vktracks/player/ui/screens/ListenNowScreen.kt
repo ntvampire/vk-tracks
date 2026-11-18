@@ -2,6 +2,7 @@ package com.vktracks.player.ui.screens
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.CircleShape
@@ -49,6 +50,8 @@ fun ListenNowScreen(
             onDismiss = { showMixSettingsSheet = false }
         )
     }
+    val isDark = isSystemInDarkTheme()
+
     LazyColumn(
         modifier = modifier
             .fillMaxSize()
@@ -82,20 +85,19 @@ fun ListenNowScreen(
 
         // 1. Секция VK MIX
         item {
+            val mixGradient = if (isDark) {
+                listOf(Color(0xFF2E2638), Color(0xFF1E1A24))
+            } else {
+                listOf(Color(0xFFF4EEF8), Color(0xFFE8DEF8))
+            }
+
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(horizontal = 16.dp, vertical = 6.dp)
-                    .shadow(12.dp, RoundedCornerShape(24.dp))
+                    .shadow(if (isDark) 12.dp else 4.dp, RoundedCornerShape(24.dp))
                     .clip(RoundedCornerShape(24.dp))
-                    .background(
-                        Brush.verticalGradient(
-                            listOf(
-                                Color(0xFF2E2638),
-                                Color(0xFF1E1A24)
-                            )
-                        )
-                    )
+                    .background(Brush.verticalGradient(mixGradient))
                     .padding(20.dp)
             ) {
                 Column {
@@ -109,13 +111,13 @@ fun ListenNowScreen(
                             text = "VK mix",
                             fontSize = 24.sp,
                             fontWeight = FontWeight.Bold,
-                            color = Color.White
+                            color = if (isDark) Color.White else MaterialTheme.colorScheme.onSurface
                         )
                         Spacer(modifier = Modifier.width(6.dp))
                         Icon(
                             imageVector = Icons.Default.KeyboardArrowDown,
                             contentDescription = "Настройки микса",
-                            tint = Color.White.copy(alpha = 0.7f),
+                            tint = if (isDark) Color.White.copy(alpha = 0.7f) else MaterialTheme.colorScheme.onSurfaceVariant,
                             modifier = Modifier.size(24.dp)
                         )
                     }
@@ -125,7 +127,7 @@ fun ListenNowScreen(
                     Text(
                         text = "Динамический плейлист, который подстраивается под ваши вкусы",
                         fontSize = 13.sp,
-                        color = Color.White.copy(alpha = 0.75f),
+                        color = if (isDark) Color.White.copy(alpha = 0.75f) else MaterialTheme.colorScheme.onSurfaceVariant,
                         lineHeight = 18.sp
                     )
 
@@ -138,7 +140,7 @@ fun ListenNowScreen(
                         Button(
                             onClick = onVkMixClick,
                             colors = ButtonDefaults.buttonColors(
-                                containerColor = Color.White.copy(alpha = 0.15f),
+                                containerColor = if (isDark) Color.White.copy(alpha = 0.15f) else AppleRed,
                                 contentColor = Color.White
                             ),
                             shape = RoundedCornerShape(14.dp),
@@ -165,12 +167,12 @@ fun ListenNowScreen(
                             modifier = Modifier
                                 .size(44.dp)
                                 .clip(RoundedCornerShape(12.dp))
-                                .background(Color.White.copy(alpha = 0.12f))
+                                .background(if (isDark) Color.White.copy(alpha = 0.12f) else MaterialTheme.colorScheme.surfaceVariant)
                         ) {
                             Icon(
                                 imageVector = Icons.Default.Tune,
                                 contentDescription = "Настройки микса",
-                                tint = Color.White,
+                                tint = if (isDark) Color.White else MaterialTheme.colorScheme.onSurfaceVariant,
                                 modifier = Modifier.size(20.dp)
                             )
                         }
@@ -219,14 +221,14 @@ fun ListenNowScreen(
                         ) {
                             activeFilters.forEach { filterText ->
                                 Surface(
-                                    color = AppleRed.copy(alpha = 0.25f),
+                                    color = if (isDark) AppleRed.copy(alpha = 0.25f) else AppleRed.copy(alpha = 0.12f),
                                     shape = RoundedCornerShape(8.dp)
                                 ) {
                                     Text(
                                         text = filterText,
                                         fontSize = 12.sp,
                                         fontWeight = FontWeight.Medium,
-                                        color = Color.White,
+                                        color = if (isDark) Color.White else AppleRed,
                                         modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
                                     )
                                 }
@@ -263,7 +265,11 @@ fun ListenNowScreen(
                     isCurrent = isS21,
                     isPlaying = isS21 && isPlaying,
                     currentLiveTrack = if (isS21) currentTrack?.title else null,
-                    gradient = listOf(Color(0xFF1F1F24), Color(0xFF141416)),
+                    gradient = if (isDark) {
+                        listOf(Color(0xFF1F1F24), Color(0xFF141416))
+                    } else {
+                        listOf(Color(0xFFFFF6EE), Color(0xFFFFEDE0))
+                    },
                     accentColor = Color(0xFFFF5722),
                     onClick = { onRadioClick(RadioStation.STUDIO_21) }
                 )
@@ -275,7 +281,11 @@ fun ListenNowScreen(
                     isCurrent = isRecord,
                     isPlaying = isRecord && isPlaying,
                     currentLiveTrack = if (isRecord) currentTrack?.title else null,
-                    gradient = listOf(Color(0xFF381216), Color(0xFF1C090B)),
+                    gradient = if (isDark) {
+                        listOf(Color(0xFF381216), Color(0xFF1C090B))
+                    } else {
+                        listOf(Color(0xFFFFF0F3), Color(0xFFFFE5E9))
+                    },
                     accentColor = AppleRed,
                     onClick = { onRadioClick(RadioStation.RADIO_RECORD) }
                 )
@@ -294,11 +304,12 @@ private fun RadioBannerCard(
     accentColor: Color,
     onClick: () -> Unit
 ) {
+    val isDark = isSystemInDarkTheme()
     Box(
         modifier = Modifier
             .fillMaxWidth()
             .height(90.dp)
-            .shadow(8.dp, RoundedCornerShape(20.dp))
+            .shadow(if (isDark) 8.dp else 4.dp, RoundedCornerShape(20.dp))
             .clip(RoundedCornerShape(20.dp))
             .background(Brush.horizontalGradient(gradient))
             .clickable(onClick = onClick)
@@ -313,7 +324,7 @@ private fun RadioBannerCard(
                 modifier = Modifier
                     .size(62.dp)
                     .clip(RoundedCornerShape(14.dp))
-                    .background(Color.White.copy(alpha = 0.08f)),
+                    .background(if (isDark) Color.White.copy(alpha = 0.08f) else Color.Black.copy(alpha = 0.04f)),
                 contentAlignment = Alignment.Center
             ) {
                 AsyncImage(
@@ -336,7 +347,7 @@ private fun RadioBannerCard(
                         text = station.title,
                         fontSize = 17.sp,
                         fontWeight = FontWeight.Bold,
-                        color = Color.White
+                        color = if (isDark) Color.White else MaterialTheme.colorScheme.onSurface
                     )
                     Spacer(modifier = Modifier.width(8.dp))
                     // Бейдж LIVE
@@ -366,7 +377,7 @@ private fun RadioBannerCard(
                 Text(
                     text = subtitleText,
                     fontSize = 13.sp,
-                    color = if (isCurrent) accentColor else Color.White.copy(alpha = 0.7f),
+                    color = if (isCurrent) accentColor else if (isDark) Color.White.copy(alpha = 0.7f) else MaterialTheme.colorScheme.onSurfaceVariant,
                     fontWeight = if (isCurrent) FontWeight.SemiBold else FontWeight.Normal,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
@@ -376,17 +387,32 @@ private fun RadioBannerCard(
             Spacer(modifier = Modifier.width(8.dp))
 
             // Кнопка Play / Pause
+            val playBgColor = if (isCurrent && isPlaying) {
+                accentColor
+            } else if (isDark) {
+                Color.White
+            } else {
+                accentColor
+            }
+            val playIconColor = if (isCurrent && isPlaying) {
+                Color.White
+            } else if (isDark) {
+                Color.Black
+            } else {
+                Color.White
+            }
+
             Box(
                 modifier = Modifier
                     .size(42.dp)
                     .clip(CircleShape)
-                    .background(if (isCurrent && isPlaying) accentColor else Color.White),
+                    .background(playBgColor),
                 contentAlignment = Alignment.Center
             ) {
                 Icon(
                     imageVector = if (isCurrent && isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
                     contentDescription = if (isCurrent && isPlaying) "Пауза" else "Слушать",
-                    tint = if (isCurrent && isPlaying) Color.White else Color.Black,
+                    tint = playIconColor,
                     modifier = Modifier.size(24.dp)
                 )
             }

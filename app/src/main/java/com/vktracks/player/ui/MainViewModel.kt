@@ -2,8 +2,12 @@ package com.vktracks.player.ui
 
 import android.app.Application
 import android.content.ComponentName
+import android.content.Context
 import android.content.Intent
+import android.net.Uri
+import android.util.Log
 import android.widget.Toast
+import java.io.File
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
@@ -43,7 +47,6 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import okhttp3.WebSocket
-import java.io.File
 import java.util.concurrent.ConcurrentHashMap
 
 class MainViewModel(application: Application) : AndroidViewModel(application) {
@@ -438,18 +441,67 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun removeTrackFromPlaylist(playlist: Playlist, track: Track, onResult: ((Boolean) -> Unit)? = null) {
+        removeTracksFromPlaylist(playlist, listOf(track), onResult)
+    }
+
+    fun removeTracksFromPlaylist(playlist: Playlist, tracks: List<Track>, onResult: ((Boolean) -> Unit)? = null) {
+        if (tracks.isEmpty()) return
         viewModelScope.launch {
             try {
-                val ok = apiClient.removeFromPlaylist(playlist.id, playlist.ownerId, track)
-                if (ok) {
-                    playlistTracksCache.remove(playlist.fullId)
-                    _selectedPlaylistTracks.value = _selectedPlaylistTracks.value.filter { it.id != track.id }
-                    _playlists.value = _playlists.value.map {
-                        if (it.fullId == playlist.fullId) it.copy(count = maxOf(0, it.count - 1)) else it
+                val ok = apiClient.removeTracksFromPlaylist(playlist.id, playlist.ownerId, tracks)
+                val trackIdsToRemove = tracks.map { it.id }.toSet()
+                playlistTracksCache.remove(playlist.fullId)
+                _selectedPlaylistTracks.value = _selectedPlaylistTracks.value.filter { !trackIdsToRemove.contains(it.id) }
+                _playlists.value = _playlists.value.map {
+                    if (it.fullId == playlist.fullId) it.copy(count = maxOf(0, it.count - tracks.size)) else it
+                }
+                if (_selectedPlaylist.value?.fullId == playlist.fullId) {
+                    _selectedPlaylist.value = _selectedPlaylist.value?.copy(count = maxOf(0, (_selectedPlaylist.value?.count ?: tracks.size) - tracks.size))
+                }
+                onResult?.invoke(ok)
+            } catch (_: Exception) {
+                onResult?.invoke(false)
+            }
+        }
+    }
+
+    fun editPlaylist(
+        playlist: Playlist,
+        title: String,
+        description: String,
+        coverUri: Uri?,
+        context: Context,
+        onResult: ((Boolean) -> Unit)? = null
+    ) {
+        viewModelScope.launch {
+            try {
+                var finalCoverUrl = playlist.coverUrl
+                if (coverUri != null) {
+                    try {
+                        val coversDir = File(context.filesDir, "covers").apply { mkdirs() }
+                        val coverFile = File(coversDir, "playlist_${playlist.id}_${System.currentTimeMillis()}.jpg")
+                        context.contentResolver.openInputStream(coverUri)?.use { input ->
+                            coverFile.outputStream().use { output ->
+                                input.copyTo(output)
+                            }
+                        }
+                        finalCoverUrl = Uri.fromFile(coverFile).toString()
+                    } catch (e: Exception) {
+                        Log.e("MainViewModel", "Failed to save local playlist cover", e)
                     }
-                    if (_selectedPlaylist.value?.fullId == playlist.fullId) {
-                        _selectedPlaylist.value = _selectedPlaylist.value?.copy(count = maxOf(0, (_selectedPlaylist.value?.count ?: 1) - 1))
-                    }
+                }
+
+                val ok = apiClient.editPlaylist(playlist.id, playlist.ownerId, title, description)
+                val updated = playlist.copy(
+                    title = title.ifBlank { playlist.title },
+                    description = description,
+                    coverUrl = finalCoverUrl
+                )
+                _playlists.value = _playlists.value.map {
+                    if (it.fullId == playlist.fullId) updated else it
+                }
+                if (_selectedPlaylist.value?.fullId == playlist.fullId) {
+                    _selectedPlaylist.value = updated
                 }
                 onResult?.invoke(ok)
             } catch (_: Exception) {

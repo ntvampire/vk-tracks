@@ -131,6 +131,7 @@ class MainActivity : ComponentActivity() {
 
 @Composable
 fun MainAppScreen(viewModel: MainViewModel) {
+    val context = LocalContext.current
     var selectedTab by remember { mutableStateOf(MainTab.LISTEN_NOW) }
     val showFullPlayer by viewModel.showFullPlayer.collectAsState()
     var showAuthDialog by remember { mutableStateOf(false) }
@@ -333,6 +334,10 @@ fun MainAppScreen(viewModel: MainViewModel) {
                 // Экран плейлиста / альбома в стиле Apple Music (внутри контентной зоны, таб-бар и мини-плеер остаются на виду)
                 if (selectedPlaylist != null) {
                     selectedPlaylist?.let { playlist ->
+                        val currentUserId = viewModel.authManager.getUserId()
+                        val isUserPlaylist = !playlist.isAlbum && (playlist.ownerId == currentUserId || (playlist.ownerId > 0 && playlists.any { it.id == playlist.id && it.ownerId == playlist.ownerId }))
+                        val userPlaylists = playlists.filter { !it.isAlbum }
+
                         PlaylistDetailSheet(
                             playlist = playlist,
                             tracks = selectedPlaylistTracks,
@@ -343,6 +348,8 @@ fun MainAppScreen(viewModel: MainViewModel) {
                             currentTrack = currentTrack,
                             isPlaying = isPlaying,
                             resolvedCovers = resolvedCovers,
+                            isUserPlaylist = isUserPlaylist,
+                            userPlaylists = userPlaylists,
                             onTrackClick = { track, list -> viewModel.playTrack(track, list) },
                             onPlayAllClick = { list -> if (list.isNotEmpty()) viewModel.playTrack(list.first(), list) },
                             onShuffleClick = { list ->
@@ -358,6 +365,20 @@ fun MainAppScreen(viewModel: MainViewModel) {
                             onMoreTrackClick = {
                                 contextMenuPlaylist = playlist
                                 contextMenuTrack = it
+                            },
+                            onEditPlaylistClick = { pl, title, desc, coverUri ->
+                                viewModel.editPlaylist(pl, title, desc, coverUri, context) { ok ->
+                                    val msg = if (ok) "Плейлист обновлён" else "Плейлист сохранён локально"
+                                    Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
+                                }
+                            },
+                            onBatchDownloadClick = { list -> viewModel.downloadTracks(list, playlist.title) },
+                            onBatchAddToPlaylistClick = { targetPl, list -> viewModel.addTracksToPlaylist(targetPl, list) },
+                            onBatchRemoveFromPlaylistClick = { list ->
+                                viewModel.removeTracksFromPlaylist(playlist, list) { ok ->
+                                    val msg = if (ok) "Удалено треков: ${list.size}" else "Не удалось удалить треки"
+                                    Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
+                                }
                             },
                             onDismiss = { viewModel.closePlaylist() }
                         )

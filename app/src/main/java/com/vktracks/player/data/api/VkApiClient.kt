@@ -375,14 +375,35 @@ class VkApiClient(
         false
     }
 
-    suspend fun removeFromPlaylist(playlistId: Long, ownerId: Long, track: Track): Boolean = withContext(Dispatchers.IO) {
-        val fullAudioId = "${track.ownerId}_${track.id}"
+    suspend fun removeFromPlaylist(playlistId: Long, ownerId: Long, track: Track): Boolean =
+        removeTracksFromPlaylist(playlistId, ownerId, listOf(track))
+
+    suspend fun removeTracksFromPlaylist(playlistId: Long, ownerId: Long, tracks: List<Track>): Boolean = withContext(Dispatchers.IO) {
+        if (tracks.isEmpty()) return@withContext true
+        val fullAudioIds = tracks.joinToString(",") { "${it.ownerId}_${it.id}" }
         val params = mapOf(
             "playlist_id" to playlistId.toString(),
             "owner_id" to ownerId.toString(),
-            "audio_ids" to fullAudioId
+            "audio_ids" to fullAudioIds
         )
         val json = callVkApi("audio.removeFromPlaylist", params)
+        if (json != null && !json.has("error")) {
+            return@withContext true
+        }
+        false
+    }
+
+    suspend fun editPlaylist(playlistId: Long, ownerId: Long, title: String, description: String = ""): Boolean = withContext(Dispatchers.IO) {
+        val params = mutableMapOf(
+            "playlist_id" to playlistId.toString(),
+            "owner_id" to ownerId.toString(),
+            "title" to title.trim(),
+            "description" to description.trim()
+        )
+        var json = callVkApi("audio.editPlaylist", params)
+        if (json == null || json.has("error")) {
+            json = callVkApi("execute.savePlaylist", params)
+        }
         if (json != null && !json.has("error")) {
             return@withContext true
         }

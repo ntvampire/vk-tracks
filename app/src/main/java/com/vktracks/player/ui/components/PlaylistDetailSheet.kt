@@ -1,8 +1,11 @@
 package com.vktracks.player.ui.components
 
+import android.net.Uri
 import androidx.activity.compose.BackHandler
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
@@ -11,7 +14,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
-import androidx.compose.runtime.Composable
+import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -30,7 +33,7 @@ import com.vktracks.player.data.model.Track
 import com.vktracks.player.data.model.toTrackCountString
 import com.vktracks.player.ui.theme.AppleRed
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
 fun PlaylistDetailSheet(
     playlist: Playlist,
@@ -51,55 +54,133 @@ fun PlaylistDetailSheet(
     onToggleLike: (Track) -> Unit,
     onMoreTrackClick: ((Track) -> Unit)? = null,
     onDismiss: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    isUserPlaylist: Boolean = false,
+    userPlaylists: List<Playlist> = emptyList(),
+    onEditPlaylistClick: ((Playlist, String, String, Uri?) -> Unit)? = null,
+    onBatchDownloadClick: ((List<Track>) -> Unit)? = null,
+    onBatchAddToPlaylistClick: ((Playlist, List<Track>) -> Unit)? = null,
+    onBatchRemoveFromPlaylistClick: ((List<Track>) -> Unit)? = null
 ) {
     val context = LocalContext.current
+    var isSelectionMode by remember { mutableStateOf(false) }
+    var selectedTrackIds by remember { mutableStateOf(setOf<String>()) }
+    var showEditDialog by remember { mutableStateOf(false) }
+    var showPlaylistChooserDialog by remember { mutableStateOf(false) }
+
+    BackHandler {
+        if (showPlaylistChooserDialog) {
+            showPlaylistChooserDialog = false
+        } else if (showEditDialog) {
+            showEditDialog = false
+        } else if (isSelectionMode) {
+            isSelectionMode = false
+            selectedTrackIds = emptySet()
+        } else {
+            onDismiss()
+        }
+    }
+
+    if (showEditDialog) {
+        EditPlaylistDialog(
+            playlist = playlist,
+            onDismiss = { showEditDialog = false },
+            onSave = { newTitle, newDesc, newCoverUri ->
+                showEditDialog = false
+                onEditPlaylistClick?.invoke(playlist, newTitle, newDesc, newCoverUri)
+            }
+        )
+    }
+
+    if (showPlaylistChooserDialog) {
+        val selectedTracks = tracks.filter { selectedTrackIds.contains(it.fullId) }
+        AddToPlaylistDialog(
+            playlists = userPlaylists.filter { it.id != playlist.id },
+            onDismiss = { showPlaylistChooserDialog = false },
+            onSelectPlaylist = { targetPl ->
+                showPlaylistChooserDialog = false
+                isSelectionMode = false
+                selectedTrackIds = emptySet()
+                onBatchAddToPlaylistClick?.invoke(targetPl, selectedTracks)
+            },
+            onCreateNewClick = {
+                showPlaylistChooserDialog = false
+            }
+        )
+    }
+
     Surface(
         modifier = modifier.fillMaxSize(),
         color = MaterialTheme.colorScheme.background
     ) {
-        BackHandler(onBack = onDismiss)
-
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .statusBarsPadding()
-        ) {
-            // Верхняя навигационная панель
-            Row(
+        Box(modifier = Modifier.fillMaxSize()) {
+            Column(
                 modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 8.dp, vertical = 6.dp),
-                verticalAlignment = Alignment.CenterVertically
+                    .fillMaxSize()
+                    .statusBarsPadding()
             ) {
-                IconButton(onClick = onDismiss) {
-                    Icon(
-                        imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                        contentDescription = "Назад",
-                        tint = MaterialTheme.colorScheme.onBackground
-                    )
-                }
-                Spacer(modifier = Modifier.weight(1f))
-
-                // Сердечко плейлиста (добавить/удалить из библиотеки)
-                IconButton(onClick = { onToggleFollow(playlist) }) {
-                    Icon(
-                        imageVector = if (isFollowed) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
-                        contentDescription = if (isFollowed) "В медиатеке" else "Добавить в медиатеку",
-                        tint = if (isFollowed) AppleRed else MaterialTheme.colorScheme.onBackground
-                    )
-                }
-
-                if (tracks.isNotEmpty()) {
-                    IconButton(onClick = { onDownloadAllClick(tracks) }) {
+                // Верхняя навигационная панель
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 8.dp, vertical = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    IconButton(onClick = onDismiss) {
                         Icon(
-                            imageVector = Icons.Default.Download,
-                            contentDescription = "Скачать плейлист",
-                            tint = AppleRed
+                            imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                            contentDescription = "Назад",
+                            tint = MaterialTheme.colorScheme.onBackground
                         )
                     }
+                    Spacer(modifier = Modifier.weight(1f))
+
+                    if (tracks.isNotEmpty() && !playlist.isAlbum) {
+                        TextButton(
+                            onClick = {
+                                isSelectionMode = !isSelectionMode
+                                if (!isSelectionMode) selectedTrackIds = emptySet()
+                            }
+                        ) {
+                            Text(
+                                text = if (isSelectionMode) "Готово" else "Выбрать",
+                                color = AppleRed,
+                                fontSize = 15.sp,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                        }
+                    }
+
+                    // Иконка редактирования плейлиста (название, описание, обложка)
+                    if (isUserPlaylist) {
+                        IconButton(onClick = { showEditDialog = true }) {
+                            Icon(
+                                imageVector = Icons.Default.Edit,
+                                contentDescription = "Редактировать плейлист",
+                                tint = MaterialTheme.colorScheme.onBackground
+                            )
+                        }
+                    }
+
+                    // Сердечко плейлиста (добавить/удалить из библиотеки)
+                    IconButton(onClick = { onToggleFollow(playlist) }) {
+                        Icon(
+                            imageVector = if (isFollowed) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
+                            contentDescription = if (isFollowed) "В медиатеке" else "Добавить в медиатеку",
+                            tint = if (isFollowed) AppleRed else MaterialTheme.colorScheme.onBackground
+                        )
+                    }
+
+                    if (tracks.isNotEmpty()) {
+                        IconButton(onClick = { onDownloadAllClick(tracks) }) {
+                            Icon(
+                                imageVector = Icons.Default.Download,
+                                contentDescription = "Скачать плейлист",
+                                tint = AppleRed
+                            )
+                        }
+                    }
                 }
-            }
 
             val tracksWithCovers = androidx.compose.runtime.remember(tracks, playlist.coverUrl, playlist.isAlbum) {
                 if (playlist.isAlbum && !playlist.coverUrl.isNullOrEmpty()) {
@@ -111,7 +192,7 @@ fun PlaylistDetailSheet(
 
             LazyColumn(
                 modifier = Modifier.fillMaxSize(),
-                contentPadding = PaddingValues(bottom = 24.dp)
+                contentPadding = PaddingValues(bottom = if (isSelectionMode) 100.dp else 24.dp)
             ) {
                     // Заголовок плейлиста в стиле Apple Music
                     item {
@@ -263,33 +344,68 @@ fun PlaylistDetailSheet(
                             Row(
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .clickable {
-                                        if (track.isRestricted) {
-                                            android.widget.Toast.makeText(
-                                                context,
-                                                "Воспроизведение недоступно: ${track.displayRestriction}",
-                                                android.widget.Toast.LENGTH_SHORT
-                                            ).show()
-                                        } else {
-                                            val trackWithCover = if (playlist.isAlbum && track.coverUrl.isNullOrEmpty() && !playlist.coverUrl.isNullOrEmpty()) {
-                                                track.copy(coverUrl = playlist.coverUrl)
+                                    .combinedClickable(
+                                        onClick = {
+                                            if (isSelectionMode) {
+                                                selectedTrackIds = if (selectedTrackIds.contains(track.fullId)) {
+                                                    selectedTrackIds - track.fullId
+                                                } else {
+                                                    selectedTrackIds + track.fullId
+                                                }
+                                            } else if (track.isRestricted) {
+                                                android.widget.Toast.makeText(
+                                                    context,
+                                                    "Воспроизведение недоступно: ${track.displayRestriction}",
+                                                    android.widget.Toast.LENGTH_SHORT
+                                                ).show()
                                             } else {
-                                                track
+                                                val trackWithCover = if (playlist.isAlbum && track.coverUrl.isNullOrEmpty() && !playlist.coverUrl.isNullOrEmpty()) {
+                                                    track.copy(coverUrl = playlist.coverUrl)
+                                                } else {
+                                                    track
+                                                }
+                                                onTrackClick(trackWithCover, tracksWithCovers)
                                             }
-                                            onTrackClick(trackWithCover, tracksWithCovers)
+                                        },
+                                        onLongClick = {
+                                            if (!playlist.isAlbum) {
+                                                isSelectionMode = true
+                                                selectedTrackIds = setOf(track.fullId)
+                                            }
                                         }
-                                    }
+                                    )
                                     .padding(horizontal = 20.dp, vertical = 10.dp),
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
-                                // Порядковый номер трека
-                                Text(
-                                    text = "${index + 1}",
-                                    fontSize = 14.sp,
-                                    fontWeight = FontWeight.Medium,
-                                    color = if (isCurrent) AppleRed else MaterialTheme.colorScheme.onSurfaceVariant,
-                                    modifier = Modifier.width(28.dp)
-                                )
+                                // Чекбокс режима множественного выбора (пакетные операции)
+                                AnimatedVisibility(visible = isSelectionMode) {
+                                    Checkbox(
+                                        checked = selectedTrackIds.contains(track.fullId),
+                                        onCheckedChange = { checked ->
+                                            selectedTrackIds = if (checked) {
+                                                selectedTrackIds + track.fullId
+                                            } else {
+                                                selectedTrackIds - track.fullId
+                                            }
+                                        },
+                                        colors = CheckboxDefaults.colors(
+                                            checkedColor = AppleRed,
+                                            uncheckedColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
+                                        ),
+                                        modifier = Modifier.padding(end = 8.dp)
+                                    )
+                                }
+
+                                if (!isSelectionMode) {
+                                    // Порядковый номер трека
+                                    Text(
+                                        text = "${index + 1}",
+                                        fontSize = 14.sp,
+                                        fontWeight = FontWeight.Medium,
+                                        color = if (isCurrent) AppleRed else MaterialTheme.colorScheme.onSurfaceVariant,
+                                        modifier = Modifier.width(28.dp)
+                                    )
+                                }
 
                                 // Обложка трека: для альбома (1 артист) подходит обложка альбома; для плейлиста (сборка разных артистов) - только собственная обложка трека
                                 val itemCoverUrl = if (playlist.isAlbum) {
@@ -335,31 +451,120 @@ fun PlaylistDetailSheet(
                                     )
                                 }
 
-                                // Кнопка "Сердечко"
-                                IconButton(
-                                    onClick = { onToggleLike(track) },
-                                    modifier = Modifier.size(36.dp)
-                                ) {
-                                    Icon(
-                                        imageVector = if (isLiked) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
-                                        contentDescription = if (isLiked) "В избранном" else "Нравится",
-                                        tint = if (isLiked) AppleRed else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
-                                        modifier = Modifier.size(20.dp)
-                                    )
-                                }
-
-                                if (onMoreTrackClick != null) {
+                                if (!isSelectionMode) {
+                                    // Кнопка "Сердечко"
                                     IconButton(
-                                        onClick = { onMoreTrackClick(track) },
+                                        onClick = { onToggleLike(track) },
                                         modifier = Modifier.size(36.dp)
                                     ) {
                                         Icon(
-                                            imageVector = Icons.Default.MoreVert,
-                                            contentDescription = "Действия с треком",
-                                            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+                                            imageVector = if (isLiked) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
+                                            contentDescription = if (isLiked) "В избранном" else "Нравится",
+                                            tint = if (isLiked) AppleRed else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
                                             modifier = Modifier.size(20.dp)
                                         )
                                     }
+
+                                    if (onMoreTrackClick != null) {
+                                        IconButton(
+                                            onClick = { onMoreTrackClick(track) },
+                                            modifier = Modifier.size(36.dp)
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Default.MoreVert,
+                                                contentDescription = "Действия с треком",
+                                                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+                                                modifier = Modifier.size(20.dp)
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Плавающая панель пакетных действий
+            if (isSelectionMode) {
+                val selectedTracks = tracks.filter { selectedTrackIds.contains(it.fullId) }
+
+                Surface(
+                    modifier = Modifier
+                        .align(Alignment.BottomCenter)
+                        .padding(horizontal = 16.dp, vertical = 20.dp)
+                        .fillMaxWidth(),
+                    shape = RoundedCornerShape(16.dp),
+                    tonalElevation = 6.dp,
+                    shadowElevation = 8.dp,
+                    color = MaterialTheme.colorScheme.surfaceVariant
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp, vertical = 8.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "Выбрано: ${selectedTrackIds.size}",
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 14.sp
+                        )
+
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            TextButton(
+                                onClick = {
+                                    selectedTrackIds = if (selectedTrackIds.size == tracks.size) {
+                                        emptySet()
+                                    } else {
+                                        tracks.map { it.fullId }.toSet()
+                                    }
+                                }
+                            ) {
+                                Text(
+                                    text = if (selectedTrackIds.size == tracks.size) "Снять" else "Все",
+                                    color = AppleRed,
+                                    fontSize = 13.sp
+                                )
+                            }
+
+                            // Скачать выбранные
+                            IconButton(
+                                onClick = {
+                                    onBatchDownloadClick?.invoke(selectedTracks)
+                                    isSelectionMode = false
+                                    selectedTrackIds = emptySet()
+                                },
+                                enabled = selectedTracks.isNotEmpty()
+                            ) {
+                                Icon(Icons.Default.Download, contentDescription = "Скачать выбранные", tint = AppleRed)
+                            }
+
+                            // В другой плейлист
+                            val otherPlaylists = userPlaylists.filter { it.id != playlist.id }
+                            if (otherPlaylists.isNotEmpty()) {
+                                IconButton(
+                                    onClick = {
+                                        showPlaylistChooserDialog = true
+                                    },
+                                    enabled = selectedTracks.isNotEmpty()
+                                ) {
+                                    Icon(Icons.Default.PlaylistAdd, contentDescription = "В плейлист", tint = MaterialTheme.colorScheme.onSurface)
+                                }
+                            }
+
+                            // Удалить из этого плейлиста
+                            if (isUserPlaylist) {
+                                IconButton(
+                                    onClick = {
+                                        onBatchRemoveFromPlaylistClick?.invoke(selectedTracks)
+                                        isSelectionMode = false
+                                        selectedTrackIds = emptySet()
+                                    },
+                                    enabled = selectedTracks.isNotEmpty()
+                                ) {
+                                    Icon(Icons.Default.Delete, contentDescription = "Удалить из плейлиста", tint = Color(0xFFFF3B30))
                                 }
                             }
                         }
@@ -368,3 +573,4 @@ fun PlaylistDetailSheet(
             }
         }
     }
+}

@@ -56,6 +56,18 @@ data class Playlist(
     val fullId: String get() = "${ownerId}_${id}"
 }
 
+fun Int.toTrackCountString(): String {
+    val rem100 = this % 100
+    val rem10 = this % 10
+    val word = when {
+        rem100 in 11..19 -> "треков"
+        rem10 == 1 -> "трек"
+        rem10 in 2..4 -> "трека"
+        else -> "треков"
+    }
+    return "$this $word"
+}
+
 data class LyricLine(
     val beginMs: Long,
     val endMs: Long,

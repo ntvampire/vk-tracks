@@ -185,11 +185,17 @@ class VkApiClient(
     }
 
     suspend fun getPlaylistTracks(playlistId: Long, ownerId: Long, accessKey: String? = null, isAlbum: Boolean = false): List<Track> = withContext(Dispatchers.IO) {
-        // Резервный вызов для официальных/редакционных плейлистов и альбомов VK (содержит объект playlist с нативной обложкой)
+        val allTracks = mutableListOf<Track>()
+        var playlistCover: String? = null
+        var isAlbumRelease = isAlbum
+        var totalCount = 0
+
+        // 1. Первичный вызов для официальных/редакционных и пользовательских плейлистов и альбомов VK
         val pParams = mutableMapOf(
             "playlist_id" to playlistId.toString(),
             "owner_id" to ownerId.toString(),
             "need_audios" to "1",
+            "offset" to "0",
             "count" to "150",
             "extended" to "1"
         )
@@ -200,9 +206,10 @@ class VkApiClient(
         if (pJson != null && !pJson.has("error")) {
             val pResp = pJson.optJSONObject("response")
             val playlistObj = pResp?.optJSONObject("playlist") ?: pResp
-            val playlistCover = playlistObj?.let { extractCoverUrl(it) }
+            playlistCover = playlistObj?.let { extractCoverUrl(it) }
+            totalCount = playlistObj?.optInt("count", 0) ?: pResp?.optInt("count", 0) ?: 0
 
-            val isAlbumRelease = isAlbum || playlistObj?.let { obj ->
+            isAlbumRelease = isAlbum || playlistObj?.let { obj ->
                 val albumType = obj.optString("album_type", "").trim().lowercase()
                 val isExplicitAlbum = obj.optBoolean("is_album", false) || obj.optInt("is_album", 0) == 1
                 val mainArtists = obj.optJSONArray("main_artists")
@@ -213,34 +220,114 @@ class VkApiClient(
 
             val audios = pResp?.optJSONArray("audios") ?: pResp?.optJSONArray("items")
             if (audios != null) {
-                val parsed = parseTracksArray(audios)
-                // Для альбомов (1 артист) обложка релиза подходит ко всем трекам.
-                // Для плейлистов (сборка разных треков и исполнителей) обложку плейлиста ко всем трекам НЕ применяем!
-                return@withContext if (isAlbumRelease && !playlistCover.isNullOrEmpty()) {
-                    parsed.map { if (it.coverUrl.isNullOrEmpty()) it.copy(coverUrl = playlistCover) else it }
-                } else {
-                    parsed
-                }
+                allTracks.addAll(parseTracksArray(audios))
             }
         }
 
-        val params = mutableMapOf(
-            "playlist_id" to playlistId.toString(),
-            "album_id" to playlistId.toString(),
-            "owner_id" to ownerId.toString(),
-            "count" to "150",
-            "extended" to "1"
-        )
-        if (!accessKey.isNullOrEmpty()) {
-            params["access_key"] = accessKey
-        }
-        val json = callVkApi("audio.get", params)
-        if (json != null && !json.has("error")) {
-            val tracks = parseTracksList(json)
-            if (tracks.isNotEmpty()) return@withContext tracks
+        // Если в плейлисте больше 150 треков (например, 223), подгружаем остальные пачками по 150
+        if (allTracks.isNotEmpty()) {
+            val maxFetchLimit = 5000
+            while (allTracks.size < totalCount || (totalCount == 0 && allTracks.size % 150 == 0)) {
+                if (allTracks.size >= maxFetchLimit) break
+                val currentOffset = allTracks.size
+
+                val nextParams = mutableMapOf(
+                    "playlist_id" to playlistId.toString(),
+                    "owner_id" to ownerId.toString(),
+                    "need_audios" to "1",
+                    "offset" to currentOffset.toString(),
+                    "count" to "150",
+                    "extended" to "1"
+                )
+                if (!accessKey.isNullOrEmpty()) {
+                    nextParams["access_key"] = accessKey
+                }
+
+                var nextBatch: List<Track> = emptyList()
+                val nextJson = callVkApi("audio.getPlaylistById", nextParams)
+                if (nextJson != null && !nextJson.has("error")) {
+                    val nextResp = nextJson.optJSONObject("response")
+                    val nextAudios = nextResp?.optJSONArray("audios") ?: nextResp?.optJSONArray("items")
+                    if (nextAudios != null && nextAudios.length() > 0) {
+                        nextBatch = parseTracksArray(nextAudios)
+                    }
+                }
+
+                // Резерв: если getPlaylistById с offset не вернул треки, пробуем audio.get с offset
+                if (nextBatch.isEmpty()) {
+                    val getParams = mutableMapOf(
+                        "playlist_id" to playlistId.toString(),
+                        "album_id" to playlistId.toString(),
+                        "owner_id" to ownerId.toString(),
+                        "offset" to currentOffset.toString(),
+                        "count" to "150",
+                        "extended" to "1"
+                    )
+                    if (!accessKey.isNullOrEmpty()) {
+                        getParams["access_key"] = accessKey
+                    }
+                    val getJson = callVkApi("audio.get", getParams)
+                    if (getJson != null && !getJson.has("error")) {
+                        nextBatch = parseTracksList(getJson)
+                    }
+                }
+
+                if (nextBatch.isEmpty()) {
+                    break
+                }
+
+                allTracks.addAll(nextBatch)
+
+                if (nextBatch.size < 150 || (totalCount > 0 && allTracks.size >= totalCount)) {
+                    break
+                }
+            }
+
+            // Для альбомов (1 артист) обложка релиза подходит ко всем трекам.
+            // Для плейлистов (сборка разных треков и исполнителей) обложку плейлиста ко всем трекам НЕ применяем!
+            return@withContext if (isAlbumRelease && !playlistCover.isNullOrEmpty()) {
+                allTracks.map { if (it.coverUrl.isNullOrEmpty()) it.copy(coverUrl = playlistCover) else it }
+            } else {
+                allTracks
+            }
         }
 
-        emptyList()
+        // 2. Полный fallback: если первичный audio.getPlaylistById вернул ошибку, запрашиваем через audio.get с постраничной пагинацией
+        var offset = 0
+        var total = Int.MAX_VALUE
+        val maxFetchLimit = 5000
+        while (offset < total && allTracks.size < maxFetchLimit) {
+            val params = mutableMapOf(
+                "playlist_id" to playlistId.toString(),
+                "album_id" to playlistId.toString(),
+                "owner_id" to ownerId.toString(),
+                "offset" to offset.toString(),
+                "count" to "150",
+                "extended" to "1"
+            )
+            if (!accessKey.isNullOrEmpty()) {
+                params["access_key"] = accessKey
+            }
+            val json = callVkApi("audio.get", params) ?: break
+            if (json.has("error")) break
+
+            val resp = json.optJSONObject("response")
+            val totalInResp = resp?.optInt("count", 0) ?: 0
+            if (totalInResp > 0) {
+                total = totalInResp
+            }
+
+            val batch = parseTracksList(json)
+            if (batch.isEmpty()) break
+            allTracks.addAll(batch)
+            offset += batch.size
+
+            if (batch.size < 150 || (total in 1..allTracks.size)) {
+                break
+            }
+        }
+
+        allTracks
     }
 
     suspend fun createPlaylist(title: String, description: String = ""): Playlist? = withContext(Dispatchers.IO) {

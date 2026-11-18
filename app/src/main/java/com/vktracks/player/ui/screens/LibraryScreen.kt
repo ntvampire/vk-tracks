@@ -31,6 +31,7 @@ import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import com.vktracks.player.data.model.Playlist
 import com.vktracks.player.data.model.Track
+import com.vktracks.player.data.model.toTrackCountString
 import com.vktracks.player.ui.components.TrackCoverThumbnail
 import com.vktracks.player.ui.components.TrackItem
 import com.vktracks.player.ui.theme.AppleRed
@@ -286,7 +287,7 @@ fun LibraryScreen(
                         items(userPlaylists, key = { "${it.ownerId}_${it.id}" }) { playlist ->
                             PlaylistListItem(
                                 playlist = playlist,
-                                subtitle = "${playlist.count} треков",
+                                subtitle = playlist.count.toTrackCountString(),
                                 onClick = { onPlaylistClick(playlist) }
                             )
                         }
@@ -302,7 +303,7 @@ fun LibraryScreen(
                             val desc = buildString {
                                 if (!album.mainArtist.isNullOrBlank()) append("${album.mainArtist} • ")
                                 if (album.year != null && album.year > 0) append("${album.year} • ")
-                                append("${album.count} треков")
+                                append(album.count.toTrackCountString())
                             }
                             PlaylistListItem(
                                 playlist = album,

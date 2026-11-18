@@ -624,11 +624,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         _selectedPlaylist.value = playlist
         val cacheKey = "${playlist.ownerId}_${playlist.id}"
         val cached = playlistTracksCache[cacheKey]
-        if (!cached.isNullOrEmpty()) {
-            _selectedPlaylistTracks.value = cached
+        val isCacheComplete = !cached.isNullOrEmpty() && (playlist.count <= 0 || cached.size >= playlist.count)
+        if (isCacheComplete) {
+            _selectedPlaylistTracks.value = cached!!
             _isLoadingPlaylistTracks.value = false
         } else {
-            _selectedPlaylistTracks.value = emptyList()
+            _selectedPlaylistTracks.value = cached ?: emptyList()
             _isLoadingPlaylistTracks.value = true
         }
 

@@ -1,7 +1,7 @@
 ﻿{
-    "versionCode": 64,
-    "versionName": "1.0.63",
-    "downloadUrl": "https://github.com/ntvampire/vk-tracks/releases/download/v1.0.63/VK-Tracks-1.0.63.apk",
-    "mirrorUrl": "https://ntvampire.github.io/vk-tracks/VK-Tracks-1.0.63.apk",
-    "changelog": "Медиаконтроллер в шторке и на экране блокировки: исправлен визуальный дефект иконки неотмеченного сердечка (устранён артефакт закрашенного левого угла контура ic_heart_border)."
+    "versionCode": 65,
+    "versionName": "1.0.64",
+    "downloadUrl": "https://github.com/ntvampire/vk-tracks/releases/download/v1.0.64/VK-Tracks-1.0.64.apk",
+    "mirrorUrl": "https://ntvampire.github.io/vk-tracks/VK-Tracks-1.0.64.apk",
+    "changelog": "Плейлисты: снято ограничение в 150 треков. Добавлена полная постраничная догрузка всех композиций плейлиста (любого размера) с корректным склонением количества треков в шапке и списках."
 }

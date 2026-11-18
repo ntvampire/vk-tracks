@@ -103,9 +103,16 @@ fun TrackItem(
                     text = track.title,
                     fontSize = 15.sp,
                     fontWeight = if (isCurrent) FontWeight.Bold else FontWeight.Medium,
-                    color = if (isCurrent) AppleRed else if (track.isRestricted) MaterialTheme.colorScheme.onBackground.copy(alpha = 0.45f) else MaterialTheme.colorScheme.onBackground,
+                    color = if (isCurrent) {
+                        AppleRed
+                    } else if (track.isRestricted) {
+                        MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
+                    } else {
+                        MaterialTheme.colorScheme.onBackground
+                    },
                     maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f, fill = false)
                 )
                 if (track.isExplicit) {
                     Spacer(modifier = Modifier.width(6.dp))
@@ -123,22 +130,6 @@ fun TrackItem(
                         )
                     }
                 }
-                if (track.isRestricted) {
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Box(
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(3.dp))
-                            .background(MaterialTheme.colorScheme.error.copy(alpha = 0.15f))
-                            .padding(horizontal = 4.dp, vertical = 1.dp)
-                    ) {
-                        Text(
-                            text = track.displayRestriction,
-                            fontSize = 10.sp,
-                            fontWeight = FontWeight.Medium,
-                            color = MaterialTheme.colorScheme.error
-                        )
-                    }
-                }
             }
 
             Spacer(modifier = Modifier.height(2.dp))
@@ -146,7 +137,11 @@ fun TrackItem(
             Text(
                 text = track.artist,
                 fontSize = 13.sp,
-                color = if (track.isRestricted) MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.45f) else MaterialTheme.colorScheme.onSurfaceVariant,
+                color = if (track.isRestricted) {
+                    MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.35f)
+                } else {
+                    MaterialTheme.colorScheme.onSurfaceVariant
+                },
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
             )
@@ -165,31 +160,6 @@ fun TrackItem(
                         tint = if (isLiked) AppleRed else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
                         modifier = Modifier.size(20.dp)
                     )
-                }
-            }
-
-            // Кнопка скачивания
-            if (onDownloadClick != null) {
-                val isTrackSaved = isDownloaded || track.isLocal
-                IconButton(
-                    onClick = onDownloadClick,
-                    modifier = Modifier.size(36.dp)
-                ) {
-                    if (isTrackSaved) {
-                        Icon(
-                            imageVector = Icons.Default.CheckCircle,
-                            contentDescription = "Скачано (нажмите для удаления)",
-                            tint = AppleRed,
-                            modifier = Modifier.size(20.dp)
-                        )
-                    } else {
-                        Icon(
-                            imageVector = Icons.Default.Download,
-                            contentDescription = "Скачать",
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
-                            modifier = Modifier.size(20.dp)
-                        )
-                    }
                 }
             }
 

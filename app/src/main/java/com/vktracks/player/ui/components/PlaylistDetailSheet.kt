@@ -18,6 +18,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -52,6 +53,7 @@ fun PlaylistDetailSheet(
     onDismiss: () -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val context = LocalContext.current
     Surface(
         modifier = modifier.fillMaxSize(),
         color = MaterialTheme.colorScheme.background
@@ -204,10 +206,9 @@ fun PlaylistDetailSheet(
 
                                 FilledTonalButton(
                                     onClick = { if (tracks.isNotEmpty()) onShuffleClick(tracksWithCovers) },
-                                    modifier = Modifier
-                                        .weight(1f)
-                                        .height(48.dp),
+                                    modifier = Modifier.size(48.dp),
                                     shape = RoundedCornerShape(12.dp),
+                                    contentPadding = PaddingValues(0.dp),
                                     colors = ButtonDefaults.filledTonalButtonColors(
                                         containerColor = MaterialTheme.colorScheme.surfaceVariant
                                     ),
@@ -215,16 +216,9 @@ fun PlaylistDetailSheet(
                                 ) {
                                     Icon(
                                         imageVector = Icons.Default.Shuffle,
-                                        contentDescription = null,
+                                        contentDescription = "Перемешать",
                                         tint = AppleRed,
-                                        modifier = Modifier.size(20.dp)
-                                    )
-                                    Spacer(modifier = Modifier.width(6.dp))
-                                    Text(
-                                        "Перемешать",
-                                        fontSize = 16.sp,
-                                        fontWeight = FontWeight.SemiBold,
-                                        color = AppleRed
+                                        modifier = Modifier.size(22.dp)
                                     )
                                 }
                             }
@@ -270,12 +264,20 @@ fun PlaylistDetailSheet(
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .clickable {
-                                        val trackWithCover = if (playlist.isAlbum && track.coverUrl.isNullOrEmpty() && !playlist.coverUrl.isNullOrEmpty()) {
-                                            track.copy(coverUrl = playlist.coverUrl)
+                                        if (track.isRestricted) {
+                                            android.widget.Toast.makeText(
+                                                context,
+                                                "Воспроизведение недоступно: ${track.displayRestriction}",
+                                                android.widget.Toast.LENGTH_SHORT
+                                            ).show()
                                         } else {
-                                            track
+                                            val trackWithCover = if (playlist.isAlbum && track.coverUrl.isNullOrEmpty() && !playlist.coverUrl.isNullOrEmpty()) {
+                                                track.copy(coverUrl = playlist.coverUrl)
+                                            } else {
+                                                track
+                                            }
+                                            onTrackClick(trackWithCover, tracksWithCovers)
                                         }
-                                        onTrackClick(trackWithCover, tracksWithCovers)
                                     }
                                     .padding(horizontal = 20.dp, vertical = 10.dp),
                                 verticalAlignment = Alignment.CenterVertically
@@ -310,14 +312,24 @@ fun PlaylistDetailSheet(
                                         text = track.title,
                                         fontSize = 15.sp,
                                         fontWeight = if (isCurrent) FontWeight.Bold else FontWeight.Medium,
-                                        color = if (isCurrent) AppleRed else MaterialTheme.colorScheme.onBackground,
+                                        color = if (isCurrent) {
+                                            AppleRed
+                                        } else if (track.isRestricted) {
+                                            MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
+                                        } else {
+                                            MaterialTheme.colorScheme.onBackground
+                                        },
                                         maxLines = 1,
                                         overflow = TextOverflow.Ellipsis
                                     )
                                     Text(
                                         text = track.artist,
                                         fontSize = 13.sp,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        color = if (track.isRestricted) {
+                                            MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.35f)
+                                        } else {
+                                            MaterialTheme.colorScheme.onSurfaceVariant
+                                        },
                                         maxLines = 1,
                                         overflow = TextOverflow.Ellipsis
                                     )
@@ -332,20 +344,6 @@ fun PlaylistDetailSheet(
                                         imageVector = if (isLiked) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
                                         contentDescription = if (isLiked) "В избранном" else "Нравится",
                                         tint = if (isLiked) AppleRed else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
-                                        modifier = Modifier.size(20.dp)
-                                    )
-                                }
-
-                                // Кнопка скачивания трека
-                                val isDownloaded = track.isLocal || downloadedTrackIds.contains(track.fullId)
-                                IconButton(
-                                    onClick = { onDownloadTrackClick(track) },
-                                    modifier = Modifier.size(36.dp)
-                                ) {
-                                    Icon(
-                                        imageVector = if (isDownloaded) Icons.Default.CheckCircle else Icons.Default.Download,
-                                        contentDescription = if (isDownloaded) "Скачано (нажмите для удаления)" else "Скачать",
-                                        tint = if (isDownloaded) AppleRed else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
                                         modifier = Modifier.size(20.dp)
                                     )
                                 }

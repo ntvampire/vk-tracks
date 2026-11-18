@@ -437,6 +437,27 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    fun removeTrackFromPlaylist(playlist: Playlist, track: Track, onResult: ((Boolean) -> Unit)? = null) {
+        viewModelScope.launch {
+            try {
+                val ok = apiClient.removeFromPlaylist(playlist.id, playlist.ownerId, track)
+                if (ok) {
+                    playlistTracksCache.remove(playlist.fullId)
+                    _selectedPlaylistTracks.value = _selectedPlaylistTracks.value.filter { it.id != track.id }
+                    _playlists.value = _playlists.value.map {
+                        if (it.fullId == playlist.fullId) it.copy(count = maxOf(0, it.count - 1)) else it
+                    }
+                    if (_selectedPlaylist.value?.fullId == playlist.fullId) {
+                        _selectedPlaylist.value = _selectedPlaylist.value?.copy(count = maxOf(0, (_selectedPlaylist.value?.count ?: 1) - 1))
+                    }
+                }
+                onResult?.invoke(ok)
+            } catch (_: Exception) {
+                onResult?.invoke(false)
+            }
+        }
+    }
+
     private var radioMetadataJob: Job? = null
     private var studio21WebSocket: WebSocket? = null
 

@@ -42,6 +42,7 @@ class MediaCacheManager private constructor(private val context: Context) {
     private val cacheDir = File(context.cacheDir, "media_stream_cache").apply { if (!exists()) mkdirs() }
     private val databaseProvider = StandaloneDatabaseProvider(context)
     val simpleCache: SimpleCache
+    @Volatile
     var isUriFavoriteCheck: ((String) -> Boolean)? = null
 
     init {
@@ -105,16 +106,13 @@ class MediaCacheManager private constructor(private val context: Context) {
 
     fun clearCache() {
         try {
-            val keys = simpleCache.keys
+            val keys = simpleCache.keys.toList()
             for (key in keys) {
-                simpleCache.removeResource(key)
+                try {
+                    simpleCache.removeResource(key)
+                } catch (_: Exception) {}
             }
-        } catch (_: Exception) {
-            try {
-                cacheDir.deleteRecursively()
-                cacheDir.mkdirs()
-            } catch (_: Exception) {}
-        }
+        } catch (_: Exception) {}
     }
 
     fun isTrackCached(url: String): Boolean {
@@ -134,7 +132,8 @@ class MediaCacheManager private constructor(private val context: Context) {
                uriStr.contains("hostingradio", ignoreCase = true) ||
                uriStr.contains("studio21", ignoreCase = true) ||
                uriStr.contains(".aacp", ignoreCase = true) ||
-               uriStr.contains("live", ignoreCase = true) ||
+               uriStr.contains("/live/", ignoreCase = true) ||
+               uriStr.contains("/live?", ignoreCase = true) ||
                uriStr.contains("stream.", ignoreCase = true)
     }
 
@@ -143,7 +142,7 @@ class MediaCacheManager private constructor(private val context: Context) {
             .setUserAgent("VKTracks/1.0 (Android)")
             .setConnectTimeoutMs(15000)
             .setReadTimeoutMs(30000)
-            .setAllowCrossProtocolRedirects(true)
+            .setAllowCrossProtocolRedirects(false)
 
         if (!isCacheEnabled()) {
             return httpFactory

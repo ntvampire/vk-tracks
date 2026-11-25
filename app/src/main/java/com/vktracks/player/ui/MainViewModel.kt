@@ -2,11 +2,9 @@ package com.vktracks.player.ui
 
 import android.app.Application
 import android.content.ComponentName
-import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.util.Log
-import android.widget.Toast
 import java.io.File
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.AndroidViewModel
@@ -15,14 +13,15 @@ import androidx.media3.common.Player
 import androidx.media3.session.MediaController
 import androidx.media3.session.SessionToken
 import com.vktracks.player.data.api.LrclibApiClient
+import com.vktracks.player.data.api.TrackMetadataMatcher
 import com.vktracks.player.data.api.VkApiClient
 import com.vktracks.player.data.api.VkAuthManager
-import com.vktracks.player.data.api.YandexMusicApiClient
 import com.vktracks.player.data.cache.MediaCacheManager
 import com.vktracks.player.data.downloader.TrackDownloader
 import com.vktracks.player.data.settings.PlayerSettingsManager
 import com.vktracks.player.data.local.AppDatabase
 import com.vktracks.player.data.local.LyricsEntity
+import com.vktracks.player.data.local.PlaylistCoverEntity
 import com.vktracks.player.data.local.TrackEntity
 import com.vktracks.player.data.local.toLyrics
 import com.vktracks.player.data.model.AppUpdateInfo
@@ -122,6 +121,22 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val _isLoading = MutableStateFlow(false)
     val isLoading: StateFlow<Boolean> = _isLoading.asStateFlow()
 
+    private val _libraryError = MutableStateFlow<String?>(null)
+    val libraryError: StateFlow<String?> = _libraryError.asStateFlow()
+
+    private val _searchError = MutableStateFlow<String?>(null)
+    val searchError: StateFlow<String?> = _searchError.asStateFlow()
+
+    private val _playlistError = MutableStateFlow<String?>(null)
+    val playlistError: StateFlow<String?> = _playlistError.asStateFlow()
+
+    private val _toastEvents = MutableSharedFlow<String>(extraBufferCapacity = 16)
+    val toastEvents: SharedFlow<String> = _toastEvents.asSharedFlow()
+
+    private fun showToast(message: String) {
+        _toastEvents.tryEmit(message)
+    }
+
     private val _currentLyrics = MutableStateFlow<Lyrics?>(null)
     val currentLyrics: StateFlow<Lyrics?> = _currentLyrics.asStateFlow()
 
@@ -160,20 +175,35 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         _showFullPlayer.value = false
     }
 
-    // Офлайн треки из локальной базы Room (с проверкой физического наличия файла на диске)
+    // Офлайн треки из локальной базы Room (с проверкой физического наличия файла на диске / в MediaStore)
     val downloadedTracks: StateFlow<List<Track>> = database.trackDao().getDownloadedTracks()
         .map { list ->
-            list.mapNotNull { entity ->
+            val appCtx = getApplication<Application>()
+            val missingIds = mutableListOf<String>()
+            val validTracks = list.mapNotNull { entity ->
                 val path = entity.localFilePath
-                if (!path.isNullOrBlank() && (path.startsWith("content://") || File(path).exists())) {
+                val exists = when {
+                    path.isNullOrBlank() -> false
+                    path.startsWith("content://") -> try {
+                        appCtx.contentResolver.openAssetFileDescriptor(android.net.Uri.parse(path), "r")?.use { true } ?: false
+                    } catch (_: Exception) {
+                        false
+                    }
+                    else -> File(path).exists()
+                }
+                if (exists) {
                     entity.toTrack()
                 } else {
-                    viewModelScope.launch(Dispatchers.IO) {
-                        database.trackDao().removeDownload(entity.id)
-                    }
+                    missingIds.add(entity.id)
                     null
                 }
             }
+            for (missingId in missingIds) {
+                try {
+                    database.trackDao().removeDownload(missingId)
+                } catch (_: Exception) {}
+            }
+            validTracks
         }
         .flowOn(Dispatchers.IO)
         .distinctUntilChanged()
@@ -249,6 +279,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 if (auth) {
                     loadLibrary()
                     loadPersonalRadio()
+                } else {
+                    clearSessionState()
                 }
             }
         }
@@ -261,7 +293,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     tuple.coverUrl?.takeIf { it.isNotEmpty() }?.let { tuple.id to it }
                 }.toMap()
                 apiClient.preloadCovers(map)
-                _resolvedCovers.value = map
+                _resolvedCovers.update { it + map }
             } catch (_: Exception) {}
         }
 
@@ -275,14 +307,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         loadLyrics(track)
                     }
                     if (!track.coverUrl.isNullOrEmpty() && _resolvedCovers.value[track.fullId] != track.coverUrl) {
-                        _resolvedCovers.value = _resolvedCovers.value + (track.fullId to track.coverUrl)
+                        _resolvedCovers.update { it + (track.fullId to track.coverUrl) }
                     } else if (track.coverUrl.isNullOrEmpty() && !track.isLocal) {
                         launch(Dispatchers.IO) {
                             val cover = apiClient.resolveTrackCover(track)
                             if (!cover.isNullOrEmpty()) {
-                                withContext(Dispatchers.Main) {
-                                    _resolvedCovers.value = _resolvedCovers.value + (track.fullId to cover)
-                                }
+                                _resolvedCovers.update { it + (track.fullId to cover) }
                                 try {
                                     database.trackDao().updateCover(track.fullId, cover)
                                 } catch (_: Exception) {}
@@ -364,9 +394,45 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    fun logout() {
+        authManager.logout()
+        clearSessionState()
+    }
+
+    private fun clearSessionState() {
+        isLoadingMoreJob?.cancel()
+        libraryPreloadJob?.cancel()
+        searchJob?.cancel()
+        radioMetadataJob?.cancel()
+        studio21WebSocket?.close(1000, "Logout")
+        studio21WebSocket = null
+
+        myAudiosOffset = 0
+        canLoadMoreTracks = false
+        _myTracks.value = emptyList()
+        _playlists.value = emptyList()
+        _likedTrackIds.value = emptySet()
+        _radioTracks.value = emptyList()
+        _recommendations.value = emptyList()
+        _searchResults.value = emptyList()
+        _searchPlaylists.value = emptyList()
+        _searchArtists.value = emptyList()
+        _selectedPlaylist.value = null
+        _selectedPlaylistTracks.value = emptyList()
+        _selectedArtist.value = null
+        _selectedArtistDetail.value = null
+        _libraryError.value = null
+        _searchError.value = null
+        _playlistError.value = null
+        playlistTracksCache.clear()
+        VkApiClient.clearCaches()
+    }
+
     fun loadLibrary() {
+        isLoadingMoreJob?.cancel()
         viewModelScope.launch {
             _isLoading.value = true
+            _libraryError.value = null
             myAudiosOffset = 0
             canLoadMoreTracks = true
             try {
@@ -377,10 +443,35 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 _myTracks.value = audios
                 preloadLibraryCovers(audios)
                 _likedTrackIds.value = audios.map { it.fullId }.toSet()
-                _playlists.value = apiClient.getPlaylists(0, 100)
+
+                val fetchedPlaylists = apiClient.getPlaylists(0, 100)
+                val customCovers = withContext(Dispatchers.IO) {
+                    try {
+                        database.playlistCoverDao().getAll().associate { it.playlistId to it.localCoverPath }
+                    } catch (_: Exception) {
+                        emptyMap()
+                    }
+                }
+                _playlists.value = fetchedPlaylists.map { pl ->
+                    val localCover = customCovers[pl.fullId]
+                    val fileExists = localCover?.let {
+                        val path = Uri.parse(it).path
+                        path != null && File(path).exists()
+                    } ?: false
+                    if (fileExists) pl.copy(coverUrl = localCover) else pl
+                }
+
                 _recommendations.value = apiClient.getRecommendations(0, 50)
-            } catch (_: Exception) {}
-            _isLoading.value = false
+            } catch (e: Exception) {
+                Log.w("MainViewModel", "Failed to load library", e)
+                if (_myTracks.value.isEmpty() && _playlists.value.isEmpty()) {
+                    _libraryError.value = "Не удалось загрузить медиатеку. Проверьте подключение к интернету."
+                } else {
+                    showToast("Не удалось обновить медиатеку")
+                }
+            } finally {
+                _isLoading.value = false
+            }
         }
     }
 
@@ -470,24 +561,33 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         title: String,
         description: String,
         coverUri: Uri?,
-        context: Context,
         onResult: ((Boolean) -> Unit)? = null
     ) {
         viewModelScope.launch {
             try {
+                val appContext = getApplication<Application>()
                 var finalCoverUrl = playlist.coverUrl
                 if (coverUri != null) {
-                    try {
-                        val coversDir = File(context.filesDir, "covers").apply { mkdirs() }
-                        val coverFile = File(coversDir, "playlist_${playlist.id}_${System.currentTimeMillis()}.jpg")
-                        context.contentResolver.openInputStream(coverUri)?.use { input ->
-                            coverFile.outputStream().use { output ->
-                                input.copyTo(output)
+                    withContext(Dispatchers.IO) {
+                        try {
+                            val coversDir = File(appContext.filesDir, "covers").apply { mkdirs() }
+                            coversDir.listFiles { _, name -> name.startsWith("playlist_${playlist.id}_") }
+                                ?.forEach { it.delete() }
+                            val coverFile = File(coversDir, "playlist_${playlist.id}_${System.currentTimeMillis()}.jpg")
+                            appContext.contentResolver.openInputStream(coverUri)?.use { input ->
+                                coverFile.outputStream().use { output ->
+                                    input.copyTo(output)
+                                }
                             }
+                            if (coverFile.exists() && coverFile.length() > 0) {
+                                finalCoverUrl = Uri.fromFile(coverFile).toString()
+                                database.playlistCoverDao().upsert(
+                                    PlaylistCoverEntity(playlistId = playlist.fullId, localCoverPath = finalCoverUrl!!)
+                                )
+                            }
+                        } catch (e: Exception) {
+                            Log.e("MainViewModel", "Failed to save local playlist cover", e)
                         }
-                        finalCoverUrl = Uri.fromFile(coverFile).toString()
-                    } catch (e: Exception) {
-                        Log.e("MainViewModel", "Failed to save local playlist cover", e)
                     }
                 }
 
@@ -626,6 +726,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun search(query: String) {
         _searchQuery.value = query
+        _searchError.value = null
         searchJob?.cancel()
         val q = query.trim()
         if (q.isBlank()) {
@@ -643,7 +744,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 _searchResults.value = res.tracks
                 _searchPlaylists.value = res.playlists
                 _searchArtists.value = res.artists
-            } catch (_: Exception) {
+            } catch (e: Exception) {
+                Log.w("MainViewModel", "Search failed for '$q'", e)
+                _searchError.value = "Не удалось выполнить поиск. Проверьте интернет."
             } finally {
                 _isSearching.value = false
             }
@@ -695,6 +798,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun openPlaylist(playlist: Playlist) {
         _selectedPlaylist.value = playlist
+        _playlistError.value = null
         val cacheKey = "${playlist.ownerId}_${playlist.id}"
         val cached = playlistTracksCache[cacheKey]
         val isCacheComplete = !cached.isNullOrEmpty() && (playlist.count <= 0 || cached.size >= playlist.count)
@@ -714,9 +818,39 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     _selectedPlaylistTracks.value = tracks
                 }
             } catch (e: Exception) {
-                android.util.Log.e("MainViewModel", "Failed to load playlist tracks", e)
+                Log.e("MainViewModel", "Failed to load playlist tracks", e)
+                if (_selectedPlaylistTracks.value.isEmpty()) {
+                    _playlistError.value = "Не удалось загрузить треки плейлиста"
+                }
             } finally {
                 _isLoadingPlaylistTracks.value = false
+            }
+        }
+    }
+
+    fun openAlbumByTrack(track: Track) {
+        val albumTitle = track.albumTitle?.takeIf { it.isNotBlank() } ?: return
+        val existing = _playlists.value.firstOrNull {
+            it.isAlbum && it.title.equals(albumTitle, ignoreCase = true)
+        }
+        if (existing != null) {
+            closeFullPlayer()
+            openPlaylist(existing)
+            return
+        }
+        viewModelScope.launch {
+            try {
+                val found = apiClient.searchPlaylists("${track.artist} $albumTitle", 8)
+                    .firstOrNull { it.isAlbum && it.title.equals(albumTitle, ignoreCase = true) }
+                    ?: apiClient.searchPlaylists(albumTitle, 5).firstOrNull { it.isAlbum }
+                if (found != null) {
+                    closeFullPlayer()
+                    openPlaylist(found)
+                } else {
+                    showToast("Альбом «$albumTitle» не найден")
+                }
+            } catch (_: Exception) {
+                showToast("Не удалось открыть альбом")
             }
         }
     }
@@ -760,7 +894,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             if (isAlreadyDownloaded) {
                 val deleted = downloader.deleteDownloadedTrack(track)
                 if (deleted) {
-                    Toast.makeText(getApplication(), "Удалено из скачанных: ${track.title}", Toast.LENGTH_SHORT).show()
+                    showToast("Удалено из скачанных: ${track.title}")
                 }
                 return@launch
             }
@@ -771,17 +905,17 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 if (!resolvedUrl.isNullOrEmpty()) {
                     targetTrack = targetTrack.copy(streamUrl = resolvedUrl)
                 } else {
-                    Toast.makeText(getApplication(), "Не удалось получить аудиопоток трека", Toast.LENGTH_SHORT).show()
+                    showToast("Не удалось получить аудиопоток трека")
                     return@launch
                 }
             }
 
-            Toast.makeText(getApplication(), "Скачивание: ${targetTrack.artist} — ${targetTrack.title}", Toast.LENGTH_SHORT).show()
+            showToast("Скачивание: ${targetTrack.artist} — ${targetTrack.title}")
             val result = downloader.downloadTrack(targetTrack, subfolder)
             if (result.isSuccess) {
-                Toast.makeText(getApplication(), "Трек сохранён: ${targetTrack.title}", Toast.LENGTH_SHORT).show()
+                showToast("Трек сохранён: ${targetTrack.title}")
             } else {
-                Toast.makeText(getApplication(), "Ошибка скачивания: ${result.exceptionOrNull()?.message}", Toast.LENGTH_SHORT).show()
+                showToast("Ошибка скачивания: ${result.exceptionOrNull()?.message}")
             }
         }
     }
@@ -789,7 +923,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun downloadAllInPlaylist(tracks: List<Track>, playlistTitle: String = "Playlist") {
         if (tracks.isEmpty()) return
         viewModelScope.launch {
-            Toast.makeText(getApplication(), "Начата загрузка плейлиста «$playlistTitle» (${tracks.size} треков)", Toast.LENGTH_SHORT).show()
+            showToast("Начата загрузка плейлиста «$playlistTitle» (${tracks.size} треков)")
             var count = 0
             for (track in tracks) {
                 if (downloadedTrackIds.value.contains(track.fullId) || track.isLocal) {
@@ -810,14 +944,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     count++
                 }
             }
-            Toast.makeText(getApplication(), "Загрузка завершена: сохранено $count из ${tracks.size} треков", Toast.LENGTH_LONG).show()
+            showToast("Загрузка завершена: сохранено $count из ${tracks.size} треков")
         }
     }
 
     fun downloadTracks(tracks: List<Track>, subfolder: String? = null) {
         if (tracks.isEmpty()) return
         viewModelScope.launch {
-            Toast.makeText(getApplication(), "Начато скачивание ${tracks.size} треков...", Toast.LENGTH_SHORT).show()
+            showToast("Начато скачивание ${tracks.size} треков...")
             var count = 0
             for (track in tracks) {
                 if (downloadedTrackIds.value.contains(track.fullId) || track.isLocal) {
@@ -836,7 +970,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 val res = downloader.downloadTrack(targetTrack, subfolder)
                 if (res.isSuccess) count++
             }
-            Toast.makeText(getApplication(), "Скачивание завершено: $count из ${tracks.size} треков сохранено", Toast.LENGTH_SHORT).show()
+            showToast("Скачивание завершено: $count из ${tracks.size} треков сохранено")
         }
     }
 
@@ -849,7 +983,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     count++
                 }
             }
-            Toast.makeText(getApplication(), "Удалено $count треков из памяти", Toast.LENGTH_SHORT).show()
+            showToast("Удалено $count треков из памяти")
         }
     }
 
@@ -863,7 +997,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             val idsToRemove = tracks.map { it.fullId }.toSet()
             _likedTrackIds.value = _likedTrackIds.value - idsToRemove
             _myTracks.value = _myTracks.value.filterNot { idsToRemove.contains(it.fullId) }
-            Toast.makeText(getApplication(), "Удалено ${tracks.size} треков из избранного", Toast.LENGTH_SHORT).show()
+            showToast("Удалено ${tracks.size} треков из избранного")
         }
     }
 
@@ -876,7 +1010,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 if (ok) count++
             }
             playlistTracksCache.remove(playlist.fullId)
-            Toast.makeText(getApplication(), "Добавлено $count треков в «${playlist.title}»", Toast.LENGTH_SHORT).show()
+            showToast("Добавлено $count треков в «${playlist.title}»")
         }
     }
 
@@ -887,7 +1021,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun clearCache() {
         cacheManager.clearCache()
         refreshCacheSize()
-        Toast.makeText(getApplication(), "Кэш треков очищен", Toast.LENGTH_SHORT).show()
+        showToast("Кэш треков очищен")
     }
 
     @OptIn(coil.annotation.ExperimentalCoilApi::class)
@@ -924,7 +1058,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 track.coverUrl.isNullOrEmpty() &&
                 !_resolvedCovers.value.containsKey(track.fullId) &&
                 !VkApiClient.isCoverResolved(track.fullId) &&
-                !YandexMusicApiClient.isGeneric(track.artist, track.title)
+                !TrackMetadataMatcher.isGeneric(track.artist, track.title)
             }.take(30)
             if (toResolve.isEmpty()) return@launch
 
@@ -932,9 +1066,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 if (!isActive) break
                 val cover = apiClient.resolveTrackCover(track)
                 if (!cover.isNullOrEmpty()) {
-                    withContext(Dispatchers.Main) {
-                        _resolvedCovers.value = _resolvedCovers.value + (track.fullId to cover)
-                    }
+                    _resolvedCovers.update { it + (track.fullId to cover) }
                     try {
                         database.trackDao().updateCover(track.fullId, cover)
                     } catch (_: Exception) {}
@@ -955,7 +1087,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 currentTrackToPlay = apiClient.resolveTrack(currentTrackToPlay)
             }
             if (currentTrackToPlay.streamUrl.isEmpty() && !currentTrackToPlay.isLocal) {
-                android.util.Log.w("MainViewModel", "Could not resolve streamUrl for ${currentTrackToPlay.fullId}")
+                Log.w("MainViewModel", "Could not resolve streamUrl for ${currentTrackToPlay.fullId}")
+                showToast("Не удалось получить аудиопоток трека")
                 return@launch
             }
             val updatedQueue = if (currentTrackToPlay === track) queue else queue.map { if (it.fullId == currentTrackToPlay.fullId) currentTrackToPlay else it }
@@ -971,9 +1104,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 launch(Dispatchers.IO) {
                     val cover = apiClient.resolveTrackCover(currentTrackToPlay)
                     if (!cover.isNullOrEmpty()) {
-                        withContext(Dispatchers.Main) {
-                            _resolvedCovers.value = _resolvedCovers.value + (currentTrackToPlay.fullId to cover)
-                        }
+                        _resolvedCovers.update { it + (currentTrackToPlay.fullId to cover) }
                         try {
                             database.trackDao().updateCover(currentTrackToPlay.fullId, cover)
                         } catch (_: Exception) {}
@@ -983,7 +1114,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     }
                 }
             } else if (!currentTrackToPlay.coverUrl.isNullOrEmpty() && _resolvedCovers.value[currentTrackToPlay.fullId] != currentTrackToPlay.coverUrl) {
-                _resolvedCovers.value = _resolvedCovers.value + (currentTrackToPlay.fullId to currentTrackToPlay.coverUrl!!)
+                _resolvedCovers.update { it + (currentTrackToPlay.fullId to currentTrackToPlay.coverUrl!!) }
                 launch(Dispatchers.IO) {
                     try {
                         database.trackDao().updateCover(currentTrackToPlay.fullId, currentTrackToPlay.coverUrl!!)
@@ -1058,11 +1189,16 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun checkForUpdates(isManual: Boolean = false, onNoUpdate: (() -> Unit)? = null) {
         viewModelScope.launch {
-            val update = updateChecker.checkForUpdates()
+            val result = updateChecker.checkForUpdatesResult()
+            val update = result.getOrNull()
             if (update != null) {
                 _availableUpdate.value = update
             } else if (isManual) {
-                onNoUpdate?.invoke()
+                if (result.isFailure) {
+                    showToast("Не удалось проверить обновления. Проверьте интернет.")
+                } else {
+                    onNoUpdate?.invoke()
+                }
             }
         }
     }
@@ -1072,7 +1208,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             context = getApplication(),
             versionName = info.versionName,
             downloadUrl = info.downloadUrl,
-            mirrorUrl = info.mirrorUrl
+            mirrorUrl = info.mirrorUrl,
+            sha256 = info.sha256
         )
     }
 

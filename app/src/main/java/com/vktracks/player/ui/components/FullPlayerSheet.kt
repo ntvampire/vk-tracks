@@ -54,6 +54,7 @@ import com.vktracks.player.data.model.Lyrics
 import com.vktracks.player.data.model.Track
 import com.vktracks.player.service.PlaybackService
 import com.vktracks.player.ui.theme.AppleRed
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
 
@@ -68,8 +69,8 @@ enum class PlayerCenterMode {
 fun FullPlayerSheet(
     track: Track?,
     isPlaying: Boolean,
-    currentPosMs: Long,
-    durationMs: Long,
+    currentPosFlow: StateFlow<Long>,
+    durationFlow: StateFlow<Long>,
     isShuffle: Boolean,
     repeatMode: Int,
     lyrics: Lyrics?,
@@ -199,7 +200,6 @@ fun FullPlayerSheet(
                 when (centerMode) {
                     PlayerCenterMode.COVER -> {
                         // Большая обложка альбома (Apple Music стиль: свайп вниз закрывает, свайпы влево/вправо переключают трек)
-                        val coroutineScope = rememberCoroutineScope()
                         val coverOffsetX = remember { Animatable(0f) }
 
                         Box(
@@ -273,10 +273,11 @@ fun FullPlayerSheet(
                     }
                     PlayerCenterMode.LYRICS -> {
                         // Караоке-текст (синхронизированные строки с автоскроллом)
+                        val lyricsPosMs by currentPosFlow.collectAsState()
                         LyricsView(
                             lyrics = lyrics,
                             isLoading = isLyricsLoading,
-                            currentPosMs = currentPosMs,
+                            currentPosMs = lyricsPosMs,
                             onLineClick = onSeekTo,
                             modifier = if (lyrics == null || lyrics.isInstrumental || isLyricsLoading) swipeDismissModifier else Modifier
                         )
@@ -348,11 +349,11 @@ fun FullPlayerSheet(
                     }
                 }
             } else {
-                // Таймлайн (Слайдер прогресса: изолирован, рекомпозируется только он)
-                val trackDurationMs = if (durationMs > 0) durationMs else ((track.duration).toLong() * 1000L)
+                // Таймлайн (Слайдер прогресса: изолирован, StateFlow читается только внутри него)
                 PlayerTimeline(
-                    trackDurationMs = trackDurationMs,
-                    currentPosMs = currentPosMs,
+                    fallbackDurationSec = track.duration,
+                    currentPosFlow = currentPosFlow,
+                    durationFlow = durationFlow,
                     onSeekTo = onSeekTo
                 )
             }
@@ -539,7 +540,6 @@ fun LyricsView(
     }
 
     val listState = rememberLazyListState()
-    val coroutineScope = rememberCoroutineScope()
 
     if (lyrics.isSynchronized) {
         // Синхронизированный караоке режим
@@ -547,9 +547,7 @@ fun LyricsView(
 
         LaunchedEffect(activeIndex) {
             if (activeIndex >= 0) {
-                coroutineScope.launch {
-                    listState.animateScrollToItem((activeIndex - 1).coerceAtLeast(0))
-                }
+                listState.animateScrollToItem((activeIndex - 1).coerceAtLeast(0))
             }
         }
 
@@ -558,7 +556,7 @@ fun LyricsView(
             modifier = modifier.fillMaxSize(),
             contentPadding = PaddingValues(vertical = 40.dp)
         ) {
-            itemsIndexed(lyrics.lines) { index, line ->
+            itemsIndexed(lyrics.lines, key = { index, line -> "${index}_${line.beginMs}" }) { index, line ->
                 val isActive = index == activeIndex
                 Text(
                     text = line.text,
@@ -579,7 +577,7 @@ fun LyricsView(
             modifier = modifier.fillMaxSize(),
             contentPadding = PaddingValues(vertical = 20.dp)
         ) {
-            itemsIndexed(lyrics.plainText) { _, line ->
+            itemsIndexed(lyrics.plainText, key = { index, _ -> index }) { _, line ->
                 Text(
                     text = line,
                     fontSize = 17.sp,
@@ -623,7 +621,7 @@ fun PlayerQueueView(
 
     val listState = rememberLazyListState()
     val activeIndex = remember(queue, currentTrack) {
-        queue.indexOfFirst { it.id == currentTrack?.id }
+        queue.indexOfFirst { it.fullId == currentTrack?.fullId }
     }
 
     LaunchedEffect(activeIndex) {
@@ -645,8 +643,8 @@ fun PlayerQueueView(
             modifier = Modifier.fillMaxSize(),
             contentPadding = PaddingValues(bottom = 16.dp)
         ) {
-            itemsIndexed(queue, key = { index, item -> "${item.id}_$index" }) { index, item ->
-                val isCurrent = item.id == currentTrack?.id
+            itemsIndexed(queue, key = { index, item -> "${item.fullId}_$index" }) { index, item ->
+                val isCurrent = item.fullId == currentTrack?.fullId
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -717,7 +715,7 @@ fun PlayerQueueView(
                             if (index > 0) {
                                 IconButton(
                                     onClick = { onMoveItem(index, index - 1) },
-                                    modifier = Modifier.size(28.dp)
+                                    modifier = Modifier.size(36.dp)
                                 ) {
                                     Icon(
                                         imageVector = Icons.Default.KeyboardArrowUp,
@@ -730,7 +728,7 @@ fun PlayerQueueView(
                             if (index < queue.lastIndex) {
                                 IconButton(
                                     onClick = { onMoveItem(index, index + 1) },
-                                    modifier = Modifier.size(28.dp)
+                                    modifier = Modifier.size(36.dp)
                                 ) {
                                     Icon(
                                         imageVector = Icons.Default.KeyboardArrowDown,
@@ -742,7 +740,7 @@ fun PlayerQueueView(
                             }
                             IconButton(
                                 onClick = { onRemoveItem(index) },
-                                modifier = Modifier.size(28.dp)
+                                modifier = Modifier.size(36.dp)
                             ) {
                                 Icon(
                                     imageVector = Icons.Default.Close,
@@ -850,10 +848,15 @@ private fun PlayerTrackHeader(
 
 @Composable
 private fun PlayerTimeline(
-    trackDurationMs: Long,
-    currentPosMs: Long,
+    fallbackDurationSec: Int,
+    currentPosFlow: StateFlow<Long>,
+    durationFlow: StateFlow<Long>,
     onSeekTo: (Long) -> Unit
 ) {
+    val currentPosMs by currentPosFlow.collectAsState()
+    val durationMs by durationFlow.collectAsState()
+    val trackDurationMs = if (durationMs > 0) durationMs else (fallbackDurationSec.toLong() * 1000L)
+
     val coroutineScope = rememberCoroutineScope()
     var sliderPosition by remember { mutableStateOf<Float?>(null) }
     var seekJob by remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }

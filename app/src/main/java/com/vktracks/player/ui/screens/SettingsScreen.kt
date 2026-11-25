@@ -56,6 +56,7 @@ fun SettingsScreen(
     onToggleBtAutoPause: (Boolean) -> Unit = {},
     onToggleSoftFading: (Boolean) -> Unit = {},
     onLoginClick: () -> Unit,
+    onLogoutClick: () -> Unit = {},
     onCheckUpdateClick: () -> Unit,
     onDismiss: () -> Unit,
     modifier: Modifier = Modifier
@@ -99,6 +100,13 @@ fun SettingsScreen(
         contract = ActivityResultContracts.OpenDocumentTree()
     ) { uri ->
         if (uri != null) {
+            try {
+                context.contentResolver.takePersistableUriPermission(
+                    uri,
+                    android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION or
+                        android.content.Intent.FLAG_GRANT_WRITE_URI_PERMISSION
+                )
+            } catch (_: Exception) {}
             val segment = uri.lastPathSegment ?: ""
             val resolvedPath = if (segment.startsWith("primary:")) {
                 val relative = segment.substringAfter("primary:")
@@ -358,7 +366,7 @@ fun SettingsScreen(
                     if (isAuthorized) {
                         TextButton(
                             onClick = {
-                                authManager.logout()
+                                onLogoutClick()
                                 onDismiss()
                             },
                             modifier = Modifier

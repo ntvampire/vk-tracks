@@ -6,7 +6,14 @@ import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 import kotlinx.coroutines.flow.Flow
 
-@Entity(tableName = "tracks")
+@Entity(
+    tableName = "tracks",
+    indices = [
+        Index(value = ["isDownloaded"], name = "index_tracks_isDownloaded"),
+        Index(value = ["isLiked"], name = "index_tracks_isLiked"),
+        Index(value = ["lastPlayedTimestamp"], name = "index_tracks_lastPlayedTimestamp")
+    ]
+)
 data class TrackEntity(
     @PrimaryKey val id: String, // ownerId_id
     val trackId: Long,
@@ -25,6 +32,25 @@ data class TrackEntity(
     val isDownloaded: Boolean = false,
     val lastPlayedTimestamp: Long = 0
 )
+
+@Entity(tableName = "playlist_covers")
+data class PlaylistCoverEntity(
+    @PrimaryKey val playlistId: String, // ownerId_id
+    val localCoverPath: String,
+    val updatedAt: Long = System.currentTimeMillis()
+)
+
+@Dao
+interface PlaylistCoverDao {
+    @Query("SELECT * FROM playlist_covers")
+    suspend fun getAll(): List<PlaylistCoverEntity>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsert(cover: PlaylistCoverEntity)
+
+    @Query("DELETE FROM playlist_covers WHERE playlistId = :playlistId")
+    suspend fun delete(playlistId: String)
+}
 
 data class TrackCoverTuple(
     @ColumnInfo(name = "id") val id: String,
@@ -45,7 +71,14 @@ interface TrackDao {
     @Query("SELECT * FROM tracks WHERE isLiked = 1 ORDER BY title ASC")
     suspend fun getLikedTracksList(): List<TrackEntity>
 
-    @Query("SELECT * FROM tracks WHERE title LIKE '%' || :query || '%' OR artist LIKE '%' || :query || '%' ORDER BY title ASC LIMIT 50")
+    @Query(
+        """
+        SELECT * FROM tracks
+        WHERE title LIKE '%' || REPLACE(REPLACE(REPLACE(:query, '\', '\\'), '%', '\%'), '_', '\_') || '%' ESCAPE '\'
+           OR artist LIKE '%' || REPLACE(REPLACE(REPLACE(:query, '\', '\\'), '%', '\%'), '_', '\_') || '%' ESCAPE '\'
+        ORDER BY title ASC LIMIT 50
+        """
+    )
     suspend fun searchTracks(query: String): List<TrackEntity>
 
     @Query("SELECT * FROM tracks WHERE lastPlayedTimestamp > 0 ORDER BY lastPlayedTimestamp DESC LIMIT 100")
@@ -137,10 +170,28 @@ private val MIGRATION_8_9 = object : Migration(8, 9) {
     }
 }
 
-@Database(entities = [TrackEntity::class, LyricsEntity::class], version = 9, exportSchema = false)
+private val MIGRATION_9_10 = object : Migration(9, 10) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("CREATE INDEX IF NOT EXISTS index_tracks_isDownloaded ON tracks(isDownloaded)")
+        db.execSQL("CREATE INDEX IF NOT EXISTS index_tracks_isLiked ON tracks(isLiked)")
+        db.execSQL("CREATE INDEX IF NOT EXISTS index_tracks_lastPlayedTimestamp ON tracks(lastPlayedTimestamp)")
+        db.execSQL(
+            """
+            CREATE TABLE IF NOT EXISTS playlist_covers (
+                playlistId TEXT NOT NULL PRIMARY KEY,
+                localCoverPath TEXT NOT NULL,
+                updatedAt INTEGER NOT NULL DEFAULT 0
+            )
+            """.trimIndent()
+        )
+    }
+}
+
+@Database(entities = [TrackEntity::class, LyricsEntity::class, PlaylistCoverEntity::class], version = 10, exportSchema = false)
 abstract class AppDatabase : RoomDatabase() {
     abstract fun trackDao(): TrackDao
     abstract fun lyricsDao(): LyricsDao
+    abstract fun playlistCoverDao(): PlaylistCoverDao
 
     companion object {
         @Volatile
@@ -155,9 +206,9 @@ abstract class AppDatabase : RoomDatabase() {
                 )
                     .addMigrations(
                         MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5,
-                        MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9
+                        MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9,
+                        MIGRATION_9_10
                     )
-                    .fallbackToDestructiveMigration()
                     .build()
                 INSTANCE = instance
                 instance

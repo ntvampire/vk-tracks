@@ -20,6 +20,8 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -121,6 +123,7 @@ fun TrackItem(
                             .clip(RoundedCornerShape(3.dp))
                             .background(Color.Gray.copy(alpha = 0.3f))
                             .padding(horizontal = 4.dp, vertical = 1.dp)
+                            .semantics { contentDescription = "Ненормативная лексика" }
                     ) {
                         Text(
                             text = "E",
@@ -134,17 +137,30 @@ fun TrackItem(
 
             Spacer(modifier = Modifier.height(2.dp))
 
-            Text(
-                text = track.artist,
-                fontSize = 13.sp,
-                color = if (track.isRestricted) {
-                    MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.35f)
-                } else {
-                    MaterialTheme.colorScheme.onSurfaceVariant
-                },
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                if (isDownloaded) {
+                    Icon(
+                        imageVector = Icons.Default.CheckCircle,
+                        contentDescription = "Скачан офлайн",
+                        tint = AppleRed.copy(alpha = 0.85f),
+                        modifier = Modifier
+                            .size(13.dp)
+                            .padding(end = 2.dp)
+                    )
+                    Spacer(modifier = Modifier.width(4.dp))
+                }
+                Text(
+                    text = track.artist,
+                    fontSize = 13.sp,
+                    color = if (track.isRestricted) {
+                        MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.35f)
+                    } else {
+                        MaterialTheme.colorScheme.onSurfaceVariant
+                    },
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
         }
 
         if (!isSelectionMode) {
@@ -152,7 +168,7 @@ fun TrackItem(
             if (onLikeClick != null) {
                 IconButton(
                     onClick = onLikeClick,
-                    modifier = Modifier.size(36.dp)
+                    modifier = Modifier.size(44.dp)
                 ) {
                     Icon(
                         imageVector = if (isLiked) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
@@ -167,7 +183,7 @@ fun TrackItem(
             if (onMoreClick != null) {
                 IconButton(
                     onClick = onMoreClick,
-                    modifier = Modifier.size(36.dp)
+                    modifier = Modifier.size(44.dp)
                 ) {
                     Icon(
                         imageVector = Icons.Default.MoreVert,

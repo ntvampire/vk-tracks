@@ -11,6 +11,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -60,6 +61,7 @@ fun SearchScreen(
     searchArtists: List<Artist> = emptyList(),
     myLibraryTracks: List<Track> = emptyList(),
     isSearching: Boolean,
+    searchError: String? = null,
     currentTrack: Track?,
     isPlaying: Boolean,
     resolvedCovers: Map<String, String> = emptyMap(),
@@ -92,14 +94,15 @@ fun SearchScreen(
     }
 
     LaunchedEffect(searchQuery) {
-        if (searchQuery.isNotBlank()) {
+        if (searchQuery.isNotBlank() && query.isBlank()) {
             selectedTab = SearchTab.TRACKS
         }
+        query = searchQuery
     }
 
-    val popularGenres = listOf(
-        "Хип-хоп", "Поп", "Рок", "Электроника", "Танцевальная", "Инди", "Фонк", "R&B"
-    )
+    val popularGenres = remember {
+        listOf("Хип-хоп", "Поп", "Рок", "Электроника", "Танцевальная", "Инди", "Фонк", "R&B")
+    }
 
     val foundPlaylists = remember(searchPlaylists) { searchPlaylists.filter { !it.isAlbum } }
     val foundAlbums = remember(searchPlaylists) { searchPlaylists.filter { it.isAlbum } }
@@ -146,18 +149,20 @@ fun SearchScreen(
                                 )
                             }
                         } else {
-                            val clipText = clipboardManager.getText()?.text
-                            if (!clipText.isNullOrBlank()) {
-                                IconButton(onClick = {
+                            IconButton(onClick = {
+                                val clipText = clipboardManager.getText()?.text?.trim()
+                                if (!clipText.isNullOrBlank()) {
                                     query = clipText
                                     onSearch(clipText)
-                                }) {
-                                    Icon(
-                                        imageVector = Icons.Default.ContentPaste,
-                                        contentDescription = "Вставить из буфера",
-                                        tint = MaterialTheme.colorScheme.onSurfaceVariant
-                                    )
+                                } else {
+                                    android.widget.Toast.makeText(context, "Буфер обмена пуст", android.widget.Toast.LENGTH_SHORT).show()
                                 }
+                            }) {
+                                Icon(
+                                    imageVector = Icons.Default.ContentPaste,
+                                    contentDescription = "Вставить из буфера",
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
                             }
                         }
 
@@ -231,7 +236,7 @@ fun SearchScreen(
                         item { EmptySearchMessage("В вашей медиатеке ничего не найдено") }
                     } else {
                         val currentPlayingCover = currentTrack?.coverUrl
-                        items(myFilteredTracks, key = { it.fullId }) { track ->
+                        itemsIndexed(myFilteredTracks, key = { index, track -> "${track.fullId}_$index" }) { _, track ->
                             val isCurrent = currentTrack?.fullId == track.fullId
                             val itemCover = resolvedCovers[track.fullId]
                                 ?: if (isCurrent) currentPlayingCover ?: track.coverUrl else track.coverUrl
@@ -251,11 +256,26 @@ fun SearchScreen(
                     }
                 }
                 SearchTab.TRACKS -> {
-                    if (searchResults.isEmpty()) {
+                    if (searchError != null && searchResults.isEmpty()) {
+                        item {
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(vertical = 40.dp, horizontal = 24.dp),
+                                horizontalAlignment = Alignment.CenterHorizontally
+                            ) {
+                                Text(text = searchError, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                Spacer(modifier = Modifier.height(12.dp))
+                                OutlinedButton(onClick = { onSearch(query) }) {
+                                    Text("Повторить")
+                                }
+                            }
+                        }
+                    } else if (searchResults.isEmpty()) {
                         item { EmptySearchMessage("Треки не найдены") }
                     } else {
                         val currentPlayingCover = currentTrack?.coverUrl
-                        items(searchResults, key = { it.fullId }) { track ->
+                        itemsIndexed(searchResults, key = { index, track -> "${track.fullId}_$index" }) { _, track ->
                             val isCurrent = currentTrack?.fullId == track.fullId
                             val itemCover = resolvedCovers[track.fullId]
                                 ?: if (isCurrent) currentPlayingCover ?: track.coverUrl else track.coverUrl

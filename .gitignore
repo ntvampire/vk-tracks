@@ -11,3 +11,6 @@ scratch/
 decompiled_manifest/
 VKX_*/
 .kotlin/
+keystore.properties
+*.jks
+*.keystore

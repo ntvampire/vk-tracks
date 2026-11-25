@@ -6,7 +6,6 @@ import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
 import android.graphics.Bitmap
-import android.graphics.Canvas
 import android.graphics.drawable.BitmapDrawable
 import androidx.core.content.ContextCompat
 import android.media.AudioDeviceCallback
@@ -43,6 +42,7 @@ import coil.Coil
 import coil.request.ImageRequest
 import coil.request.SuccessResult
 import com.google.common.collect.ImmutableList
+import com.vktracks.player.data.api.NetworkModule
 import com.vktracks.player.data.api.VkApiClient
 import com.google.common.util.concurrent.Futures
 import com.google.common.util.concurrent.ListenableFuture
@@ -59,13 +59,14 @@ import org.json.JSONObject
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
 import java.io.ByteArrayOutputStream
 
@@ -73,7 +74,7 @@ class PlaybackService : MediaLibraryService() {
 
     private var mediaSession: MediaLibrarySession? = null
     private lateinit var player: ExoPlayer
-    private val serviceScope = CoroutineScope(Dispatchers.Main + Job())
+    private val serviceScope = CoroutineScope(Dispatchers.Main + SupervisorJob())
     private var progressJob: Job? = null
     private var artworkJob: Job? = null
     private var historyJob: Job? = null
@@ -86,11 +87,32 @@ class PlaybackService : MediaLibraryService() {
     private var bluetoothResumeJob: Job? = null
     private var fadeJob: Job? = null
 
+    private fun isTrustedController(controller: MediaSession.ControllerInfo): Boolean {
+        if (controller.packageName == applicationContext.packageName) return true
+        val session = mediaSession
+        if (session != null && (
+                session.isMediaNotificationController(controller) ||
+                session.isAutomotiveController(controller) ||
+                session.isAutoCompanionController(controller)
+            )
+        ) {
+            return true
+        }
+        if (controller.uid == android.os.Process.SYSTEM_UID || controller.uid == 1002) {
+            return true
+        }
+        return controller.packageName in TRUSTED_MEDIA_PACKAGES
+    }
+
     private val sessionCallback = object : MediaLibrarySession.Callback {
         override fun onConnect(
             session: MediaSession,
             controller: MediaSession.ControllerInfo
         ): MediaSession.ConnectionResult {
+            if (!isTrustedController(controller)) {
+                android.util.Log.w("PlaybackService", "Rejected untrusted media controller: ${controller.packageName} (uid=${controller.uid})")
+                return MediaSession.ConnectionResult.reject()
+            }
             val baseResult = super.onConnect(session, controller)
             val sessionCommands = (baseResult.availableSessionCommands ?: MediaSession.ConnectionResult.DEFAULT_SESSION_COMMANDS)
                 .buildUpon()
@@ -111,6 +133,9 @@ class PlaybackService : MediaLibraryService() {
             customCommand: SessionCommand,
             args: Bundle
         ): ListenableFuture<SessionResult> {
+            if (!isTrustedController(controller)) {
+                return Futures.immediateFuture(SessionResult(SessionResult.RESULT_ERROR_PERMISSION_DENIED))
+            }
             if (customCommand.customAction == ACTION_TOGGLE_LIKE) {
                 _currentTrack.value?.let { track ->
                     serviceScope.launch(Dispatchers.Main) {
@@ -129,49 +154,96 @@ class PlaybackService : MediaLibraryService() {
             startIndex: Int,
             startPositionMs: Long
         ): ListenableFuture<MediaSession.MediaItemsWithStartPosition> {
-            val resolvedItems = mutableListOf<MediaItem>()
-            val db = AppDatabase.getInstance(applicationContext)
-            for (item in mediaItems) {
-                if (item.requestMetadata.mediaUri != null || item.localConfiguration?.uri != null) {
-                    resolvedItems.add(item)
-                } else {
-                    val rawId = item.mediaId.removePrefix("TRACK_")
-                    val entity = runBlocking(Dispatchers.IO) {
-                        try { db.trackDao().getTrackById(rawId) } catch (_: Exception) { null }
+            if (!isTrustedController(controller)) {
+                return Futures.immediateFailedFuture(SecurityException("Untrusted controller: ${controller.packageName}"))
+            }
+            val isOwnApp = controller.packageName == applicationContext.packageName
+            val future = SettableFuture.create<MediaSession.MediaItemsWithStartPosition>()
+            serviceScope.launch(Dispatchers.IO) {
+                try {
+                    val resolvedItems = mutableListOf<MediaItem>()
+                    val db = AppDatabase.getInstance(applicationContext)
+                    for (item in mediaItems) {
+                        when (item.mediaId) {
+                            "RADIO_STUDIO_21" -> {
+                                resolvedItems.add(
+                                    item.buildUpon()
+                                        .setUri(Uri.parse(com.vktracks.player.data.model.RadioStation.STUDIO_21.streamUrl))
+                                        .setMimeType(MimeTypes.AUDIO_MPEG)
+                                        .setLiveConfiguration(
+                                            MediaItem.LiveConfiguration.Builder()
+                                                .setMaxPlaybackSpeed(1.0f)
+                                                .setMinPlaybackSpeed(1.0f)
+                                                .build()
+                                        )
+                                        .build()
+                                )
+                            }
+                            "RADIO_RECORD" -> {
+                                resolvedItems.add(
+                                    item.buildUpon()
+                                        .setUri(Uri.parse(com.vktracks.player.data.model.RadioStation.RADIO_RECORD.streamUrl))
+                                        .setMimeType(MimeTypes.AUDIO_AAC)
+                                        .setLiveConfiguration(
+                                            MediaItem.LiveConfiguration.Builder()
+                                                .setMaxPlaybackSpeed(1.0f)
+                                                .setMinPlaybackSpeed(1.0f)
+                                                .build()
+                                        )
+                                        .build()
+                                )
+                            }
+                            else -> {
+                                if (isOwnApp && (item.requestMetadata.mediaUri != null || item.localConfiguration?.uri != null)) {
+                                    resolvedItems.add(item)
+                                } else {
+                                    val rawId = item.mediaId.removePrefix("TRACK_")
+                                    val entity = try { db.trackDao().getTrackById(rawId) } catch (_: Exception) { null }
+                                    if (entity != null) {
+                                        val uri = if (!entity.localFilePath.isNullOrEmpty()) Uri.parse(entity.localFilePath) else Uri.parse(entity.streamUrl)
+                                        if (uri != Uri.EMPTY) {
+                                            resolvedItems.add(item.buildUpon().setUri(uri).build())
+                                        }
+                                    } else {
+                                        val queueTrack = currentQueue.firstOrNull { it.fullId == rawId || it.fullId == item.mediaId }
+                                        if (queueTrack != null) {
+                                            val uri = if (queueTrack.isLocal && !queueTrack.localFilePath.isNullOrEmpty()) {
+                                                Uri.parse(queueTrack.localFilePath)
+                                            } else {
+                                                Uri.parse(queueTrack.streamUrl)
+                                            }
+                                            if (uri != Uri.EMPTY) {
+                                                resolvedItems.add(item.buildUpon().setUri(uri).build())
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
                     }
-                    if (entity != null) {
-                        val uri = if (!entity.localFilePath.isNullOrEmpty()) Uri.parse(entity.localFilePath) else Uri.parse(entity.streamUrl)
-                        resolvedItems.add(
-                            item.buildUpon()
-                                .setUri(uri)
-                                .build()
-                        )
-                    } else {
-                        resolvedItems.add(item)
-                    }
+                    val safeIndex = if (resolvedItems.isEmpty()) 0 else startIndex.coerceIn(0, resolvedItems.lastIndex)
+                    future.set(MediaSession.MediaItemsWithStartPosition(resolvedItems, safeIndex, startPositionMs))
+                } catch (e: Exception) {
+                    future.setException(e)
                 }
             }
-            return Futures.immediateFuture(
-                MediaSession.MediaItemsWithStartPosition(
-                    if (resolvedItems.isNotEmpty()) resolvedItems else mediaItems,
-                    startIndex,
-                    startPositionMs
-                )
-            )
+            return future
         }
 
         override fun onPlaybackResumption(
             mediaSession: MediaSession,
             controller: MediaSession.ControllerInfo
         ): ListenableFuture<MediaSession.MediaItemsWithStartPosition> {
+            if (!isTrustedController(controller)) {
+                return Futures.immediateFailedFuture(SecurityException("Untrusted controller: ${controller.packageName}"))
+            }
             val item = player.currentMediaItem
-            val index = player.currentMediaItemIndex
             val pos = player.currentPosition.coerceAtLeast(0)
             if (item != null) {
                 return Futures.immediateFuture(
                     MediaSession.MediaItemsWithStartPosition(
                         listOf(item),
-                        index,
+                        0,
                         pos
                     )
                 )
@@ -191,6 +263,9 @@ class PlaybackService : MediaLibraryService() {
             browser: MediaSession.ControllerInfo,
             params: LibraryParams?
         ): ListenableFuture<LibraryResult<MediaItem>> {
+            if (!isTrustedController(browser)) {
+                return Futures.immediateFuture(LibraryResult.ofError(LibraryResult.RESULT_ERROR_PERMISSION_DENIED))
+            }
             val rootItem = MediaItem.Builder()
                 .setMediaId("ROOT")
                 .setMediaMetadata(
@@ -212,6 +287,9 @@ class PlaybackService : MediaLibraryService() {
             pageSize: Int,
             params: LibraryParams?
         ): ListenableFuture<LibraryResult<ImmutableList<MediaItem>>> {
+            if (!isTrustedController(browser)) {
+                return Futures.immediateFuture(LibraryResult.ofError(LibraryResult.RESULT_ERROR_PERMISSION_DENIED))
+            }
             val items = mutableListOf<MediaItem>()
             when (parentId) {
                 "ROOT" -> {
@@ -274,10 +352,8 @@ class PlaybackService : MediaLibraryService() {
                             val db = AppDatabase.getInstance(applicationContext)
                             val downloaded = db.trackDao().getDownloadedTracksList()
                             val mediaItems = downloaded.map { entity ->
-                                val uri = if (!entity.localFilePath.isNullOrEmpty()) Uri.parse(entity.localFilePath) else Uri.parse(entity.streamUrl)
                                 MediaItem.Builder()
                                     .setMediaId("TRACK_${entity.id}")
-                                    .setUri(uri)
                                     .setMediaMetadata(
                                         MediaMetadata.Builder()
                                             .setIsBrowsable(false)
@@ -303,10 +379,8 @@ class PlaybackService : MediaLibraryService() {
                             val db = AppDatabase.getInstance(applicationContext)
                             val liked = db.trackDao().getLikedTracksList()
                             val mediaItems = liked.map { entity ->
-                                val uri = if (!entity.localFilePath.isNullOrEmpty()) Uri.parse(entity.localFilePath) else Uri.parse(entity.streamUrl)
                                 MediaItem.Builder()
                                     .setMediaId("TRACK_${entity.id}")
-                                    .setUri(uri)
                                     .setMediaMetadata(
                                         MediaMetadata.Builder()
                                             .setIsBrowsable(false)
@@ -373,16 +447,10 @@ class PlaybackService : MediaLibraryService() {
                 }
                 "NODE_QUEUE" -> {
                     currentQueue.forEach { track ->
-                        val uri = when {
-                            track.isLocal && !track.localFilePath.isNullOrEmpty() -> Uri.parse(track.localFilePath)
-                            track.streamUrl.isNotEmpty() -> Uri.parse(track.streamUrl)
-                            else -> Uri.EMPTY
-                        }
-                        if (uri != Uri.EMPTY) {
+                        if (track.streamUrl.isNotEmpty() || (track.isLocal && !track.localFilePath.isNullOrEmpty())) {
                             items.add(
                                 MediaItem.Builder()
-                                    .setMediaId(track.fullId)
-                                    .setUri(uri)
+                                    .setMediaId("TRACK_${track.fullId}")
                                     .setMediaMetadata(
                                         MediaMetadata.Builder()
                                             .setIsBrowsable(false)
@@ -406,6 +474,9 @@ class PlaybackService : MediaLibraryService() {
             browser: MediaSession.ControllerInfo,
             mediaId: String
         ): ListenableFuture<LibraryResult<MediaItem>> {
+            if (!isTrustedController(browser)) {
+                return Futures.immediateFuture(LibraryResult.ofError(LibraryResult.RESULT_ERROR_PERMISSION_DENIED))
+            }
             when (mediaId) {
                 "RADIO_STUDIO_21" -> {
                     val item = MediaItem.Builder()
@@ -462,10 +533,8 @@ class PlaybackService : MediaLibraryService() {
                         val db = AppDatabase.getInstance(applicationContext)
                         val entity = db.trackDao().getTrackById(rawId)
                         if (entity != null) {
-                            val uri = if (!entity.localFilePath.isNullOrEmpty()) Uri.parse(entity.localFilePath) else Uri.parse(entity.streamUrl)
                             val item = MediaItem.Builder()
                                 .setMediaId(mediaId)
-                                .setUri(uri)
                                 .setMediaMetadata(
                                     MediaMetadata.Builder()
                                         .setTitle(entity.title)
@@ -488,15 +557,15 @@ class PlaybackService : MediaLibraryService() {
             }
             val track = currentQueue.firstOrNull { it.fullId == mediaId }
             if (track != null) {
-                val uri = if (track.isLocal && !track.localFilePath.isNullOrEmpty()) Uri.parse(track.localFilePath) else Uri.parse(track.streamUrl)
                 val item = MediaItem.Builder()
-                    .setMediaId(track.fullId)
-                    .setUri(uri)
+                    .setMediaId("TRACK_${track.fullId}")
                     .setMediaMetadata(
                         MediaMetadata.Builder()
                             .setTitle(track.title)
                             .setArtist(track.artist)
                             .setArtworkUri(track.coverUrl?.let { Uri.parse(it) })
+                            .setIsBrowsable(false)
+                            .setIsPlayable(true)
                             .build()
                     )
                     .build()
@@ -511,6 +580,9 @@ class PlaybackService : MediaLibraryService() {
             query: String,
             params: LibraryParams?
         ): ListenableFuture<LibraryResult<Void>> {
+            if (!isTrustedController(browser)) {
+                return Futures.immediateFuture(LibraryResult.ofError(LibraryResult.RESULT_ERROR_PERMISSION_DENIED))
+            }
             session.notifySearchResultChanged(browser, query, 50, params)
             return Futures.immediateFuture(LibraryResult.ofVoid(params))
         }
@@ -523,16 +595,17 @@ class PlaybackService : MediaLibraryService() {
             pageSize: Int,
             params: LibraryParams?
         ): ListenableFuture<LibraryResult<ImmutableList<MediaItem>>> {
+            if (!isTrustedController(browser)) {
+                return Futures.immediateFuture(LibraryResult.ofError(LibraryResult.RESULT_ERROR_PERMISSION_DENIED))
+            }
             val future = SettableFuture.create<LibraryResult<ImmutableList<MediaItem>>>()
             serviceScope.launch(Dispatchers.IO) {
                 try {
                     val db = AppDatabase.getInstance(applicationContext)
                     val results = db.trackDao().searchTracks(query)
                     val items = results.map { entity ->
-                        val uri = if (!entity.localFilePath.isNullOrEmpty()) Uri.parse(entity.localFilePath) else Uri.parse(entity.streamUrl)
                         MediaItem.Builder()
                             .setMediaId("TRACK_${entity.id}")
-                            .setUri(uri)
                             .setMediaMetadata(
                                 MediaMetadata.Builder()
                                     .setIsBrowsable(false)
@@ -674,8 +747,7 @@ class PlaybackService : MediaLibraryService() {
                 override fun onAudioDevicesAdded(addedDevices: Array<out AudioDeviceInfo>?) {
                     val hasBtAudio = addedDevices?.any {
                         it.type == AudioDeviceInfo.TYPE_BLUETOOTH_A2DP ||
-                        it.type == AudioDeviceInfo.TYPE_BLUETOOTH_SCO ||
-                        (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && 
+                        (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S &&
                             (it.type == AudioDeviceInfo.TYPE_BLE_HEADSET || it.type == AudioDeviceInfo.TYPE_BLE_SPEAKER))
                     } == true
                     if (hasBtAudio) {
@@ -686,8 +758,7 @@ class PlaybackService : MediaLibraryService() {
                 override fun onAudioDevicesRemoved(removedDevices: Array<out AudioDeviceInfo>?) {
                     val hasBtAudio = removedDevices?.any {
                         it.type == AudioDeviceInfo.TYPE_BLUETOOTH_A2DP ||
-                        it.type == AudioDeviceInfo.TYPE_BLUETOOTH_SCO ||
-                        (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && 
+                        (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S &&
                             (it.type == AudioDeviceInfo.TYPE_BLE_HEADSET || it.type == AudioDeviceInfo.TYPE_BLE_SPEAKER))
                     } == true
                     if (hasBtAudio) {
@@ -789,7 +860,7 @@ class PlaybackService : MediaLibraryService() {
 
     override fun onTaskRemoved(rootIntent: Intent?) {
         try {
-            saveQueueState()
+            saveQueueState(sync = true)
             progressJob?.cancel()
             artworkJob?.cancel()
             historyJob?.cancel()
@@ -807,12 +878,15 @@ class PlaybackService : MediaLibraryService() {
         } catch (e: Exception) {
             android.util.Log.e("PlaybackService", "Error stopping onTaskRemoved", e)
         }
+        serviceScope.cancel()
         stopSelf()
         super.onTaskRemoved(rootIntent)
-        android.os.Process.killProcess(android.os.Process.myPid())
     }
 
     override fun onDestroy() {
+        try {
+            MediaCacheManager.getInstance(this).isUriFavoriteCheck = null
+        } catch (_: Exception) {}
         audioDeviceCallback?.let { callback ->
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
                 val audioManager = getSystemService(Context.AUDIO_SERVICE) as? AudioManager
@@ -821,13 +895,16 @@ class PlaybackService : MediaLibraryService() {
         }
         bluetoothResumeJob?.cancel()
         fadeJob?.cancel()
-        saveQueueState()
         progressJob?.cancel()
+        artworkJob?.cancel()
+        historyJob?.cancel()
+        saveQueueState(sync = true)
         mediaSession?.run {
             player.release()
             release()
             mediaSession = null
         }
+        serviceScope.cancel()
         instance = null
         super.onDestroy()
     }
@@ -854,6 +931,7 @@ class PlaybackService : MediaLibraryService() {
             player.play()
             _currentTrack.value = validTrack
             _durationMs.value = (validTrack.duration.toLong() * 1000L).coerceAtLeast(0)
+            saveHistory(validTrack)
             loadArtworkAsync(validTrack)
             updateNotificationLikeButton()
             saveQueueState()
@@ -864,15 +942,16 @@ class PlaybackService : MediaLibraryService() {
         _currentQueueFlow.value = tracks
 
         val mediaItems = tracks.map { track ->
-            buildMediaItem(track, validTrack.streamUrl)
+            buildMediaItem(track)
         }
 
         currentNotificationBitmap = null
-        player.setMediaItems(mediaItems, startIndex, 0L)
+        player.setMediaItems(mediaItems, validStartIndex, 0L)
         player.prepare()
         player.play()
         _currentTrack.value = validTrack
         _durationMs.value = (validTrack.duration.toLong() * 1000L).coerceAtLeast(0)
+        saveHistory(validTrack)
         loadArtworkAsync(validTrack)
         updateNotificationLikeButton()
         saveQueueState()
@@ -981,6 +1060,7 @@ class PlaybackService : MediaLibraryService() {
                 val newTrack = currentQueue[newCur]
                 _currentTrack.value = newTrack
                 _durationMs.value = (newTrack.duration.toLong() * 1000L).coerceAtLeast(0)
+                saveHistory(newTrack)
                 loadArtworkAsync(newTrack)
                 updateNotificationLikeButton()
             }
@@ -1110,9 +1190,9 @@ class PlaybackService : MediaLibraryService() {
         fadeJob = serviceScope.launch(Dispatchers.Main) {
             val steps = 5
             val stepDelay = durationMs / steps
-            for (i in (steps - 1) downTo 0) {
+            for (i in 1..steps) {
                 delay(stepDelay)
-                player.volume = (i.toFloat() / steps.toFloat()).coerceIn(0.0f, 1.0f)
+                player.volume = (1.0f - (i.toFloat() / steps.toFloat())).coerceIn(0.0f, 1.0f)
             }
             player.pause()
             player.volume = 1.0f
@@ -1208,7 +1288,9 @@ class PlaybackService : MediaLibraryService() {
             }
             val idx = currentQueue.indexOfFirst { it.fullId == fullId }
             if (idx >= 0 && currentQueue[idx].coverUrl != coverUrl) {
-                currentQueue = currentQueue.toMutableList().also { it[idx] = it[idx].copy(coverUrl = coverUrl) }
+                val updatedQueue = currentQueue.toMutableList().also { it[idx] = it[idx].copy(coverUrl = coverUrl) }
+                currentQueue = updatedQueue
+                _currentQueueFlow.value = updatedQueue
             }
         }
     }
@@ -1336,47 +1418,58 @@ class PlaybackService : MediaLibraryService() {
     }
 
     // Сохранение состояния очереди и позиции (VKX QueueSaveHolder) с адаптивным скользящим окном
-    private fun saveQueueState() {
+    private fun saveQueueState(sync: Boolean = false) {
         try {
             val queue = currentQueue.toList()
             if (queue.isEmpty()) return
             val currentIndex = player.currentMediaItemIndex.coerceIn(0, queue.lastIndex)
             val currentPos = player.currentPosition.coerceAtLeast(0)
 
-            // Скользящее окно сохранения вокруг текущего трека (защита от потери контекста в больших плейлистах)
             val windowStart = (currentIndex - 30).coerceAtLeast(0)
             val windowEnd = (windowStart + 150).coerceAtMost(queue.size)
-            val slice = queue.subList(windowStart, windowEnd)
+            val slice = queue.subList(windowStart, windowEnd).toList()
             val relativeSavedIndex = (currentIndex - windowStart).coerceIn(0, (slice.size - 1).coerceAtLeast(0))
 
-            val jsonArray = JSONArray()
-            slice.forEach { track ->
-                val obj = JSONObject().apply {
-                    put("id", track.id)
-                    put("ownerId", track.ownerId)
-                    put("title", track.title)
-                    put("artist", track.artist)
-                    put("duration", track.duration)
-                    put("streamUrl", track.streamUrl)
-                    put("coverUrl", track.coverUrl ?: "")
-                    put("albumTitle", track.albumTitle ?: "")
-                    put("isExplicit", track.isExplicit)
-                    put("lyricsId", track.lyricsId ?: 0L)
-                    put("accessKey", track.accessKey ?: "")
-                    put("isLiked", track.isLiked)
-                    put("localFilePath", track.localFilePath ?: "")
-                    put("restrictionCode", track.restriction.code)
-                    put("restrictionText", track.restrictionText ?: "")
+            val writeAction = {
+                try {
+                    val jsonArray = JSONArray()
+                    slice.forEach { track ->
+                        val obj = JSONObject().apply {
+                            put("id", track.id)
+                            put("ownerId", track.ownerId)
+                            put("title", track.title)
+                            put("artist", track.artist)
+                            put("duration", track.duration)
+                            put("streamUrl", track.streamUrl)
+                            put("coverUrl", track.coverUrl ?: "")
+                            put("albumTitle", track.albumTitle ?: "")
+                            put("isExplicit", track.isExplicit)
+                            put("lyricsId", track.lyricsId ?: 0L)
+                            put("accessKey", track.accessKey ?: "")
+                            put("isLiked", track.isLiked)
+                            put("localFilePath", track.localFilePath ?: "")
+                            put("restrictionCode", track.restriction.code)
+                            put("restrictionText", track.restrictionText ?: "")
+                        }
+                        jsonArray.put(obj)
+                    }
+
+                    val prefs = getSharedPreferences("playback_state_prefs", Context.MODE_PRIVATE)
+                    val editor = prefs.edit()
+                        .putString("saved_queue_json", jsonArray.toString())
+                        .putInt("saved_queue_index", relativeSavedIndex)
+                        .putLong("saved_position_ms", currentPos)
+                    if (sync) editor.commit() else editor.apply()
+                } catch (e: Exception) {
+                    android.util.Log.e("PlaybackService", "Error serializing queue state", e)
                 }
-                jsonArray.put(obj)
             }
 
-            val prefs = getSharedPreferences("playback_state_prefs", Context.MODE_PRIVATE)
-            prefs.edit()
-                .putString("saved_queue_json", jsonArray.toString())
-                .putInt("saved_queue_index", relativeSavedIndex)
-                .putLong("saved_position_ms", currentPos)
-                .apply()
+            if (sync) {
+                writeAction()
+            } else {
+                serviceScope.launch(Dispatchers.IO) { writeAction() }
+            }
         } catch (e: Exception) {
             android.util.Log.e("PlaybackService", "Error saving queue state", e)
         }
@@ -1389,21 +1482,18 @@ class PlaybackService : MediaLibraryService() {
         } else {
             serviceScope.launch(Dispatchers.IO) {
                 try {
-                    val authManager = com.vktracks.player.data.api.VkAuthManager(applicationContext)
                     val db = AppDatabase.getInstance(applicationContext)
                     val isCurrentlyLiked = isCurrentTrackLiked(track)
                     val newLikedState = !isCurrentlyLiked
 
-                    val currentIds = likedTrackIds.toMutableSet()
-                    if (newLikedState) currentIds.add(track.fullId) else currentIds.remove(track.fullId)
-                    likedTrackIds = currentIds
+                    setTrackLiked(track.fullId, newLikedState)
                     db.trackDao().updateLike(track.fullId, newLikedState)
 
                     withContext(Dispatchers.Main) {
                         updateNotificationLikeButton()
                     }
 
-                    val apiClient = com.vktracks.player.data.api.VkApiClient(authManager)
+                    val apiClient = NetworkModule.getVkApiClient(applicationContext)
                     if (newLikedState) {
                         apiClient.addAudio(track.id, track.ownerId)
                     } else {
@@ -1418,93 +1508,93 @@ class PlaybackService : MediaLibraryService() {
 
     // Восстановление состояния очереди и позиции при перезапуске (VKX QueueSaveHolder)
     private fun restoreSavedQueue() {
-        try {
-            val prefs = getSharedPreferences("playback_state_prefs", Context.MODE_PRIVATE)
-            val jsonStr = prefs.getString("saved_queue_json", null) ?: return
-            if (jsonStr.isEmpty() || jsonStr == "[]") return
+        serviceScope.launch(Dispatchers.IO) {
+            try {
+                val prefs = getSharedPreferences("playback_state_prefs", Context.MODE_PRIVATE)
+                val jsonStr = prefs.getString("saved_queue_json", null) ?: return@launch
+                if (jsonStr.isEmpty() || jsonStr == "[]") return@launch
 
-            val jsonArray = JSONArray(jsonStr)
-            val restored = mutableListOf<Track>()
-            for (i in 0 until jsonArray.length()) {
-                val obj = jsonArray.optJSONObject(i) ?: continue
-                val id = obj.optLong("id")
-                if (id == 0L) continue
-                val ownerId = obj.optLong("ownerId")
-                val title = obj.optString("title", "Без названия")
-                val artist = obj.optString("artist", "Неизвестный исполнитель")
-                val duration = obj.optInt("duration", 0)
-                val streamUrl = obj.optString("streamUrl", "")
-                val coverUrl = obj.optString("coverUrl").takeIf { it.isNotEmpty() }
-                val albumTitle = obj.optString("albumTitle").takeIf { it.isNotEmpty() }
-                val isExplicit = obj.optBoolean("isExplicit", false)
-                val lyricsId = obj.optLong("lyricsId", 0L).takeIf { it > 0L }
-                val accessKey = obj.optString("accessKey").takeIf { it.isNotEmpty() }
-                val isLiked = obj.optBoolean("isLiked", false)
-                val localFilePath = obj.optString("localFilePath").takeIf { it.isNotEmpty() }
-                val restCode = obj.optInt("restrictionCode", 0)
-                val restText = obj.optString("restrictionText").takeIf { it.isNotEmpty() }
+                val jsonArray = JSONArray(jsonStr)
+                val restored = mutableListOf<Track>()
+                for (i in 0 until jsonArray.length()) {
+                    val obj = jsonArray.optJSONObject(i) ?: continue
+                    val id = obj.optLong("id")
+                    if (id == 0L) continue
+                    val ownerId = obj.optLong("ownerId")
+                    val title = obj.optString("title", "Без названия")
+                    val artist = obj.optString("artist", "Неизвестный исполнитель")
+                    val duration = obj.optInt("duration", 0)
+                    val streamUrl = obj.optString("streamUrl", "")
+                    val coverUrl = obj.optString("coverUrl").takeIf { it.isNotEmpty() }
+                    val albumTitle = obj.optString("albumTitle").takeIf { it.isNotEmpty() }
+                    val isExplicit = obj.optBoolean("isExplicit", false)
+                    val lyricsId = obj.optLong("lyricsId", 0L).takeIf { it > 0L }
+                    val accessKey = obj.optString("accessKey").takeIf { it.isNotEmpty() }
+                    val isLiked = obj.optBoolean("isLiked", false)
+                    val localFilePath = obj.optString("localFilePath").takeIf { it.isNotEmpty() }
+                    val restCode = obj.optInt("restrictionCode", 0)
+                    val restText = obj.optString("restrictionText").takeIf { it.isNotEmpty() }
 
-                restored.add(
-                    Track(
-                        id = id,
-                        ownerId = ownerId,
-                        title = title,
-                        artist = artist,
-                        duration = duration,
-                        streamUrl = streamUrl,
-                        coverUrl = coverUrl,
-                        albumTitle = albumTitle,
-                        isExplicit = isExplicit,
-                        lyricsId = lyricsId,
-                        accessKey = accessKey,
-                        isLiked = isLiked,
-                        localFilePath = localFilePath,
-                        restriction = TrackRestriction.from(restCode),
-                        restrictionText = restText
+                    restored.add(
+                        Track(
+                            id = id,
+                            ownerId = ownerId,
+                            title = title,
+                            artist = artist,
+                            duration = duration,
+                            streamUrl = streamUrl,
+                            coverUrl = coverUrl,
+                            albumTitle = albumTitle,
+                            isExplicit = isExplicit,
+                            lyricsId = lyricsId,
+                            accessKey = accessKey,
+                            isLiked = isLiked,
+                            localFilePath = localFilePath,
+                            restriction = TrackRestriction.from(restCode),
+                            restrictionText = restText
+                        )
                     )
-                )
-            }
-
-            if (restored.isEmpty()) return
-            currentQueue = restored
-            _currentQueueFlow.value = restored
-
-            val savedIndex = prefs.getInt("saved_queue_index", 0).coerceIn(0, restored.lastIndex)
-            val savedPos = prefs.getLong("saved_position_ms", 0L).coerceAtLeast(0L)
-            val current = restored[savedIndex]
-
-            val mediaItems = restored.map { track ->
-                val uri = when {
-                    track.isLocal && !track.localFilePath.isNullOrEmpty() -> Uri.parse(track.localFilePath)
-                    track.streamUrl.isNotEmpty() -> Uri.parse(track.streamUrl)
-                    else -> Uri.parse(current.streamUrl)
                 }
-                val metadata = MediaMetadata.Builder()
-                    .setTitle(track.title)
-                    .setArtist(track.artist)
-                    .setDisplayTitle(track.title)
-                    .setAlbumTitle(track.albumTitle)
-                    .setArtworkUri(track.coverUrl?.let { Uri.parse(it) })
-                    .build()
 
-                MediaItem.Builder()
-                    .setMediaId(track.fullId)
-                    .setUri(uri)
-                    .setMediaMetadata(metadata)
-                    .build()
+                if (restored.isEmpty()) return@launch
+                val savedIndex = prefs.getInt("saved_queue_index", 0).coerceIn(0, restored.lastIndex)
+                val savedPos = prefs.getLong("saved_position_ms", 0L).coerceAtLeast(0L)
+
+                // Обновляем streamUrl текущего VK-трека на случай истечения подписи ссылки
+                var current = restored[savedIndex]
+                if (!current.isLocal && current.duration > 0) {
+                    val refreshed = try {
+                        NetworkModule.getVkApiClient(applicationContext).resolveTrack(current)
+                    } catch (_: Exception) {
+                        null
+                    }
+                    if (refreshed != null && refreshed.streamUrl.isNotEmpty()) {
+                        current = refreshed
+                        restored[savedIndex] = refreshed
+                    }
+                }
+
+                withContext(Dispatchers.Main) {
+                    // Если пользователь уже запустил новую очередь за время фонового чтения — не перезаписываем
+                    if (currentQueue.isNotEmpty()) return@withContext
+
+                    currentQueue = restored
+                    _currentQueueFlow.value = restored
+
+                    val mediaItems = restored.map { track -> buildMediaItem(track) }
+                    player.setMediaItems(mediaItems, savedIndex, savedPos)
+                    player.prepare()
+                    player.playWhenReady = false
+
+                    _currentTrack.value = current
+                    _currentPositionMs.value = savedPos
+                    _durationMs.value = (current.duration.toLong() * 1000L).coerceAtLeast(0)
+                    loadArtworkAsync(current)
+                    updateNotificationLikeButton()
+                }
+            } catch (e: Exception) {
+                android.util.Log.e("PlaybackService", "Error restoring saved queue", e)
             }
-
-            player.setMediaItems(mediaItems, savedIndex, savedPos)
-            player.prepare()
-            player.playWhenReady = false
-
-            _currentTrack.value = current
-            _currentPositionMs.value = savedPos
-            _durationMs.value = (current.duration.toLong() * 1000L).coerceAtLeast(0)
-            loadArtworkAsync(current)
-            updateNotificationLikeButton()
-        } catch (e: Exception) {
-            android.util.Log.e("PlaybackService", "Error restoring saved queue", e)
         }
     }
 
@@ -1513,21 +1603,42 @@ class PlaybackService : MediaLibraryService() {
         const val ACTION_OPEN_PLAYER = "com.vktracks.player.ACTION_OPEN_PLAYER"
         const val EXTRA_OPEN_FULL_PLAYER = "extra_open_full_player"
 
+        private val TRUSTED_MEDIA_PACKAGES = setOf(
+            "com.android.systemui",
+            "com.android.bluetooth",
+            "com.google.android.projection.gearhead",
+            "com.google.android.googlequicksearchbox",
+            "com.pioneer.smartsync"
+        )
+
+        @Volatile
         var instance: PlaybackService? = null
             private set
 
+        @Volatile
         var onToggleLikeListener: ((Track) -> Unit)? = null
+        private val likedTrackLock = Any()
+        @Volatile
         private var likedTrackIds: Set<String> = emptySet()
 
         fun updateLikedTrackIds(ids: Set<String>) {
-            likedTrackIds = ids
+            synchronized(likedTrackLock) {
+                likedTrackIds = ids.toSet()
+            }
             instance?.updateNotificationLikeButton()
+        }
+
+        fun setTrackLiked(fullId: String, liked: Boolean) {
+            synchronized(likedTrackLock) {
+                likedTrackIds = if (liked) likedTrackIds + fullId else likedTrackIds - fullId
+            }
         }
 
         fun isCurrentTrackLiked(track: Track): Boolean {
             return likedTrackIds.contains(track.fullId) || track.isLiked
         }
 
+        @Volatile
         private var currentQueue: List<Track> = emptyList()
         private val _currentQueueFlow = MutableStateFlow<List<Track>>(emptyList())
         val currentQueueFlow: StateFlow<List<Track>> = _currentQueueFlow.asStateFlow()

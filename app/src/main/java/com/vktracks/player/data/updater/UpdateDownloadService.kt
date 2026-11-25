@@ -16,10 +16,10 @@ import android.util.Log
 import androidx.core.app.NotificationCompat
 import androidx.core.content.FileProvider
 import com.vktracks.player.R
+import com.vktracks.player.data.api.NetworkModule
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import okhttp3.OkHttpClient
 import okhttp3.Request
 import java.io.File
 import java.io.FileOutputStream
@@ -28,14 +28,17 @@ import java.util.concurrent.TimeUnit
 class UpdateDownloadService : Service() {
 
     private val serviceScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
+    private var downloadJob: Job? = null
     private var wakeLock: PowerManager.WakeLock? = null
     private lateinit var notificationManager: NotificationManager
 
-    private val client = OkHttpClient.Builder()
+    private val client = NetworkModule.downloadClient.newBuilder()
         .followRedirects(true)
-        .followSslRedirects(true)
+        .followSslRedirects(false)
         .connectTimeout(20, TimeUnit.SECONDS)
         .readTimeout(120, TimeUnit.SECONDS)
+        .writeTimeout(30, TimeUnit.SECONDS)
+        .callTimeout(300, TimeUnit.SECONDS)
         .build()
 
     override fun onCreate() {
@@ -56,14 +59,16 @@ class UpdateDownloadService : Service() {
         val versionName = intent?.getStringExtra(EXTRA_VERSION_NAME) ?: "1.0.0"
         val downloadUrl = intent?.getStringExtra(EXTRA_DOWNLOAD_URL) ?: ""
         val mirrorUrl = intent?.getStringExtra(EXTRA_MIRROR_URL)
+        val expectedSha256 = intent?.getStringExtra(EXTRA_SHA256)
 
-        if (downloadUrl.isBlank() && mirrorUrl.isNullOrBlank()) {
+        if (!UpdateSecurity.isTrustedUpdateUrl(downloadUrl) && !UpdateSecurity.isTrustedUpdateUrl(mirrorUrl)) {
+            Log.e("UpdateService", "Rejected untrusted update URLs")
             stopSelf()
             return START_NOT_STICKY
         }
 
         startInForeground(versionName)
-        startDownload(versionName, downloadUrl, mirrorUrl)
+        startDownload(versionName, downloadUrl, mirrorUrl, expectedSha256)
 
         return START_NOT_STICKY
     }
@@ -81,18 +86,20 @@ class UpdateDownloadService : Service() {
         }
     }
 
-    private fun startDownload(versionName: String, downloadUrl: String, mirrorUrl: String?) {
+    private fun startDownload(versionName: String, downloadUrl: String, mirrorUrl: String?, expectedSha256: String?) {
+        downloadJob?.cancel()
         wakeLock?.acquire(15 * 60 * 1000L) // Максимум 15 минут
         _progressFlow.value = 0
 
-        serviceScope.launch {
-            val updateDir = File(externalCacheDir ?: cacheDir, "updates").apply { mkdirs() }
-            val apkFile = File(updateDir, "VK-Tracks-$versionName.apk")
+        downloadJob = serviceScope.launch {
+            val updateDir = UpdateSecurity.getPrivateUpdateDir(this@UpdateDownloadService)
+            val safeVersion = UpdateSecurity.sanitizeVersionName(versionName)
+            val apkFile = File(updateDir, "VK-Tracks-$safeVersion.apk")
             if (apkFile.exists()) apkFile.delete()
 
             val urlsToTry = listOfNotNull(
-                mirrorUrl?.takeIf { it.isNotBlank() },
-                downloadUrl.takeIf { it.isNotBlank() }
+                mirrorUrl?.takeIf { UpdateSecurity.isTrustedUpdateUrl(it) },
+                downloadUrl.takeIf { UpdateSecurity.isTrustedUpdateUrl(it) }
             )
 
             var success = false
@@ -110,6 +117,10 @@ class UpdateDownloadService : Service() {
 
                     client.newCall(request).execute().use { response ->
                         if (!response.isSuccessful) throw Exception("HTTP ${response.code}")
+                        val finalUrl = response.request.url.toString()
+                        if (!UpdateSecurity.isTrustedUpdateUrl(finalUrl)) {
+                            throw SecurityException("Недоверенный редирект обновления: $finalUrl")
+                        }
                         val body = response.body ?: throw Exception("Empty body")
                         val totalBytes = body.contentLength()
 
@@ -136,7 +147,7 @@ class UpdateDownloadService : Service() {
                                     if (now - lastNotifTime > 600 || percent == 100) {
                                         lastNotifTime = now
                                         val notif = buildProgressNotification(
-                                            versionName,
+                                            safeVersion,
                                             percent,
                                             "Загрузка: $percent%"
                                         )
@@ -148,13 +159,17 @@ class UpdateDownloadService : Service() {
                         }
                     }
 
-                    if (apkFile.exists() && apkFile.length() > 1024 * 1024) {
+                    val verification = UpdateSecurity.verifyApkIntegrity(this@UpdateDownloadService, apkFile, expectedSha256)
+                    if (verification.isSuccess) {
                         success = true
                         break
                     } else {
-                        throw Exception("File size too small: ${apkFile.length()} bytes")
+                        if (apkFile.exists()) apkFile.delete()
+                        throw verification.exceptionOrNull() ?: SecurityException("Проверка целостности APK не пройдена")
                     }
                 } catch (e: Exception) {
+                    if (e is CancellationException) throw e
+                    if (apkFile.exists()) apkFile.delete()
                     Log.w("UpdateService", "Download failed from $url: ${e.message}")
                     lastError = e
                 }
@@ -166,13 +181,14 @@ class UpdateDownloadService : Service() {
 
             if (success) {
                 _progressFlow.value = 100
-                showCompletedNotification(versionName, apkFile)
+                showCompletedNotification(safeVersion, apkFile)
                 withContext(Dispatchers.Main) {
                     triggerInstall(apkFile)
                 }
             } else {
                 _progressFlow.value = -1
-                showErrorNotification(downloadUrl, lastError?.message ?: "Сбой загрузки")
+                val fallbackBrowserUrl = urlsToTry.firstOrNull() ?: ""
+                showErrorNotification(fallbackBrowserUrl, lastError?.message ?: "Сбой загрузки")
             }
 
             stopForeground(STOP_FOREGROUND_DETACH)
@@ -214,26 +230,29 @@ class UpdateDownloadService : Service() {
     }
 
     private fun showErrorNotification(downloadUrl: String, errorMsg: String) {
-        val browserIntent = Intent(Intent.ACTION_VIEW, Uri.parse(downloadUrl)).apply {
-            flags = Intent.FLAG_ACTIVITY_NEW_TASK
-        }
-        val pendingIntent = PendingIntent.getActivity(
-            this,
-            1,
-            browserIntent,
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-        )
-
-        val notification = NotificationCompat.Builder(this, CHANNEL_ID)
+        val builder = NotificationCompat.Builder(this, CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_notification)
             .setContentTitle("Ошибка обновления")
-            .setContentText("$errorMsg. Нажмите для загрузки через браузер")
-            .setContentIntent(pendingIntent)
             .setAutoCancel(true)
             .setOngoing(false)
-            .build()
 
-        notificationManager.notify(NOTIFICATION_ID, notification)
+        if (UpdateSecurity.isTrustedUpdateUrl(downloadUrl)) {
+            val browserIntent = Intent(Intent.ACTION_VIEW, Uri.parse(downloadUrl)).apply {
+                flags = Intent.FLAG_ACTIVITY_NEW_TASK
+            }
+            val pendingIntent = PendingIntent.getActivity(
+                this,
+                1,
+                browserIntent,
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            )
+            builder.setContentText("$errorMsg. Нажмите для загрузки через браузер")
+                .setContentIntent(pendingIntent)
+        } else {
+            builder.setContentText(errorMsg)
+        }
+
+        notificationManager.notify(NOTIFICATION_ID, builder.build())
     }
 
     private fun triggerInstall(apkFile: File) {
@@ -295,16 +314,24 @@ class UpdateDownloadService : Service() {
         const val EXTRA_VERSION_NAME = "EXTRA_VERSION_NAME"
         const val EXTRA_DOWNLOAD_URL = "EXTRA_DOWNLOAD_URL"
         const val EXTRA_MIRROR_URL = "EXTRA_MIRROR_URL"
+        const val EXTRA_SHA256 = "EXTRA_SHA256"
 
         private val _progressFlow = MutableStateFlow(-1)
         val progressFlow = _progressFlow.asStateFlow()
 
-        fun start(context: Context, versionName: String, downloadUrl: String, mirrorUrl: String? = null) {
+        fun start(
+            context: Context,
+            versionName: String,
+            downloadUrl: String,
+            mirrorUrl: String? = null,
+            sha256: String? = null
+        ) {
             val intent = Intent(context, UpdateDownloadService::class.java).apply {
                 action = ACTION_START
                 putExtra(EXTRA_VERSION_NAME, versionName)
                 putExtra(EXTRA_DOWNLOAD_URL, downloadUrl)
                 putExtra(EXTRA_MIRROR_URL, mirrorUrl)
+                putExtra(EXTRA_SHA256, sha256)
             }
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                 context.startForegroundService(intent)

@@ -1,6 +1,8 @@
 package com.vktracks.player.data.api
 
 import com.vktracks.player.data.model.LyricLine
+import com.vktracks.player.data.model.Lyrics
+import kotlin.math.roundToLong
 
 /**
  * Парсер текстов песен в стандартном формате LRC ([mm:ss.xx] текст).
@@ -8,6 +10,19 @@ import com.vktracks.player.data.model.LyricLine
  */
 object LrcParser {
     private val TIMESTAMP_REGEX = Regex("""\[(\d{1,2}):(\d{2}(?:\.\d+)?)\]""")
+
+    fun buildLyrics(plainText: String?, syncedLyrics: String?, isInstrumental: Boolean): Lyrics {
+        if (isInstrumental) {
+            return Lyrics(plainText = emptyList(), lines = emptyList(), isInstrumental = true)
+        }
+        val syncedLines = parse(syncedLyrics)
+        val plainList = plainText?.lines()?.map { it.trim() }?.filter { it.isNotEmpty() } ?: emptyList()
+        return Lyrics(
+            plainText = plainList,
+            lines = syncedLines,
+            isInstrumental = false
+        )
+    }
 
     fun parse(lrcContent: String?): List<LyricLine> {
         if (lrcContent.isNullOrBlank()) return emptyList()
@@ -42,7 +57,7 @@ object LrcParser {
             for (match in matches) {
                 val min = match.groupValues[1].toLongOrNull() ?: 0L
                 val sec = match.groupValues[2].toDoubleOrNull() ?: 0.0
-                val beginMs = min * 60_000L + (sec * 1000).toLong()
+                val beginMs = min * 60_000L + (sec * 1000.0).roundToLong()
                 parsedList.add(beginMs to text)
             }
         }

@@ -8,9 +8,7 @@ import coil.ImageLoader
 import coil.ImageLoaderFactory
 import coil.disk.DiskCache
 import coil.memory.MemoryCache
-import okhttp3.ConnectionPool
-import okhttp3.OkHttpClient
-import java.util.concurrent.TimeUnit
+import com.vktracks.player.data.api.NetworkModule
 
 class VKTracksApp : Application(), ImageLoaderFactory {
 
@@ -22,6 +20,7 @@ class VKTracksApp : Application(), ImageLoaderFactory {
 
     override fun newImageLoader(): ImageLoader {
         return ImageLoader.Builder(this)
+            .okHttpClient { NetworkModule.imageClient }
             .memoryCache {
                 MemoryCache.Builder(this)
                     .maxSizePercent(0.25)

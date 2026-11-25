@@ -57,6 +57,9 @@ fun PlaylistDetailSheet(
     modifier: Modifier = Modifier,
     isUserPlaylist: Boolean = false,
     userPlaylists: List<Playlist> = emptyList(),
+    playlistError: String? = null,
+    onRetryClick: (() -> Unit)? = null,
+    onCreateNewPlaylistClick: (() -> Unit)? = null,
     onEditPlaylistClick: ((Playlist, String, String, Uri?) -> Unit)? = null,
     onBatchDownloadClick: ((List<Track>) -> Unit)? = null,
     onBatchAddToPlaylistClick: ((Playlist, List<Track>) -> Unit)? = null,
@@ -105,6 +108,7 @@ fun PlaylistDetailSheet(
             },
             onCreateNewClick = {
                 showPlaylistChooserDialog = false
+                onCreateNewPlaylistClick?.invoke()
             }
         )
     }
@@ -324,20 +328,27 @@ fun PlaylistDetailSheet(
                         }
                     } else if (tracks.isEmpty()) {
                         item {
-                            Box(
+                            Column(
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .padding(vertical = 40.dp),
-                                contentAlignment = Alignment.Center
+                                    .padding(vertical = 40.dp, horizontal = 24.dp),
+                                horizontalAlignment = Alignment.CenterHorizontally
                             ) {
                                 Text(
-                                    text = "В плейлисте нет треков",
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    text = playlistError ?: "В плейлисте нет треков",
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    textAlign = TextAlign.Center
                                 )
+                                if (playlistError != null && onRetryClick != null) {
+                                    Spacer(modifier = Modifier.height(12.dp))
+                                    OutlinedButton(onClick = onRetryClick) {
+                                        Text("Повторить")
+                                    }
+                                }
                             }
                         }
                     } else {
-                        itemsIndexed(tracks, key = { _, track -> track.fullId }) { index, track ->
+                        itemsIndexed(tracks, key = { index, track -> "${track.fullId}_$index" }) { index, track ->
                             val isCurrent = currentTrack?.fullId == track.fullId
                             val isLiked = likedTrackIds.contains(track.fullId) || track.isLiked
 

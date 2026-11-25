@@ -9,10 +9,10 @@ import android.provider.Settings
 import android.util.Log
 import androidx.core.content.FileProvider
 import com.vktracks.player.BuildConfig
+import com.vktracks.player.data.api.NetworkModule
 import com.vktracks.player.data.model.AppUpdateInfo
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import okhttp3.OkHttpClient
 import okhttp3.Request
 import org.json.JSONObject
 import java.io.File
@@ -21,21 +21,28 @@ import java.util.concurrent.TimeUnit
 
 class UpdateChecker(private val context: Context) {
 
-    private val client = OkHttpClient.Builder()
+    private val client = NetworkModule.downloadClient.newBuilder()
         .followRedirects(true)
-        .followSslRedirects(true)
+        .followSslRedirects(false)
         .connectTimeout(15, TimeUnit.SECONDS)
         .readTimeout(60, TimeUnit.SECONDS)
+        .writeTimeout(30, TimeUnit.SECONDS)
+        .callTimeout(180, TimeUnit.SECONDS)
         .build()
 
     private val userAgent = "Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36"
 
-    suspend fun checkForUpdates(): AppUpdateInfo? = withContext(Dispatchers.IO) {
+    suspend fun checkForUpdates(): AppUpdateInfo? = checkForUpdatesResult().getOrNull()
+
+    suspend fun checkForUpdatesResult(): Result<AppUpdateInfo?> = withContext(Dispatchers.IO) {
         val now = System.currentTimeMillis()
         val urls = listOf(
             "$RAW_UPDATE_URL?t=$now",
             "$UPDATE_URL?t=$now"
         )
+        var anySuccessfulResponse = false
+        var lastException: Exception? = null
+
         for (url in urls) {
             try {
                 val request = Request.Builder()
@@ -46,30 +53,40 @@ class UpdateChecker(private val context: Context) {
                     .build()
 
                 val info = client.newCall(request).execute().use { response ->
-                    if (!response.isSuccessful) return@use null
+                    if (!response.isSuccessful) {
+                        lastException = Exception("HTTP ${response.code}")
+                        return@use null
+                    }
                     val body = response.body?.string() ?: return@use null
                     val json = JSONObject(body)
+                    anySuccessfulResponse = true
 
                     val remoteCode = json.optInt("versionCode")
                     val remoteName = json.optString("versionName")
                     val downloadUrl = json.optString("downloadUrl")
                     val mirrorUrl = json.optString("mirrorUrl").takeIf { it.isNotEmpty() }
                     val changelog = json.optString("changelog")
+                    val sha256 = json.optString("sha256").takeIf { it.length == 64 }
 
-                    if (remoteCode > BuildConfig.VERSION_CODE || isNewerVersion(remoteName, BuildConfig.VERSION_NAME)) {
+                    if ((remoteCode > BuildConfig.VERSION_CODE || isNewerVersion(remoteName, BuildConfig.VERSION_NAME)) &&
+                        (UpdateSecurity.isTrustedUpdateUrl(downloadUrl) || UpdateSecurity.isTrustedUpdateUrl(mirrorUrl))
+                    ) {
                         AppUpdateInfo(
                             versionCode = remoteCode,
                             versionName = remoteName,
                             downloadUrl = downloadUrl,
                             mirrorUrl = mirrorUrl,
-                            changelog = changelog
+                            changelog = changelog,
+                            sha256 = sha256
                         )
                     } else {
                         null
                     }
                 }
-                if (info != null) return@withContext info
+                if (info != null) return@withContext Result.success(info)
+                if (anySuccessfulResponse) return@withContext Result.success(null)
             } catch (e: Exception) {
+                lastException = e
                 Log.w("UpdateChecker", "Failed to check update from $url", e)
             }
         }
@@ -87,39 +104,55 @@ class UpdateChecker(private val context: Context) {
                     val body = response.body?.string()
                     if (body != null) {
                         val json = JSONObject(body)
+                        anySuccessfulResponse = true
                         val tagName = json.optString("tag_name")
                         val releaseVer = tagName.removePrefix("v").trim()
                         if (isNewerVersion(releaseVer, BuildConfig.VERSION_NAME)) {
                             val assets = json.optJSONArray("assets")
                             var apkUrl: String? = null
+                            var assetSha256: String? = null
                             if (assets != null) {
                                 for (i in 0 until assets.length()) {
                                     val asset = assets.optJSONObject(i) ?: continue
                                     val name = asset.optString("name")
                                     if (name.endsWith(".apk")) {
                                         apkUrl = asset.optString("browser_download_url")
+                                        val rawDigest = asset.optString("digest")
+                                        if (rawDigest.startsWith("sha256:", ignoreCase = true)) {
+                                            assetSha256 = rawDigest.substringAfter(":").trim().takeIf { it.length == 64 }
+                                        }
                                         break
                                     }
                                 }
                             }
-                            if (apkUrl != null) {
-                                return@withContext AppUpdateInfo(
-                                    versionCode = BuildConfig.VERSION_CODE + 1,
-                                    versionName = releaseVer,
-                                    downloadUrl = apkUrl,
-                                    mirrorUrl = null,
-                                    changelog = json.optString("body")
+                            if (UpdateSecurity.isTrustedUpdateUrl(apkUrl)) {
+                                return@withContext Result.success(
+                                    AppUpdateInfo(
+                                        versionCode = BuildConfig.VERSION_CODE + 1,
+                                        versionName = releaseVer,
+                                        downloadUrl = apkUrl!!,
+                                        mirrorUrl = null,
+                                        changelog = json.optString("body"),
+                                        sha256 = assetSha256
+                                    )
                                 )
                             }
                         }
                     }
+                } else {
+                    lastException = Exception("GitHub API HTTP ${response.code}")
                 }
             }
         } catch (e: Exception) {
+            lastException = e
             Log.w("UpdateChecker", "GitHub API release check fallback failed", e)
         }
 
-        null
+        if (anySuccessfulResponse) {
+            Result.success(null)
+        } else {
+            Result.failure(lastException ?: Exception("Не удалось подключиться к серверу обновлений"))
+        }
     }
 
     private fun isNewerVersion(remote: String, current: String): Boolean {
@@ -137,14 +170,18 @@ class UpdateChecker(private val context: Context) {
     }
 
     suspend fun downloadAndInstallApk(updateInfo: AppUpdateInfo, onProgress: (Int) -> Unit): Result<Unit> = withContext(Dispatchers.IO) {
-        val updateDir = File(context.externalCacheDir ?: context.cacheDir, "updates").apply { mkdirs() }
-        val apkFile = File(updateDir, "VK-Tracks-${updateInfo.versionName}.apk")
+        val updateDir = UpdateSecurity.getPrivateUpdateDir(context)
+        val safeVersion = UpdateSecurity.sanitizeVersionName(updateInfo.versionName)
+        val apkFile = File(updateDir, "VK-Tracks-$safeVersion.apk")
         if (apkFile.exists()) apkFile.delete()
 
         val urlsToTry = listOfNotNull(
-            updateInfo.mirrorUrl.takeIf { !it.isNullOrBlank() },
-            updateInfo.downloadUrl.takeIf { !it.isNullOrBlank() }
+            updateInfo.mirrorUrl?.takeIf { UpdateSecurity.isTrustedUpdateUrl(it) },
+            updateInfo.downloadUrl.takeIf { UpdateSecurity.isTrustedUpdateUrl(it) }
         )
+        if (urlsToTry.isEmpty()) {
+            return@withContext Result.failure(SecurityException("Недоверенный источник обновления"))
+        }
 
         var lastException: Exception? = null
 
@@ -160,6 +197,10 @@ class UpdateChecker(private val context: Context) {
 
                 client.newCall(request).execute().use { response ->
                     if (!response.isSuccessful) throw Exception("HTTP ${response.code} from $url")
+                    val finalUrl = response.request.url.toString()
+                    if (!UpdateSecurity.isTrustedUpdateUrl(finalUrl)) {
+                        throw SecurityException("Недоверенный редирект обновления: $finalUrl")
+                    }
                     val body = response.body ?: throw Exception("Empty APK body")
                     val totalBytes = body.contentLength()
 
@@ -186,9 +227,10 @@ class UpdateChecker(private val context: Context) {
                     }
                 }
 
-                if (apkFile.exists() && apkFile.length() > 1024 * 1024) {
+                val verification = UpdateSecurity.verifyApkIntegrity(context, apkFile, updateInfo.sha256)
+                if (verification.isSuccess) {
                     onProgress(100)
-                    Log.d("UpdateChecker", "APK downloaded successfully (${apkFile.length()} bytes)")
+                    Log.d("UpdateChecker", "APK verified successfully (${apkFile.length()} bytes)")
 
                     // Запуск системного установщика пакетов
                     withContext(Dispatchers.Main) {
@@ -196,9 +238,11 @@ class UpdateChecker(private val context: Context) {
                     }
                     return@withContext Result.success(Unit)
                 } else {
-                    throw Exception("Downloaded APK file is too small or missing")
+                    if (apkFile.exists()) apkFile.delete()
+                    throw verification.exceptionOrNull() ?: SecurityException("Проверка целостности APK не пройдена")
                 }
             } catch (e: Exception) {
+                if (apkFile.exists()) apkFile.delete()
                 Log.w("UpdateChecker", "Failed download from $url, trying next...", e)
                 lastException = e
             }
@@ -229,13 +273,6 @@ class UpdateChecker(private val context: Context) {
             val installIntent = Intent(Intent.ACTION_VIEW).apply {
                 setDataAndType(apkUri, "application/vnd.android.package-archive")
                 flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_GRANT_READ_URI_PERMISSION
-            }
-
-            // Явно выдаём права на чтение URI установщику пакетов
-            val resInfoList = context.packageManager.queryIntentActivities(installIntent, PackageManager.MATCH_DEFAULT_ONLY)
-            for (resolveInfo in resInfoList) {
-                val packageName = resolveInfo.activityInfo.packageName
-                context.grantUriPermission(packageName, apkUri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
             }
 
             context.startActivity(installIntent)

@@ -78,7 +78,11 @@ class MainActivity : ComponentActivity() {
 
         // Запуск сервиса воспроизведения
         val serviceIntent = Intent(this, PlaybackService::class.java)
-        startService(serviceIntent)
+        try {
+            startService(serviceIntent)
+        } catch (_: Exception) {
+            // Игнорируем ограничение фонового запуска на Android 8+
+        }
 
         setContent {
             VKTracksTheme {
@@ -94,15 +98,6 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun handleIntent(intent: Intent?) {
-        val tokenExtra = intent?.getStringExtra("set_token")
-        if (!tokenExtra.isNullOrEmpty()) {
-            lifecycleScope.launch {
-                val ok = viewModel.apiClient.validateAndSaveToken(tokenExtra)
-                if (ok) {
-                    viewModel.onAuthSuccess()
-                }
-            }
-        }
         val shouldOpen = intent?.getBooleanExtra(PlaybackService.EXTRA_OPEN_FULL_PLAYER, false) == true ||
                 intent?.action == PlaybackService.ACTION_OPEN_PLAYER
         if (shouldOpen) {
@@ -179,6 +174,18 @@ fun MainAppScreen(viewModel: MainViewModel) {
     val vkMixSettings by viewModel.vkMixSettings.collectAsState()
     val updateProgress by viewModel.updateProgress.collectAsState()
     val searchQuery by viewModel.searchQuery.collectAsState()
+    val libraryError by viewModel.libraryError.collectAsState()
+    val searchError by viewModel.searchError.collectAsState()
+    val playlistError by viewModel.playlistError.collectAsState()
+
+    val userPlaylists = remember(playlists) { playlists.filter { !it.isAlbum } }
+    val currentUserId = remember(isAuthorized) { viewModel.authManager.getUserId() }
+
+    LaunchedEffect(Unit) {
+        viewModel.toastEvents.collect { msg ->
+            Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
+        }
+    }
 
     LaunchedEffect(likedTrackIds) {
         PlaybackService.updateLikedTrackIds(likedTrackIds)
@@ -281,6 +288,8 @@ fun MainAppScreen(viewModel: MainViewModel) {
                             onLoginClick = { showAuthDialog = true },
                             onSettingsClick = { showSettings = true },
                             isAuthorized = isAuthorized,
+                            libraryError = libraryError,
+                            onRetryClick = { viewModel.loadLibrary() },
                             onMoreTrackClick = { contextMenuTrack = it },
                             onCreatePlaylistClick = { showCreatePlaylistDialog = true }
                         )
@@ -293,6 +302,7 @@ fun MainAppScreen(viewModel: MainViewModel) {
                             searchArtists = searchArtists,
                             myLibraryTracks = myTracks,
                             isSearching = isSearching,
+                            searchError = searchError,
                             currentTrack = currentTrack,
                             isPlaying = isPlaying,
                             resolvedCovers = resolvedCovers,
@@ -334,9 +344,7 @@ fun MainAppScreen(viewModel: MainViewModel) {
                 // Экран плейлиста / альбома в стиле Apple Music (внутри контентной зоны, таб-бар и мини-плеер остаются на виду)
                 if (selectedPlaylist != null) {
                     selectedPlaylist?.let { playlist ->
-                        val currentUserId = viewModel.authManager.getUserId()
                         val isUserPlaylist = !playlist.isAlbum && (playlist.ownerId == currentUserId || (playlist.ownerId > 0 && playlists.any { it.id == playlist.id && it.ownerId == playlist.ownerId }))
-                        val userPlaylists = playlists.filter { !it.isAlbum }
 
                         PlaylistDetailSheet(
                             playlist = playlist,
@@ -350,6 +358,9 @@ fun MainAppScreen(viewModel: MainViewModel) {
                             resolvedCovers = resolvedCovers,
                             isUserPlaylist = isUserPlaylist,
                             userPlaylists = userPlaylists,
+                            playlistError = playlistError,
+                            onRetryClick = { viewModel.openPlaylist(playlist) },
+                            onCreateNewPlaylistClick = { showCreatePlaylistDialog = true },
                             onTrackClick = { track, list -> viewModel.playTrack(track, list) },
                             onPlayAllClick = { list -> if (list.isNotEmpty()) viewModel.playTrack(list.first(), list) },
                             onShuffleClick = { list ->
@@ -367,7 +378,7 @@ fun MainAppScreen(viewModel: MainViewModel) {
                                 contextMenuTrack = it
                             },
                             onEditPlaylistClick = { pl, title, desc, coverUri ->
-                                viewModel.editPlaylist(pl, title, desc, coverUri, context) { ok ->
+                                viewModel.editPlaylist(pl, title, desc, coverUri) { ok ->
                                     val msg = if (ok) "Плейлист обновлён" else "Плейлист сохранён локально"
                                     Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
                                 }
@@ -390,8 +401,6 @@ fun MainAppScreen(viewModel: MainViewModel) {
         // Полноэкранный плеер в стиле Apple Music (поверх всех экранов и плейлистов)
         if (showFullPlayer) {
             val currentQueue by viewModel.currentQueue.collectAsState()
-            val currentPosMs by viewModel.currentPosMs.collectAsState()
-            val durationMs by viewModel.durationMs.collectAsState()
             val isCurrentLiked = currentTrack?.let {
                 likedTrackIds.contains(it.fullId) || it.isLiked
             } ?: false
@@ -402,8 +411,8 @@ fun MainAppScreen(viewModel: MainViewModel) {
             FullPlayerSheet(
                 track = currentTrack,
                 isPlaying = isPlaying,
-                currentPosMs = currentPosMs,
-                durationMs = durationMs,
+                currentPosFlow = viewModel.currentPosMs,
+                durationFlow = viewModel.durationMs,
                 isShuffle = isShuffle,
                 repeatMode = repeatMode,
                 lyrics = lyrics,
@@ -460,7 +469,6 @@ fun MainAppScreen(viewModel: MainViewModel) {
         }
 
         // Экран настроек
-        val context = LocalContext.current
         if (showSettings) {
             val cacheSizeDisplay by viewModel.cacheSizeDisplay.collectAsState()
             val isCacheEnabled by viewModel.isCacheEnabled.collectAsState()
@@ -493,6 +501,7 @@ fun MainAppScreen(viewModel: MainViewModel) {
                     showSettings = false
                     showAuthDialog = true
                 },
+                onLogoutClick = { viewModel.logout() },
                 onCheckUpdateClick = {
                     viewModel.checkForUpdates(isManual = true) {
                         Toast.makeText(
@@ -521,7 +530,7 @@ fun MainAppScreen(viewModel: MainViewModel) {
             val isDownloaded = downloadedTrackIds.contains(track.fullId) || track.isLocal
             TrackContextMenuBottomSheet(
                 track = track,
-                playlists = playlists.filter { !it.isAlbum },
+                playlists = userPlaylists,
                 isDownloaded = isDownloaded,
                 onDownloadClick = {
                     viewModel.downloadTrack(track)
@@ -533,6 +542,9 @@ fun MainAppScreen(viewModel: MainViewModel) {
                         Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
                     }
                 },
+                onOpenAlbum = if (!track.albumTitle.isNullOrBlank()) {
+                    { viewModel.openAlbumByTrack(track) }
+                } else null,
                 onDismiss = {
                     contextMenuTrack = null
                     contextMenuPlaylist = null
@@ -618,10 +630,13 @@ fun UpdateDialog(
                 TextButton(
                     onClick = {
                         try {
-                            val intent = Intent(Intent.ACTION_VIEW, Uri.parse(update.downloadUrl)).apply {
-                                flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                            val targetUrl = update.downloadUrl
+                            if (com.vktracks.player.data.updater.UpdateSecurity.isTrustedUpdateUrl(targetUrl)) {
+                                val intent = Intent(Intent.ACTION_VIEW, Uri.parse(targetUrl)).apply {
+                                    flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                                }
+                                context.startActivity(intent)
                             }
-                            context.startActivity(intent)
                         } catch (_: Exception) {}
                     },
                     modifier = Modifier.align(Alignment.End)

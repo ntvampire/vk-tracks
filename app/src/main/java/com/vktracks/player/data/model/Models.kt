@@ -41,6 +41,7 @@ data class Track(
     val displayRestriction: String get() = restrictionText?.takeIf { it.isNotBlank() } ?: restriction.description.takeIf { it.isNotEmpty() } ?: "Недоступно"
 }
 
+@Immutable
 data class Playlist(
     val id: Long,
     val ownerId: Long,
@@ -68,12 +69,14 @@ fun Int.toTrackCountString(): String {
     return "$this $word"
 }
 
+@Immutable
 data class LyricLine(
     val beginMs: Long,
     val endMs: Long,
     val text: String
 )
 
+@Immutable
 data class Lyrics(
     val plainText: List<String> = emptyList(),
     val lines: List<LyricLine> = emptyList(),
@@ -82,20 +85,24 @@ data class Lyrics(
     val isSynchronized: Boolean get() = lines.isNotEmpty()
 }
 
+@Immutable
 data class AppUpdateInfo(
     val versionCode: Int,
     val versionName: String,
     val downloadUrl: String,
     val mirrorUrl: String? = null,
-    val changelog: String
+    val changelog: String,
+    val sha256: String? = null
 )
 
+@Immutable
 data class Artist(
     val id: String,
     val name: String,
     val photoUrl: String? = null
 )
 
+@Immutable
 data class ArtistDetail(
     val artist: Artist,
     val popularTracks: List<Track> = emptyList(),
@@ -103,12 +110,14 @@ data class ArtistDetail(
     val bio: String? = null
 )
 
+@Immutable
 data class SearchResult(
     val tracks: List<Track> = emptyList(),
     val playlists: List<Playlist> = emptyList(),
     val artists: List<Artist> = emptyList()
 )
 
+@Immutable
 data class StreamMix(
     val id: String,
     val title: String,
@@ -119,6 +128,7 @@ data class StreamMix(
     val mixType: String = "general" // "artist", "genre", "personal", "algorithm"
 )
 
+@Immutable
 data class CatalogButtonItem(
     val id: String,
     val title: String,
@@ -127,6 +137,7 @@ data class CatalogButtonItem(
     val colorHex: String? = null
 )
 
+@Immutable
 data class CatalogBlock(
     val id: String,
     val title: String,
@@ -174,6 +185,7 @@ enum class RadioStation(
     )
 }
 
+@Immutable
 data class VkMixSettings(
     val mood: String = "any", // "any", "energetic", "calm", "sad", "happy"
     val familiarity: String = "any", // "any", "familiar", "discover", "popular"
@@ -181,6 +193,7 @@ data class VkMixSettings(
     val genre: String = "any" // "any", "pop", "rock", "hiphop", "electro", "indie", "metal"
 )
 
+@Immutable
 data class AudiosPage(
     val tracks: List<Track> = emptyList(),
     val totalCount: Int = 0,

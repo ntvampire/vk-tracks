@@ -2,46 +2,50 @@ package com.vktracks.player.data.utils
 
 import android.content.Context
 import android.media.MediaMetadataRetriever
+import android.net.Uri
+import com.vktracks.player.data.api.NetworkModule
 import com.vktracks.player.data.model.Track
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import okhttp3.OkHttpClient
 import okhttp3.Request
 import java.io.File
 import java.util.concurrent.ConcurrentHashMap
-import java.util.concurrent.TimeUnit
 
 object TrackBitrateResolver {
     private val cache = ConcurrentHashMap<String, String>()
-    private val client = OkHttpClient.Builder()
-        .connectTimeout(5, TimeUnit.SECONDS)
-        .readTimeout(5, TimeUnit.SECONDS)
-        .followRedirects(true)
-        .build()
+    private val client get() = NetworkModule.fastMetadataClient
 
     suspend fun resolveBitrate(context: Context, track: Track): String = withContext(Dispatchers.IO) {
         val cached = cache[track.fullId]
         if (cached != null) return@withContext cached
 
-        // 1. Локальный трек
+        // 1. Локальный трек (content:// URI или файловый путь)
         if (track.isLocal && !track.localFilePath.isNullOrBlank()) {
+            val localPath = track.localFilePath
             try {
-                val file = File(track.localFilePath)
-                if (file.exists() && file.length() > 0) {
-                    val retriever = MediaMetadataRetriever()
-                    try {
-                        retriever.setDataSource(file.absolutePath)
-                        val brStr = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_BITRATE)
-                        val br = brStr?.toIntOrNull()?.div(1000)
-                        if (br != null && br > 0) {
-                            val res = "$br кбит/с • Локальный MP3"
-                            cache[track.fullId] = res
-                            return@withContext res
+                val retriever = MediaMetadataRetriever()
+                try {
+                    if (localPath.startsWith("content://")) {
+                        retriever.setDataSource(context, Uri.parse(localPath))
+                    } else {
+                        val file = File(localPath)
+                        if (file.exists() && file.length() > 0) {
+                            retriever.setDataSource(file.absolutePath)
                         }
-                    } finally {
-                        try { retriever.release() } catch (_: Exception) {}
                     }
-                    if (track.duration > 0) {
+                    val brStr = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_BITRATE)
+                    val br = brStr?.toIntOrNull()?.div(1000)
+                    if (br != null && br > 0) {
+                        val res = "$br кбит/с • Локальный MP3"
+                        cache[track.fullId] = res
+                        return@withContext res
+                    }
+                } finally {
+                    try { retriever.release() } catch (_: Exception) {}
+                }
+                if (!localPath.startsWith("content://") && track.duration > 0) {
+                    val file = File(localPath)
+                    if (file.exists() && file.length() > 0) {
                         val calcBr = ((file.length() * 8) / (track.duration * 1000L)).toInt()
                         if (calcBr in 32..400) {
                             val res = "$calcBr кбит/с • Локальный MP3"
@@ -71,9 +75,7 @@ object TrackBitrateResolver {
                     }
                 }
             } catch (_: Exception) {}
-            val fallback = "320 кбит/с • HLS"
-            cache[track.fullId] = fallback
-            return@withContext fallback
+            return@withContext "HLS (AAC/MP3)"
         }
 
         // 3. Прямой MP3 поток
@@ -100,8 +102,6 @@ object TrackBitrateResolver {
             } catch (_: Exception) {}
         }
 
-        val res = if (track.streamUrl.isNotEmpty()) "320 кбит/с • MP3" else "Неизвестно"
-        cache[track.fullId] = res
-        res
+        if (track.streamUrl.isNotEmpty()) "MP3 поток" else "Неизвестно"
     }
 }

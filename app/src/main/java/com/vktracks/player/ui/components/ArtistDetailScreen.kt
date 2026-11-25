@@ -216,9 +216,9 @@ fun ArtistDetailScreen(
                             )
                         }
 
-                        itemsIndexed(artistDetail.popularTracks, key = { _, track -> track.fullId }) { _, track ->
-                            val isCurrent = currentTrack?.id == track.id
-                            val isLiked = likedTrackIds.contains(track.fullId)
+                        itemsIndexed(artistDetail.popularTracks, key = { index, track -> "${track.fullId}_$index" }) { _, track ->
+                            val isCurrent = currentTrack?.fullId == track.fullId
+                            val isLiked = likedTrackIds.contains(track.fullId) || track.isLiked
 
                             TrackItem(
                                 track = track,

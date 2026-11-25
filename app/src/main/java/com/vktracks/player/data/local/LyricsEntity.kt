@@ -13,18 +13,7 @@ data class LyricsEntity(
     val fetchedTimestamp: Long = System.currentTimeMillis()
 )
 
-fun LyricsEntity.toLyrics(): Lyrics {
-    if (isInstrumental) {
-        return Lyrics(plainText = emptyList(), lines = emptyList(), isInstrumental = true)
-    }
-    val syncedLines = LrcParser.parse(syncedLyrics)
-    val plainList = plainText?.lines()?.map { it.trim() }?.filter { it.isNotEmpty() } ?: emptyList()
-    return Lyrics(
-        plainText = plainList,
-        lines = syncedLines,
-        isInstrumental = false
-    )
-}
+fun LyricsEntity.toLyrics(): Lyrics = LrcParser.buildLyrics(plainText, syncedLyrics, isInstrumental)
 
 @Dao
 interface LyricsDao {

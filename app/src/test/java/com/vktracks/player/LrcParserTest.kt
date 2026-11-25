@@ -54,4 +54,14 @@ class LrcParserTest {
         assertTrue(LrcParser.parse("   ").isEmpty())
         assertTrue(LrcParser.parse("[ar: Instrumental]").isEmpty())
     }
+
+    @Test
+    fun testBuildLyricsHelperAndPrecision() {
+        val inst = LrcParser.buildLyrics("text", "[00:01.29] line", isInstrumental = true)
+        assertTrue(inst.isInstrumental)
+        assertTrue(inst.lines.isEmpty())
+
+        val parsed = LrcParser.parse("[00:00.29] Precision check")
+        assertEquals(290L, parsed[0].beginMs)
+    }
 }

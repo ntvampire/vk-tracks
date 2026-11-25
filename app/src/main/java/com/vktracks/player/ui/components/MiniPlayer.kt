@@ -72,23 +72,39 @@ fun MiniPlayer(
                     fontWeight = FontWeight.SemiBold,
                     color = MaterialTheme.colorScheme.onSurface,
                     maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.fillMaxWidth()
+                    softWrap = false,
+                    overflow = TextOverflow.Clip,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .basicMarquee(
+                            iterations = Int.MAX_VALUE,
+                            initialDelayMillis = 1500,
+                            repeatDelayMillis = 2000,
+                            velocity = 30.dp
+                        )
                 )
                 Text(
                     text = track.artist,
                     fontSize = 12.sp,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.fillMaxWidth()
+                    softWrap = false,
+                    overflow = TextOverflow.Clip,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .basicMarquee(
+                            iterations = Int.MAX_VALUE,
+                            initialDelayMillis = 1500,
+                            repeatDelayMillis = 2000,
+                            velocity = 30.dp
+                        )
                 )
             }
 
             // Play / Pause
             IconButton(
                 onClick = onPlayPauseClick,
-                modifier = Modifier.size(40.dp)
+                modifier = Modifier.size(48.dp)
             ) {
                 Icon(
                     imageVector = if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
@@ -101,7 +117,7 @@ fun MiniPlayer(
             // Next
             IconButton(
                 onClick = onNextClick,
-                modifier = Modifier.size(40.dp)
+                modifier = Modifier.size(48.dp)
             ) {
                 Icon(
                     imageVector = Icons.Default.SkipNext,

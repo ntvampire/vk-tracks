@@ -9,21 +9,16 @@ import java.nio.charset.StandardCharsets
 object Id3Tagger {
 
     fun tagMp3(file: File, title: String, artist: String, album: String?, coverBytes: ByteArray?) {
+        val tempFile = File(file.parentFile, "${file.name}.${System.nanoTime()}.tagged")
         try {
             val framesStream = ByteArrayOutputStream()
 
-            // 1. TIT2: Название трека (UTF-8, флаг 3)
+            // ID3v2.3 поддерживает ISO-8859-1 (0x00) и UTF-16LE с BOM (0x01)
             writeTextFrame(framesStream, "TIT2", title)
-
-            // 2. TPE1: Исполнитель (UTF-8, флаг 3)
             writeTextFrame(framesStream, "TPE1", artist)
-
-            // 3. TALB: Альбом (UTF-8, флаг 3)
             if (!album.isNullOrEmpty()) {
                 writeTextFrame(framesStream, "TALB", album)
             }
-
-            // 4. APIC: Обложка (Attached Picture)
             if (coverBytes != null && coverBytes.isNotEmpty()) {
                 writePictureFrame(framesStream, coverBytes)
             }
@@ -37,22 +32,20 @@ object Id3Tagger {
             header[4] = 0 // Revision
             header[5] = 0 // Flags
 
-            // Synchsafe целое число размера тела фреймов (7 бит на байт)
             val synchsafeSize = encodeSynchsafe(framesData.size)
             System.arraycopy(synchsafeSize, 0, header, 6, 4)
 
-            val tempFile = File(file.parentFile, "${file.name}.tagged")
             FileOutputStream(tempFile).use { out ->
                 out.write(header)
                 out.write(framesData)
 
-                // Считываем оригинальный аудиофайл, пропуская старый ID3 заголовок если он был
+                // Считываем оригинальный аудиофайл, пропуская старый ID3-заголовок
                 FileInputStream(file).use { input ->
                     val lead = ByteArray(10)
                     val read = input.read(lead)
                     if (read == 10 && lead[0] == 'I'.code.toByte() && lead[1] == 'D'.code.toByte() && lead[2] == '3'.code.toByte()) {
                         val oldSize = decodeSynchsafe(lead, 6)
-                        input.skip(oldSize.toLong())
+                        skipFully(input, oldSize.toLong())
                     } else if (read > 0) {
                         out.write(lead, 0, read)
                     }
@@ -62,29 +55,52 @@ object Id3Tagger {
                     while (input.read(buffer).also { bytesRead = it } != -1) {
                         out.write(buffer, 0, bytesRead)
                     }
+                    out.flush()
                 }
             }
 
-            if (tempFile.exists() && tempFile.length() > 0) {
-                file.delete()
-                tempFile.renameTo(file)
+            if (tempFile.exists() && tempFile.length() > framesData.size) {
+                if (!tempFile.renameTo(file)) {
+                    tempFile.copyTo(file, overwrite = true)
+                }
             }
         } catch (_: Exception) {
             // Если тегирование не удалось, оригинальный файл остаётся целым
+        } finally {
+            if (tempFile.exists()) {
+                tempFile.delete()
+            }
+        }
+    }
+
+    private fun skipFully(input: FileInputStream, bytesToSkip: Long) {
+        var remaining = bytesToSkip
+        val skipBuf = ByteArray(4096)
+        while (remaining > 0) {
+            val skipped = input.skip(remaining)
+            if (skipped > 0) {
+                remaining -= skipped
+            } else {
+                val read = input.read(skipBuf, 0, minOf(remaining, skipBuf.size.toLong()).toInt())
+                if (read <= 0) break
+                remaining -= read
+            }
         }
     }
 
     private fun writeTextFrame(out: ByteArrayOutputStream, frameId: String, text: String) {
-        val textBytes = text.toByteArray(StandardCharsets.UTF_8)
-        val bodySize = 1 + textBytes.size // 1 байт на кодировку (0x03 = UTF-8)
+        val utf16Bytes = text.toByteArray(StandardCharsets.UTF_16LE)
+        val bodySize = 1 + 2 + utf16Bytes.size // 0x01 (UTF-16 с BOM) + FF FE + текст
 
         out.write(frameId.toByteArray(StandardCharsets.ISO_8859_1))
         out.write(intToByteArray(bodySize))
         out.write(0) // Flags 0
         out.write(0)
 
-        out.write(3) // 0x03 - UTF-8 encoding
-        out.write(textBytes)
+        out.write(1) // 0x01 - UTF-16 с BOM (официальный стандарт ID3v2.3)
+        out.write(0xFF)
+        out.write(0xFE)
+        out.write(utf16Bytes)
     }
 
     private fun detectMimeType(bytes: ByteArray): String {

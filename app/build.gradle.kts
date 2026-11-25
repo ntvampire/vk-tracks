@@ -1,8 +1,17 @@
+import java.util.Properties
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
     id("org.jetbrains.kotlin.plugin.compose")
     id("com.google.devtools.ksp")
+}
+
+val keystoreProps = Properties().apply {
+    val propsFile = rootProject.file("keystore.properties")
+    if (propsFile.exists()) {
+        propsFile.inputStream().use { load(it) }
+    }
 }
 
 android {
@@ -13,8 +22,8 @@ android {
         applicationId = "com.vktracks.player"
         minSdk = 26
         targetSdk = 34
-        versionCode = 67
-        versionName = "1.0.66"
+        versionCode = 68
+        versionName = "1.0.67"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
@@ -24,10 +33,16 @@ android {
 
     signingConfigs {
         create("release") {
-            storeFile = file("release.jks")
-            storePassword = "vktracks_pass"
-            keyAlias = "vktracks"
-            keyPassword = "vktracks_pass"
+            val ksPath = keystoreProps.getProperty("storeFile") ?: System.getenv("VKTRACKS_KEYSTORE_PATH")
+            val ksPass = keystoreProps.getProperty("storePassword") ?: System.getenv("VKTRACKS_KEYSTORE_PASS")
+            val kAlias = keystoreProps.getProperty("keyAlias") ?: System.getenv("VKTRACKS_KEY_ALIAS")
+            val kPass = keystoreProps.getProperty("keyPassword") ?: System.getenv("VKTRACKS_KEY_PASS")
+            if (!ksPath.isNullOrBlank() && !ksPass.isNullOrBlank() && !kAlias.isNullOrBlank() && !kPass.isNullOrBlank()) {
+                storeFile = rootProject.file(ksPath)
+                storePassword = ksPass
+                keyAlias = kAlias
+                keyPassword = kPass
+            }
             enableV1Signing = true
             enableV2Signing = true
         }
@@ -35,8 +50,12 @@ android {
 
     buildTypes {
         release {
-            isMinifyEnabled = false
-            signingConfig = signingConfigs.getByName("release")
+            isMinifyEnabled = true
+            isShrinkResources = true
+            val releaseConfig = signingConfigs.getByName("release")
+            if (releaseConfig.storeFile?.exists() == true) {
+                signingConfig = releaseConfig
+            }
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"

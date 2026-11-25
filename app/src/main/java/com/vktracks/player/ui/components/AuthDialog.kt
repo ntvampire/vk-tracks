@@ -110,6 +110,17 @@ fun AuthDialog(
                 if (selectedTab == 0) {
                     // Официальный вход через веб-интерфейс VK Музыки
                     var isLoading by remember { mutableStateOf(true) }
+                    var webViewRef by remember { mutableStateOf<WebView?>(null) }
+
+                    DisposableEffect(Unit) {
+                        onDispose {
+                            webViewRef?.apply {
+                                stopLoading()
+                                destroy()
+                            }
+                            webViewRef = null
+                        }
+                    }
 
                     Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
                         AndroidView(
@@ -118,8 +129,10 @@ fun AuthDialog(
                                     settings.javaScriptEnabled = true
                                     settings.domStorageEnabled = true
                                     settings.databaseEnabled = true
+                                    settings.allowFileAccess = false
+                                    settings.allowContentAccess = false
                                     settings.setSupportMultipleWindows(false)
-                                    settings.javaScriptCanOpenWindowsAutomatically = true
+                                    settings.javaScriptCanOpenWindowsAutomatically = false
                                     settings.userAgentString = "Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36"
 
                                     webChromeClient = object : WebChromeClient() {
@@ -132,7 +145,7 @@ fun AuthDialog(
                                         override fun onPageStarted(view: WebView?, url: String?, favicon: Bitmap?) {
                                             isLoading = true
                                             if (url != null) {
-                                                val authData = VkAuthManager.parseRedirectUrl(url)
+                                                val authData = VkAuthManager.parseRedirectUrl(url, requireVkBlankHost = true)
                                                 if (authData != null) {
                                                     authManager.saveAuthData(authData.first, authData.second)
                                                     onSuccess()
@@ -151,22 +164,28 @@ fun AuthDialog(
                                             val uri = request?.url ?: return false
                                             val url = uri.toString()
 
-                                            // Проверка успешной авторизации и редиректа на blank.html
-                                            val authData = VkAuthManager.parseRedirectUrl(url)
+                                            // Проверка успешной авторизации и строгого редиректа на oauth.vk.com/blank.html
+                                            val authData = VkAuthManager.parseRedirectUrl(url, requireVkBlankHost = true)
                                             if (authData != null) {
                                                 authManager.saveAuthData(authData.first, authData.second)
                                                 onSuccess()
                                                 return true
                                             }
 
-                                            // Безопасный перехват intent:// и других схем, чтобы предотвратить сбой приложения
+                                            // Безопасный перехват intent:// и других схем с санитизацией Intent
                                             val scheme = uri.scheme?.lowercase() ?: ""
                                             if (scheme != "http" && scheme != "https") {
                                                 try {
                                                     val intent = if (url.startsWith("intent://", ignoreCase = true)) {
-                                                        Intent.parseUri(url, Intent.URI_INTENT_SCHEME)
+                                                        Intent.parseUri(url, Intent.URI_INTENT_SCHEME).apply {
+                                                            addCategory(Intent.CATEGORY_BROWSABLE)
+                                                            component = null
+                                                            selector = null
+                                                        }
                                                     } else {
-                                                        Intent(Intent.ACTION_VIEW, uri)
+                                                        Intent(Intent.ACTION_VIEW, uri).apply {
+                                                            addCategory(Intent.CATEGORY_BROWSABLE)
+                                                        }
                                                     }
                                                     intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                                                     view?.context?.startActivity(intent)
@@ -176,12 +195,17 @@ fun AuthDialog(
                                                 return true
                                             }
 
-                                            return false
+                                            // Запрещаем навигацию WebView на недоверенные внешние домены
+                                            val host = uri.host?.lowercase() ?: ""
+                                            val isTrustedVkHost = host == "vk.com" || host.endsWith(".vk.com") ||
+                                                host == "vk.ru" || host.endsWith(".vk.ru") ||
+                                                host == "vk.me" || host.endsWith(".vk.me")
+                                            return !isTrustedVkHost
                                         }
                                     }
 
                                     loadUrl(VkAuthManager.getOAuthUrl())
-                                }
+                                }.also { webViewRef = it }
                             },
                             modifier = Modifier.fillMaxSize()
                         )

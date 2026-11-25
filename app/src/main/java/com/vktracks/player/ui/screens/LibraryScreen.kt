@@ -67,6 +67,8 @@ fun LibraryScreen(
     onLoginClick: () -> Unit,
     onSettingsClick: () -> Unit,
     isAuthorized: Boolean,
+    libraryError: String? = null,
+    onRetryClick: (() -> Unit)? = null,
     onMoreTrackClick: ((Track) -> Unit)? = null,
     onCreatePlaylistClick: () -> Unit = {},
     modifier: Modifier = Modifier
@@ -196,7 +198,27 @@ fun LibraryScreen(
         } else {
             when (selectedTab) {
                 LibraryTab.FAVORITES -> {
-                    if (myTracks.isEmpty()) {
+                    if (libraryError != null && myTracks.isEmpty()) {
+                        item {
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(vertical = 40.dp, horizontal = 24.dp),
+                                horizontalAlignment = Alignment.CenterHorizontally
+                            ) {
+                                Text(
+                                    text = libraryError,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                                if (onRetryClick != null) {
+                                    Spacer(modifier = Modifier.height(12.dp))
+                                    OutlinedButton(onClick = onRetryClick) {
+                                        Text("Повторить")
+                                    }
+                                }
+                            }
+                        }
+                    } else if (myTracks.isEmpty()) {
                         item {
                             EmptyLibraryMessage("В избранном пока нет треков")
                         }
@@ -204,7 +226,7 @@ fun LibraryScreen(
                         val currentFullId = currentTrack?.fullId
                         val currentPlayingCover = currentTrack?.coverUrl
 
-                        items(myTracks, key = { it.fullId }) { track ->
+                        itemsIndexed(myTracks, key = { index, track -> "${track.fullId}_$index" }) { _, track ->
                             val isCurrent = currentFullId == track.fullId
                             val itemCover = resolvedCovers[track.fullId] ?: if (isCurrent) currentPlayingCover ?: track.coverUrl else track.coverUrl
                             val isLiked = remember(track.fullId, likedTrackIds, track.isLiked) { likedTrackIds.contains(track.fullId) || track.isLiked }
@@ -214,7 +236,7 @@ fun LibraryScreen(
                                 track = track,
                                 isCurrent = isCurrent,
                                 coverUrl = itemCover,
-                                onTrackClick = remember(track.fullId) { { onTrackClick(track, myTracks) } },
+                                onTrackClick = remember(track.fullId, myTracks) { { onTrackClick(track, myTracks) } },
                                 isLiked = isLiked,
                                 isDownloaded = isDownloaded,
                                 onLikeClick = remember(track.fullId) { { onLikeClick(track) } },
@@ -322,7 +344,7 @@ fun LibraryScreen(
                         val currentFullId = currentTrack?.fullId
                         val currentPlayingCover = currentTrack?.coverUrl
 
-                        items(downloadedTracks, key = { it.fullId }) { track ->
+                        itemsIndexed(downloadedTracks, key = { index, track -> "${track.fullId}_$index" }) { _, track ->
                             val isCurrent = currentFullId == track.fullId
                             val itemCover = resolvedCovers[track.fullId] ?: if (isCurrent) currentPlayingCover ?: track.coverUrl else track.coverUrl
                             val isLiked = remember(track.fullId, likedTrackIds, track.isLiked) { likedTrackIds.contains(track.fullId) || track.isLiked }
@@ -331,7 +353,7 @@ fun LibraryScreen(
                                 track = track,
                                 isCurrent = isCurrent,
                                 coverUrl = itemCover,
-                                onTrackClick = remember(track.fullId) { { onTrackClick(track, downloadedTracks) } },
+                                onTrackClick = remember(track.fullId, downloadedTracks) { { onTrackClick(track, downloadedTracks) } },
                                 isLiked = isLiked,
                                 isDownloaded = true,
                                 onLikeClick = remember(track.fullId) { { onLikeClick(track) } },
@@ -357,12 +379,14 @@ fun LibraryScreen(
         // Плавающая панель пакетных действий
         if (isSelectionMode) {
             val currentTracksList = if (selectedTab == LibraryTab.FAVORITES) myTracks else downloadedTracks
-            val selectedTracks = currentTracksList.filter { selectedTrackIds.contains(it.fullId) }
+            val selectedTracks = remember(currentTracksList, selectedTrackIds) {
+                currentTracksList.filter { selectedTrackIds.contains(it.fullId) }
+            }
 
             Surface(
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
-                    .padding(horizontal = 16.dp, vertical = 76.dp)
+                    .padding(horizontal = 16.dp, vertical = 14.dp)
                     .fillMaxWidth(),
                 shape = RoundedCornerShape(16.dp),
                 tonalElevation = 6.dp,

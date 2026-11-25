@@ -4,6 +4,8 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -30,6 +32,7 @@ import com.vktracks.player.data.model.VkMixSettings
 import com.vktracks.player.ui.components.VkMixSettingsSheet
 import com.vktracks.player.ui.theme.AppleRed
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun ListenNowScreen(
     currentTrack: Track?,
@@ -215,8 +218,9 @@ fun ListenNowScreen(
 
                     if (activeFilters.isNotEmpty()) {
                         Spacer(modifier = Modifier.height(14.dp))
-                        Row(
+                        FlowRow(
                             horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            verticalArrangement = Arrangement.spacedBy(6.dp),
                             modifier = Modifier.fillMaxWidth()
                         ) {
                             activeFilters.forEach { filterText ->

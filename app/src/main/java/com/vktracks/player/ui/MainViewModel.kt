@@ -17,6 +17,8 @@ import com.vktracks.player.data.api.TrackMetadataMatcher
 import com.vktracks.player.data.api.VkApiClient
 import com.vktracks.player.data.api.VkAuthManager
 import com.vktracks.player.data.cache.MediaCacheManager
+import com.vktracks.player.audio.EqualizerPreset
+import com.vktracks.player.audio.EqualizerPresets
 import com.vktracks.player.data.downloader.PendingDownloadWorker
 import com.vktracks.player.data.downloader.TrackDownloader
 import com.vktracks.player.data.settings.PlayerSettingsManager
@@ -259,6 +261,56 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     private val _isAutoResumeWifiOnly = MutableStateFlow(playerSettings.isAutoResumeWifiOnly)
     val isAutoResumeWifiOnly: StateFlow<Boolean> = _isAutoResumeWifiOnly.asStateFlow()
+
+    private val _isEqEnabled = MutableStateFlow(playerSettings.isEqEnabled)
+    val isEqEnabled: StateFlow<Boolean> = _isEqEnabled.asStateFlow()
+
+    private val _eqPresetId = MutableStateFlow(playerSettings.eqPresetId)
+    val eqPresetId: StateFlow<String> = _eqPresetId.asStateFlow()
+
+    private val _eqBandGains = MutableStateFlow(playerSettings.eqBandGains.toList())
+    val eqBandGains: StateFlow<List<Float>> = _eqBandGains.asStateFlow()
+
+    fun setEqEnabled(enabled: Boolean) {
+        playerSettings.isEqEnabled = enabled
+        _isEqEnabled.value = enabled
+        PlaybackService.updateEqualizer(enabled, _eqBandGains.value.toFloatArray())
+    }
+
+    fun selectEqPreset(preset: EqualizerPreset) {
+        val copy = preset.gainsDb.copyOf()
+        playerSettings.eqPresetId = preset.id
+        playerSettings.eqBandGains = copy
+        _eqPresetId.value = preset.id
+        _eqBandGains.value = copy.toList()
+        if (!_isEqEnabled.value && preset.id != EqualizerPresets.FLAT_PRESET_ID) {
+            playerSettings.isEqEnabled = true
+            _isEqEnabled.value = true
+        }
+        PlaybackService.updateEqualizer(_isEqEnabled.value, copy)
+    }
+
+    fun setEqBandGain(bandIndex: Int, gainDb: Float) {
+        if (bandIndex !in 0 until EqualizerPresets.BAND_COUNT) return
+        val updated = _eqBandGains.value.toMutableList()
+        updated[bandIndex] = gainDb.coerceIn(EqualizerPresets.MIN_GAIN_DB, EqualizerPresets.MAX_GAIN_DB)
+        val arr = updated.toFloatArray()
+        playerSettings.eqBandGains = arr
+        playerSettings.eqPresetId = EqualizerPresets.CUSTOM_PRESET_ID
+        _eqBandGains.value = updated
+        _eqPresetId.value = EqualizerPresets.CUSTOM_PRESET_ID
+        PlaybackService.updateEqualizer(_isEqEnabled.value, arr)
+    }
+
+    fun resetEqualizer() {
+        val flat = EqualizerPresets.findById(EqualizerPresets.FLAT_PRESET_ID) ?: return
+        val zeros = flat.gainsDb.copyOf()
+        playerSettings.eqPresetId = flat.id
+        playerSettings.eqBandGains = zeros
+        _eqPresetId.value = flat.id
+        _eqBandGains.value = zeros.toList()
+        PlaybackService.updateEqualizer(_isEqEnabled.value, zeros)
+    }
 
     fun setBtAutoResume(enabled: Boolean) {
         playerSettings.isBtAutoResumeEnabled = enabled

@@ -27,9 +27,12 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import com.vktracks.player.BuildConfig
+import com.vktracks.player.audio.EqualizerPreset
+import com.vktracks.player.audio.EqualizerPresets
 import com.vktracks.player.data.api.VkAuthManager
 import com.vktracks.player.data.downloader.TrackDownloader
 import com.vktracks.player.service.PlaybackService
+import com.vktracks.player.ui.components.EqualizerDialog
 import com.vktracks.player.ui.theme.AppleRed
 import java.io.File
 
@@ -54,11 +57,18 @@ fun SettingsScreen(
     isSoftFading: Boolean = true,
     isAutoResumeWifiOnly: Boolean = false,
     pendingDownloadsCount: Int = 0,
+    isEqEnabled: Boolean = false,
+    eqPresetId: String = EqualizerPresets.FLAT_PRESET_ID,
+    eqBandGains: List<Float> = List(EqualizerPresets.BAND_COUNT) { 0f },
     onToggleBtAutoResume: (Boolean) -> Unit = {},
     onToggleBtAutoPause: (Boolean) -> Unit = {},
     onToggleSoftFading: (Boolean) -> Unit = {},
     onToggleAutoResumeWifiOnly: (Boolean) -> Unit = {},
     onClearPendingDownloads: () -> Unit = {},
+    onToggleEqEnabled: (Boolean) -> Unit = {},
+    onSelectEqPreset: (EqualizerPreset) -> Unit = {},
+    onEqBandGainChange: (Int, Float) -> Unit = { _, _ -> },
+    onResetEq: () -> Unit = {},
     onLoginClick: () -> Unit,
     onLogoutClick: () -> Unit = {},
     onCheckUpdateClick: () -> Unit,
@@ -75,6 +85,20 @@ fun SettingsScreen(
     var showFolderDialog by remember { mutableStateOf(false) }
     var showCacheLimitDialog by remember { mutableStateOf(false) }
     var showCacheModeDialog by remember { mutableStateOf(false) }
+    var showEqDialog by remember { mutableStateOf(false) }
+
+    if (showEqDialog) {
+        EqualizerDialog(
+            isEnabled = isEqEnabled,
+            selectedPresetId = eqPresetId,
+            bandGains = eqBandGains,
+            onToggleEnabled = onToggleEqEnabled,
+            onSelectPreset = onSelectEqPreset,
+            onBandGainChange = onEqBandGainChange,
+            onReset = onResetEq,
+            onDismiss = { showEqDialog = false }
+        )
+    }
 
     val cacheModeOptions = listOf(
         false to Pair("Все проигрываемые треки", "Автоматически сохранять любой воспроизводимый трек в кэш"),
@@ -436,6 +460,13 @@ fun SettingsScreen(
                 Spacer(modifier = Modifier.height(20.dp))
                 SettingsHeader("ЗВУК")
                 SettingsCard {
+                    SettingsItem(
+                        icon = Icons.Default.Equalizer,
+                        title = "Встроенный эквалайзер (10 полос)",
+                        subtitle = if (isEqEnabled) "Вкл • ${EqualizerPresets.displayNameForId(eqPresetId)}" else "Выкл",
+                        onClick = { showEqDialog = true }
+                    )
+                    HorizontalDivider(color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
                     SettingsItem(
                         icon = Icons.Default.GraphicEq,
                         title = "Системный эквалайзер",

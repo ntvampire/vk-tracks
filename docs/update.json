@@ -1,8 +1,8 @@
 {
-    "versionCode":  70,
-    "versionName":  "1.0.69",
-    "downloadUrl":  "https://github.com/ntvampire/vk-tracks/releases/download/v1.0.69/VK-Tracks-1.0.69.apk",
-    "mirrorUrl":  "https://ntvampire.github.io/vk-tracks/VK-Tracks-1.0.69.apk",
-    "sha256":  "74a1618c107beb742641245ed54ff03158c40673e627f57febee0c3d9b28164c",
-    "changelog":  "Автодокачка прерванных загрузок (WorkManager, HTTP Range, Room v11 и фильтр Wi-Fi), exportSchema для Room, AudioPaginationHelper и новые юнит-тесты."
+    "versionCode":  71,
+    "versionName":  "1.1.0",
+    "downloadUrl":  "https://github.com/ntvampire/vk-tracks/releases/download/v1.1.0/VK-Tracks-1.1.0.apk",
+    "mirrorUrl":  "https://ntvampire.github.io/vk-tracks/VK-Tracks-1.1.0.apk",
+    "sha256":  "35c28e988f97ec0910b91c3ff65c5d7e83a57d94a68c21651cb6f6474ba6de54",
+    "changelog":  "Релиз v1.1.0: анимированный Mesh-градиент в стиле Apple Music с адаптивным контрастом и KeepScreenOn, встроенный 10-полосный эквалайзер с 9 пресетами, вшивание текстов песен (USLT) в скачиваемые MP3."
 }

@@ -7,8 +7,12 @@ import android.net.Uri
 import android.os.Build
 import android.os.Environment
 import android.provider.MediaStore
+import com.vktracks.player.data.api.LrcParser
+import com.vktracks.player.data.api.LrclibApiClient
 import com.vktracks.player.data.api.NetworkModule
+import com.vktracks.player.data.api.TrackMetadataMatcher
 import com.vktracks.player.data.local.AppDatabase
+import com.vktracks.player.data.local.LyricsEntity
 import com.vktracks.player.data.local.TrackEntity
 import com.vktracks.player.data.model.Track
 import kotlinx.coroutines.CancellationException
@@ -141,16 +145,17 @@ class TrackDownloader(
                 partFile.copyTo(tempFile, overwrite = true)
             }
 
-            // 2. Скачиваем обложку для прошивки в ID3
+            // 2. Скачиваем обложку и текст песни для прошивки в ID3
             val coverUrlToUse = track.coverUrl?.takeIf { it.isNotBlank() }
             val coverBytes = if (!coverUrlToUse.isNullOrEmpty()) {
                 downloadBytes(coverUrlToUse)
             } else {
                 null
             }
+            val lyricsText = resolveLyricsTextForDownload(track)
 
-            // 3. Вшиваем ID3v2 теги
-            Id3Tagger.tagMp3(tempFile, track.title, track.artist, track.albumTitle, coverBytes)
+            // 3. Вшиваем ID3v2 теги (включая текст USLT при наличии)
+            Id3Tagger.tagMp3(tempFile, track.title, track.artist, track.albumTitle, coverBytes, lyricsText)
 
             // 4. Перемещаем в целевое хранилище (MediaStore content:// на Android 10+ или файловую систему)
             val savedPath = saveToStorage(tempFile, fileName, effectiveSubfolder, track)
@@ -473,6 +478,54 @@ class TrackDownloader(
                 onProgress(percent)
             }
             output.flush()
+        }
+    }
+
+    private suspend fun resolveLyricsTextForDownload(track: Track): String? {
+        return try {
+            val lyricsDao = database.lyricsDao()
+            val cached = lyricsDao.getLyrics(track.fullId)
+            val plain: String?
+            val synced: String?
+            val isInstrumental: Boolean
+
+            if (cached != null) {
+                plain = cached.plainText
+                synced = cached.syncedLyrics
+                isInstrumental = cached.isInstrumental
+            } else if (!TrackMetadataMatcher.isGeneric(track.artist, track.title)) {
+                val fetched = LrclibApiClient().fetchLyrics(track.artist, track.title, track.duration)
+                if (fetched != null) {
+                    try {
+                        lyricsDao.insertLyrics(
+                            LyricsEntity(
+                                trackId = track.fullId,
+                                plainText = fetched.plainLyrics,
+                                syncedLyrics = fetched.syncedLyrics,
+                                isInstrumental = fetched.instrumental
+                            )
+                        )
+                    } catch (_: Exception) {}
+                    plain = fetched.plainLyrics
+                    synced = fetched.syncedLyrics
+                    isInstrumental = fetched.instrumental
+                } else {
+                    return null
+                }
+            } else {
+                return null
+            }
+
+            if (isInstrumental) return null
+            plain?.takeIf { it.isNotBlank() }
+                ?: LrcParser.parse(synced)
+                    .map { it.text }
+                    .filter { it.isNotBlank() }
+                    .joinToString("\n")
+                    .takeIf { it.isNotBlank() }
+        } catch (e: Exception) {
+            if (e is CancellationException) throw e
+            null
         }
     }
 

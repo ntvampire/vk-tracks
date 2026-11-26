@@ -78,6 +78,7 @@
 | **v1.0.67** | 68 | 25.11.2026 | Выпущен | 1. **Безопасность и OTA-проверки**: аутентификация контроллеров в `PlaybackService` (без выдачи `streamUrl` наружу), отключение `allowBackup` и `usesCleartextTraffic` (`network_security_config`), проверка SHA-256 и подписи сертификата APK при OTA-обновлениях, вынос паролей подписи в `keystore.properties`, включение R8/сжатия ресурсов, ужесточение OAuth `WebView` и отказ от незашифрованного fallback.<br>2. **Стабильность ядра и плеера**: единый пул `NetworkModule` (`OkHttpClient`), `SupervisorJob` и чистка ресурсов в `PlaybackService`, исправление багов очереди и `saveQueueState`/`restoreSavedQueue` вне Main-потока, совместимые ID3v2.3 теги UTF-16LE с BOM, исправления `TrackDownloader` (MediaStore URI, HLS) и `MediaCacheManager`.<br>3. **Архитектура, Room v10 и UX**: выделение `TrackMetadataMatcher`, `CoverResolverService` (`LruCache`), `RadioMetadataClient`; постоянное сохранение обложек плейлистов в Room v10 (`playlist_covers`) без деструктивных миграций; изоляция перерисовок таймлайна в `FullPlayerSheet`, исправления `LibraryScreen`/`SearchScreen` и новые unit-тесты. |
 | **v1.0.68** | 69 | 26.11.2026 | Выпущен | **Стабильность воспроизведения недоступных треков**: фильтрация недоступных/ограниченных треков перед постановкой в очередь (`PlaybackService`, `MainViewModel`, `PlaylistDetailSheet`), автопропуск с однократным обновлением протухшей ссылки VK при `onPlayerError`, восстановление переключения треков (`Next`/`Prev`/`Play` и шторка через `ForwardingPlayer`) из `Player.STATE_IDLE`, unit-тесты `QueueFilterTest`. |
 | **v1.0.69** | 70 | 26.11.2026 | Выпущен | **Автодокачка и качество БД/тестов**: фоновая докачка прерванных загрузок через `WorkManager` (`PendingDownloadWorker`, Room v11 `pending_downloads`, HTTP `Range` `.part`, фильтр Wi-Fi в настройках), `exportSchema = true` для Room (`app/schemas/`), выделение `AudioPaginationHelper`, новые unit-тесты (`VkAuthManagerTest`, `PendingDownloadTest`, `AudioPaginationTest`). |
+| **v1.1.0** | 71 | 26.11.2026 | Выпущен | **Mesh-градиент, эквалайзер и тексты в MP3**: 1. Анимированный Mesh-градиент в стиле Apple Music (`AppleMusicMeshBackground`, AGSL `RuntimeShader` + дитеринг и `Canvas` fallback), адаптивный цвет элементов и `KeepScreenOn` на экране текста песни. 2. Встроенный 10-полосный графический эквалайзер (`EqualizerAudioProcessor`, RBJ Peaking EQ, 9 пресетов и авто-headroom). 3. Вшивание текстов песен (`USLT`) в скачиваемые MP3 из кэша Room / LRCLIB. |
 
 ---
 
@@ -85,7 +86,8 @@
 
 ### Архитектура и аудиодвижок
 - [x] Полноценный фоновый сервис `PlaybackService` на базе AndroidX Media3 (`MediaSessionService`) (v1.0.1).
-- [x] Полноэкранный плеер в стиле Apple Music (`FullPlayerSheet`) со свайпом, жестами и обложкой 280x280 dp (v1.0.1).
+- [x] Полноэкранный плеер в стиле Apple Music (`FullPlayerSheet`) со свайпом, жестами, анимированным Mesh-градиентом (`AppleMusicMeshBackground`, AGSL + дитеринг), адаптивным контрастом и `KeepScreenOn` на экране текста (v1.0.1, v1.0.70).
+- [x] Встроенный 10-полосный графический эквалайзер (`EqualizerAudioProcessor`, RBJ Peaking EQ + авто-headroom + пресеты) поверх Media3 `DefaultAudioSink` (v1.0.70).
 - [x] Плавающий компонент `MiniPlayer` с синхронизацией состояния плеера над нижней панелью на всех экранах (v1.0.1, v1.0.15).
 - [x] Локальная база данных Room (`AppDatabase`) с сущностями `TrackEntity`, `PlaylistEntity`, `CoverCacheEntity` (v1.0.2).
 - [x] Модуль автообновления приложения по воздуху (`UpdateChecker` + `update.json` + `GitHub Releases` + CDN зеркало GitHub Pages) (v1.0.6, v1.0.14).
@@ -111,7 +113,7 @@
 - [x] Управление лимитами кэша в Настройках (500 МБ – 10 ГБ) с LRU-вытеснением (v1.0.21).
 - [x] Ручная очистка дискового кэша и отображение текущего объёма (v1.0.21).
 - [x] Скачивание прямых MP3 и HLS `.m3u8` потоков с автоматической склейкой сегментов (v1.0.21).
-- [x] Вшивание тегов ID3v2 и обложек высокого разрешения (APIC) в скачиваемые MP3 (v1.0.21).
+- [x] Вшивание тегов ID3v2, обложек высокого разрешения (`APIC`) и текстов песен (`USLT` из Room/LRCLIB) в скачиваемые MP3 (v1.0.21, v1.0.70).
 - [x] Сохранение треков в системную папку `Music/VK Tracks/` через `MediaStore API` на Android 10+ (v1.0.22).
 - [x] Немедленная регистрация новых файлов через `MediaScannerConnection` (v1.0.22).
 - [x] Отображение статуса скачивания треков по всей медиатеке (v1.0.21).

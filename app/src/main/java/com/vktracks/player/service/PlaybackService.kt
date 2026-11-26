@@ -24,10 +24,14 @@ import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
 import androidx.media3.common.Player
 import androidx.media3.common.MimeTypes
-import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.DefaultLoadControl
+import androidx.media3.exoplayer.DefaultRenderersFactory
+import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.exoplayer.audio.AudioSink
+import androidx.media3.exoplayer.audio.DefaultAudioSink
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.extractor.DefaultExtractorsFactory
+import com.vktracks.player.audio.EqualizerAudioProcessor
 import com.vktracks.player.data.cache.MediaCacheManager
 import androidx.core.app.NotificationCompat
 import androidx.media3.session.CommandButton
@@ -90,6 +94,7 @@ class PlaybackService : MediaLibraryService() {
     private var errorRecoveryJob: Job? = null
     private var consecutiveErrorCount: Int = 0
     private var lastRefreshedErrorTrackId: String? = null
+    private val equalizerProcessor = EqualizerAudioProcessor()
 
     private fun isTrustedController(controller: MediaSession.ControllerInfo): Boolean {
         if (controller.packageName == applicationContext.packageName) return true
@@ -630,9 +635,13 @@ class PlaybackService : MediaLibraryService() {
         }
     }
 
+    @androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
     override fun onCreate() {
         super.onCreate()
         instance = this
+
+        val settings = PlayerSettingsManager.getInstance(this)
+        equalizerProcessor.updateSettings(settings.isEqEnabled, settings.eqBandGains)
 
         // Настройка канала уведомлений для Android 8.0+
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
@@ -719,7 +728,21 @@ class PlaybackService : MediaLibraryService() {
             .setPrioritizeTimeOverSizeThresholds(true)
             .build()
 
-        player = ExoPlayer.Builder(this)
+        val renderersFactory = object : DefaultRenderersFactory(this) {
+            override fun buildAudioSink(
+                context: Context,
+                enableFloatOutput: Boolean,
+                enableAudioTrackPlaybackParams: Boolean
+            ): AudioSink {
+                return DefaultAudioSink.Builder(context)
+                    .setEnableFloatOutput(enableFloatOutput)
+                    .setEnableAudioTrackPlaybackParams(enableAudioTrackPlaybackParams)
+                    .setAudioProcessors(arrayOf(equalizerProcessor))
+                    .build()
+            }
+        }
+
+        player = ExoPlayer.Builder(this, renderersFactory)
             .setMediaSourceFactory(mediaSourceFactory)
             .setLoadControl(loadControl)
             .setAudioAttributes(audioAttributes, true)
@@ -1792,6 +1815,10 @@ class PlaybackService : MediaLibraryService() {
             synchronized(likedTrackLock) {
                 likedTrackIds = if (liked) likedTrackIds + fullId else likedTrackIds - fullId
             }
+        }
+
+        fun updateEqualizer(enabled: Boolean, gainsDb: FloatArray) {
+            instance?.equalizerProcessor?.updateSettings(enabled, gainsDb)
         }
 
         fun isTrackPlayable(track: Track): Boolean {

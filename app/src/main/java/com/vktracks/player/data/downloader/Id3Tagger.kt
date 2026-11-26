@@ -8,7 +8,14 @@ import java.nio.charset.StandardCharsets
 
 object Id3Tagger {
 
-    fun tagMp3(file: File, title: String, artist: String, album: String?, coverBytes: ByteArray?) {
+    fun tagMp3(
+        file: File,
+        title: String,
+        artist: String,
+        album: String?,
+        coverBytes: ByteArray?,
+        lyricsText: String? = null
+    ) {
         val tempFile = File(file.parentFile, "${file.name}.${System.nanoTime()}.tagged")
         try {
             val framesStream = ByteArrayOutputStream()
@@ -18,6 +25,9 @@ object Id3Tagger {
             writeTextFrame(framesStream, "TPE1", artist)
             if (!album.isNullOrEmpty()) {
                 writeTextFrame(framesStream, "TALB", album)
+            }
+            if (!lyricsText.isNullOrBlank()) {
+                writeUnsyncedLyricsFrame(framesStream, lyricsText)
             }
             if (coverBytes != null && coverBytes.isNotEmpty()) {
                 writePictureFrame(framesStream, coverBytes)
@@ -98,6 +108,30 @@ object Id3Tagger {
         out.write(0)
 
         out.write(1) // 0x01 - UTF-16 с BOM (официальный стандарт ID3v2.3)
+        out.write(0xFF)
+        out.write(0xFE)
+        out.write(utf16Bytes)
+    }
+
+    private fun writeUnsyncedLyricsFrame(out: ByteArrayOutputStream, lyricsText: String) {
+        val normalized = lyricsText.replace("\r\n", "\n").trim()
+        if (normalized.isEmpty()) return
+
+        val utf16Bytes = normalized.toByteArray(StandardCharsets.UTF_16LE)
+        // 1 (encoding 0x01) + 3 (lang "und") + 4 (BOM + пустой дескриптор) + 2 (BOM текста) + текст
+        val bodySize = 1 + 3 + 4 + 2 + utf16Bytes.size
+
+        out.write("USLT".toByteArray(StandardCharsets.ISO_8859_1))
+        out.write(intToByteArray(bodySize))
+        out.write(0) // Flags 0
+        out.write(0)
+
+        out.write(1) // 0x01 - UTF-16LE с BOM
+        out.write("und".toByteArray(StandardCharsets.ISO_8859_1))
+        out.write(0xFF)
+        out.write(0xFE)
+        out.write(0x00)
+        out.write(0x00)
         out.write(0xFF)
         out.write(0xFE)
         out.write(utf16Bytes)

@@ -39,6 +39,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -95,7 +96,23 @@ fun FullPlayerSheet(
 ) {
     if (track == null) return
     val context = LocalContext.current
+    val view = LocalView.current
     var centerMode by remember { mutableStateOf(PlayerCenterMode.COVER) }
+    var isLightBackdrop by remember { mutableStateOf(false) }
+
+    val primaryFg = if (isLightBackdrop) Color(0xFF141416) else Color.White
+    val secondaryFg = if (isLightBackdrop) Color(0xFF141416).copy(alpha = 0.65f) else Color.White.copy(alpha = 0.70f)
+    val trackBgFg = if (isLightBackdrop) Color(0xFF141416).copy(alpha = 0.16f) else Color.White.copy(alpha = 0.24f)
+    val playBtnBg = if (isLightBackdrop) Color(0xFF141416) else Color.White
+    val playBtnFg = if (isLightBackdrop) Color.White else Color(0xFF141416)
+
+    // Не гасить экран при открытом тексте песни (караоке)
+    DisposableEffect(centerMode, view) {
+        view.keepScreenOn = (centerMode == PlayerCenterMode.LYRICS)
+        onDispose {
+            view.keepScreenOn = false
+        }
+    }
 
     // Сворачивание плеера по свайпу вниз
     val offsetY = remember { Animatable(0f) }
@@ -138,55 +155,63 @@ fun FullPlayerSheet(
         modifier = modifier
             .fillMaxSize()
             .offset { IntOffset(0, offsetY.value.roundToInt().coerceAtLeast(0)) },
-        color = MaterialTheme.colorScheme.background
+        color = Color.Transparent
     ) {
         BackHandler(onBack = onDismiss)
 
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .statusBarsPadding()
-                .navigationBarsPadding()
-                .padding(horizontal = 24.dp),
-            horizontalAlignment = Alignment.CenterHorizontally
-        ) {
-            // Верхняя плашка управления (закрытие, handle-индикатор и режим очереди)
-            Row(
+        Box(modifier = Modifier.fillMaxSize()) {
+            AppleMusicMeshBackground(
+                coverUrl = track.coverUrl,
+                isPlaying = isPlaying,
+                behindLyrics = centerMode == PlayerCenterMode.LYRICS,
+                onLightBackdropChanged = { isLightBackdrop = it }
+            )
+
+            Column(
                 modifier = Modifier
-                    .fillMaxWidth()
-                    .then(swipeDismissModifier)
-                    .padding(vertical = 12.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
+                    .fillMaxSize()
+                    .statusBarsPadding()
+                    .navigationBarsPadding()
+                    .padding(horizontal = 24.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
             ) {
-                IconButton(onClick = onDismiss) {
-                    Icon(
-                        imageVector = Icons.Default.KeyboardArrowDown,
-                        contentDescription = "Свернуть",
-                        tint = MaterialTheme.colorScheme.onBackground,
-                        modifier = Modifier.size(32.dp)
-                    )
-                }
-
-                Box(
+                // Верхняя плашка управления (закрытие, handle-индикатор и режим очереди)
+                Row(
                     modifier = Modifier
-                        .width(36.dp)
-                        .height(5.dp)
-                        .clip(RoundedCornerShape(3.dp))
-                        .background(MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.3f))
-                )
+                        .fillMaxWidth()
+                        .then(swipeDismissModifier)
+                        .padding(vertical = 12.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    IconButton(onClick = onDismiss) {
+                        Icon(
+                            imageVector = Icons.Default.KeyboardArrowDown,
+                            contentDescription = "Свернуть",
+                            tint = primaryFg,
+                            modifier = Modifier.size(32.dp)
+                        )
+                    }
 
-                IconButton(onClick = {
-                    centerMode = if (centerMode == PlayerCenterMode.QUEUE) PlayerCenterMode.COVER else PlayerCenterMode.QUEUE
-                }) {
-                    Icon(
-                        imageVector = Icons.AutoMirrored.Filled.QueueMusic,
-                        contentDescription = "Очередь воспроизведения",
-                        tint = if (centerMode == PlayerCenterMode.QUEUE) AppleRed else MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.size(26.dp)
+                    Box(
+                        modifier = Modifier
+                            .width(36.dp)
+                            .height(5.dp)
+                            .clip(RoundedCornerShape(3.dp))
+                            .background(secondaryFg.copy(alpha = 0.45f))
                     )
+
+                    IconButton(onClick = {
+                        centerMode = if (centerMode == PlayerCenterMode.QUEUE) PlayerCenterMode.COVER else PlayerCenterMode.QUEUE
+                    }) {
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Filled.QueueMusic,
+                            contentDescription = "Очередь воспроизведения",
+                            tint = if (centerMode == PlayerCenterMode.QUEUE) AppleRed else secondaryFg,
+                            modifier = Modifier.size(26.dp)
+                        )
+                    }
                 }
-            }
 
             Spacer(modifier = Modifier.height(8.dp))
 
@@ -278,6 +303,8 @@ fun FullPlayerSheet(
                             lyrics = lyrics,
                             isLoading = isLyricsLoading,
                             currentPosMs = lyricsPosMs,
+                            primaryColor = primaryFg,
+                            secondaryColor = secondaryFg,
                             onLineClick = onSeekTo,
                             modifier = if (lyrics == null || lyrics.isInstrumental || isLyricsLoading) swipeDismissModifier else Modifier
                         )
@@ -288,6 +315,8 @@ fun FullPlayerSheet(
                             queue = queue,
                             currentTrack = track,
                             isPlaying = isPlaying,
+                            primaryColor = primaryFg,
+                            secondaryColor = secondaryFg,
                             onTrackClick = { clickedTrack ->
                                 onTrackClick(clickedTrack, queue)
                             },
@@ -309,6 +338,8 @@ fun FullPlayerSheet(
                 isExplicit = track.isExplicit,
                 isLiked = isLiked,
                 isLiveStream = isLiveStream,
+                primaryColor = primaryFg,
+                secondaryColor = secondaryFg,
                 onLikeClick = onLikeClick,
                 modifier = swipeDismissModifier
             )
@@ -354,6 +385,9 @@ fun FullPlayerSheet(
                     fallbackDurationSec = track.duration,
                     currentPosFlow = currentPosFlow,
                     durationFlow = durationFlow,
+                    primaryColor = primaryFg,
+                    secondaryColor = secondaryFg,
+                    inactiveTrackColor = trackBgFg,
                     onSeekTo = onSeekTo
                 )
             }
@@ -370,7 +404,7 @@ fun FullPlayerSheet(
                     Icon(
                         imageVector = Icons.Default.Shuffle,
                         contentDescription = "Случайно",
-                        tint = if (isShuffle) AppleRed else MaterialTheme.colorScheme.onSurfaceVariant,
+                        tint = if (isShuffle) AppleRed else secondaryFg,
                         modifier = Modifier.size(24.dp)
                     )
                 }
@@ -379,7 +413,7 @@ fun FullPlayerSheet(
                     Icon(
                         imageVector = Icons.Default.SkipPrevious,
                         contentDescription = "Предыдущий",
-                        tint = MaterialTheme.colorScheme.onBackground,
+                        tint = primaryFg,
                         modifier = Modifier.size(38.dp)
                     )
                 }
@@ -389,14 +423,14 @@ fun FullPlayerSheet(
                     modifier = Modifier
                         .size(68.dp)
                         .clip(CircleShape)
-                        .background(MaterialTheme.colorScheme.onBackground)
+                        .background(playBtnBg)
                         .clickable(onClick = onPlayPauseClick),
                     contentAlignment = Alignment.Center
                 ) {
                     Icon(
                         imageVector = if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
                         contentDescription = if (isPlaying) "Пауза" else "Воспроизведение",
-                        tint = MaterialTheme.colorScheme.background,
+                        tint = playBtnFg,
                         modifier = Modifier.size(36.dp)
                     )
                 }
@@ -405,14 +439,14 @@ fun FullPlayerSheet(
                     Icon(
                         imageVector = Icons.Default.SkipNext,
                         contentDescription = "Следующий",
-                        tint = MaterialTheme.colorScheme.onBackground,
+                        tint = primaryFg,
                         modifier = Modifier.size(38.dp)
                     )
                 }
 
                 IconButton(onClick = onToggleRepeat) {
                     val repeatIcon = if (repeatMode == Player.REPEAT_MODE_ONE) Icons.Default.RepeatOne else Icons.Default.Repeat
-                    val repeatTint = if (repeatMode != Player.REPEAT_MODE_OFF) AppleRed else MaterialTheme.colorScheme.onSurfaceVariant
+                    val repeatTint = if (repeatMode != Player.REPEAT_MODE_OFF) AppleRed else secondaryFg
                     Icon(
                         imageVector = repeatIcon,
                         contentDescription = "Повтор",
@@ -440,7 +474,7 @@ fun FullPlayerSheet(
                     Icon(
                         imageVector = Icons.Default.FormatQuote,
                         contentDescription = "Текст песни",
-                        tint = if (centerMode == PlayerCenterMode.LYRICS) AppleRed else MaterialTheme.colorScheme.onSurfaceVariant,
+                        tint = if (centerMode == PlayerCenterMode.LYRICS) AppleRed else secondaryFg,
                         modifier = Modifier.size(26.dp)
                     )
                 }
@@ -450,11 +484,12 @@ fun FullPlayerSheet(
                     Icon(
                         imageVector = Icons.Default.MoreVert,
                         contentDescription = "Действия с треком",
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        tint = secondaryFg,
                         modifier = Modifier.size(24.dp)
                     )
                 }
             }
+        }
         }
     }
 }
@@ -464,6 +499,8 @@ fun LyricsView(
     lyrics: Lyrics?,
     isLoading: Boolean = false,
     currentPosMs: Long,
+    primaryColor: Color = MaterialTheme.colorScheme.onBackground,
+    secondaryColor: Color = MaterialTheme.colorScheme.onSurfaceVariant,
     onLineClick: (Long) -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -471,14 +508,14 @@ fun LyricsView(
         Box(modifier = modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
                 CircularProgressIndicator(
-                    color = MaterialTheme.colorScheme.primary,
+                    color = primaryColor,
                     modifier = Modifier.size(36.dp),
                     strokeWidth = 3.dp
                 )
                 Spacer(modifier = Modifier.height(14.dp))
                 Text(
                     text = "Поиск текста песни...",
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    color = secondaryColor,
                     fontSize = 15.sp
                 )
             }
@@ -495,20 +532,20 @@ fun LyricsView(
                 Icon(
                     imageVector = Icons.Default.MusicNote,
                     contentDescription = null,
-                    tint = MaterialTheme.colorScheme.primary,
+                    tint = primaryColor,
                     modifier = Modifier.size(48.dp)
                 )
                 Spacer(modifier = Modifier.height(16.dp))
                 Text(
                     text = "Инструментальный трек",
-                    color = MaterialTheme.colorScheme.onBackground,
+                    color = primaryColor,
                     fontSize = 18.sp,
                     fontWeight = FontWeight.Bold
                 )
                 Spacer(modifier = Modifier.height(6.dp))
                 Text(
                     text = "Композиция без слов",
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    color = secondaryColor,
                     fontSize = 14.sp
                 )
             }
@@ -525,13 +562,13 @@ fun LyricsView(
                 Icon(
                     imageVector = Icons.Default.FormatQuote,
                     contentDescription = null,
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
+                    tint = secondaryColor.copy(alpha = 0.6f),
                     modifier = Modifier.size(44.dp)
                 )
                 Spacer(modifier = Modifier.height(12.dp))
                 Text(
                     text = "Текст песни не найден",
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    color = secondaryColor,
                     fontSize = 16.sp
                 )
             }
@@ -562,7 +599,7 @@ fun LyricsView(
                     text = line.text,
                     fontSize = if (isActive) 22.sp else 18.sp,
                     fontWeight = if (isActive) FontWeight.Bold else FontWeight.Medium,
-                    color = if (isActive) MaterialTheme.colorScheme.onBackground else MaterialTheme.colorScheme.onBackground.copy(alpha = 0.35f),
+                    color = if (isActive) primaryColor else primaryColor.copy(alpha = 0.42f),
                     modifier = Modifier
                         .fillMaxWidth()
                         .clickable { onLineClick(line.beginMs) }
@@ -581,7 +618,7 @@ fun LyricsView(
                 Text(
                     text = line,
                     fontSize = 17.sp,
-                    color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.85f),
+                    color = primaryColor.copy(alpha = 0.88f),
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(vertical = 4.dp)
@@ -603,6 +640,8 @@ fun PlayerQueueView(
     queue: List<Track>,
     currentTrack: Track?,
     isPlaying: Boolean,
+    primaryColor: Color = MaterialTheme.colorScheme.onBackground,
+    secondaryColor: Color = MaterialTheme.colorScheme.onSurfaceVariant,
     onTrackClick: (Track) -> Unit,
     onMoveItem: (fromIndex: Int, toIndex: Int) -> Unit = { _, _ -> },
     onRemoveItem: (index: Int) -> Unit = {},
@@ -612,7 +651,7 @@ fun PlayerQueueView(
         Box(modifier = modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
             Text(
                 text = "Очередь воспроизведения пуста",
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                color = secondaryColor,
                 fontSize = 16.sp
             )
         }
@@ -635,7 +674,7 @@ fun PlayerQueueView(
             text = "Далее в очереди (${queue.size})",
             fontSize = 15.sp,
             fontWeight = FontWeight.SemiBold,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            color = secondaryColor,
             modifier = Modifier.padding(start = 4.dp, bottom = 8.dp, top = 4.dp)
         )
         LazyColumn(
@@ -666,7 +705,7 @@ fun PlayerQueueView(
                             text = item.title,
                             fontSize = 15.sp,
                             fontWeight = if (isCurrent) FontWeight.Bold else FontWeight.Medium,
-                            color = if (isCurrent) AppleRed else MaterialTheme.colorScheme.onBackground,
+                            color = if (isCurrent) AppleRed else primaryColor,
                             maxLines = 1,
                             softWrap = false,
                             modifier = if (isCurrent) {
@@ -685,7 +724,7 @@ fun PlayerQueueView(
                         Text(
                             text = item.artist,
                             fontSize = 13.sp,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            color = secondaryColor,
                             maxLines = 1,
                             softWrap = false,
                             modifier = if (isCurrent) {
@@ -720,7 +759,7 @@ fun PlayerQueueView(
                                     Icon(
                                         imageVector = Icons.Default.KeyboardArrowUp,
                                         contentDescription = "Выше",
-                                        tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+                                        tint = secondaryColor.copy(alpha = 0.8f),
                                         modifier = Modifier.size(18.dp)
                                     )
                                 }
@@ -733,7 +772,7 @@ fun PlayerQueueView(
                                     Icon(
                                         imageVector = Icons.Default.KeyboardArrowDown,
                                         contentDescription = "Ниже",
-                                        tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+                                        tint = secondaryColor.copy(alpha = 0.8f),
                                         modifier = Modifier.size(18.dp)
                                     )
                                 }
@@ -745,7 +784,7 @@ fun PlayerQueueView(
                                 Icon(
                                     imageVector = Icons.Default.Close,
                                     contentDescription = "Удалить из очереди",
-                                    tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+                                    tint = secondaryColor.copy(alpha = 0.7f),
                                     modifier = Modifier.size(16.dp)
                                 )
                             }
@@ -764,6 +803,8 @@ private fun PlayerTrackHeader(
     isExplicit: Boolean,
     isLiked: Boolean,
     isLiveStream: Boolean,
+    primaryColor: Color,
+    secondaryColor: Color,
     onLikeClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -785,7 +826,7 @@ private fun PlayerTrackHeader(
                     text = title,
                     fontSize = 22.sp,
                     fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.onBackground,
+                    color = primaryColor,
                     maxLines = 1,
                     softWrap = false,
                     modifier = Modifier
@@ -802,14 +843,14 @@ private fun PlayerTrackHeader(
                     Box(
                         modifier = Modifier
                             .clip(RoundedCornerShape(4.dp))
-                            .background(Color.Gray.copy(alpha = 0.3f))
+                            .background(secondaryColor.copy(alpha = 0.25f))
                             .padding(horizontal = 5.dp, vertical = 2.dp)
                     ) {
                         Text(
                             text = "E",
                             fontSize = 11.sp,
                             fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.7f)
+                            color = primaryColor.copy(alpha = 0.85f)
                         )
                     }
                 }
@@ -818,7 +859,7 @@ private fun PlayerTrackHeader(
             Text(
                 text = artist,
                 fontSize = 17.sp,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                color = secondaryColor,
                 maxLines = 1,
                 softWrap = false,
                 modifier = Modifier
@@ -839,7 +880,7 @@ private fun PlayerTrackHeader(
             Icon(
                 imageVector = if (!isLiveStream && isLiked) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
                 contentDescription = if (isLiveStream) "Найти в поиске" else if (isLiked) "В медиатеке" else "Добавить в медиатеку",
-                tint = if (!isLiveStream && isLiked) AppleRed else MaterialTheme.colorScheme.onSurfaceVariant,
+                tint = if (!isLiveStream && isLiked) AppleRed else secondaryColor,
                 modifier = Modifier.size(28.dp)
             )
         }
@@ -851,6 +892,9 @@ private fun PlayerTimeline(
     fallbackDurationSec: Int,
     currentPosFlow: StateFlow<Long>,
     durationFlow: StateFlow<Long>,
+    primaryColor: Color,
+    secondaryColor: Color,
+    inactiveTrackColor: Color,
     onSeekTo: (Long) -> Unit
 ) {
     val currentPosMs by currentPosFlow.collectAsState()
@@ -887,9 +931,9 @@ private fun PlayerTimeline(
             }
         },
         colors = SliderDefaults.colors(
-            thumbColor = MaterialTheme.colorScheme.onBackground,
-            activeTrackColor = MaterialTheme.colorScheme.onBackground,
-            inactiveTrackColor = MaterialTheme.colorScheme.surfaceVariant
+            thumbColor = primaryColor,
+            activeTrackColor = primaryColor,
+            inactiveTrackColor = inactiveTrackColor
         ),
         modifier = Modifier.fillMaxWidth()
     )
@@ -904,12 +948,12 @@ private fun PlayerTimeline(
         Text(
             text = formatMs(displayPosMs),
             fontSize = 12.sp,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
+            color = secondaryColor
         )
         Text(
             text = if (trackDurationMs > 0) "-" + formatMs((trackDurationMs - displayPosMs).coerceAtLeast(0)) else "--:--",
             fontSize = 12.sp,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
+            color = secondaryColor
         )
     }
 }

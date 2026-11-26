@@ -43,4 +43,28 @@ class Id3TaggerTest {
         val tailAfterRetag = retaggedBytes.copyOfRange(retaggedBytes.size - audioPayload.size, retaggedBytes.size)
         assertArrayEquals(audioPayload, tailAfterRetag)
     }
+
+    @Test
+    fun testWritesUsltLyricsFrameAndPreservesAudioPayload() {
+        val mp3File = File(tempFolder.root, "lyrics.mp3")
+        val audioPayload = byteArrayOf(0xFF.toByte(), 0xFB.toByte(), 0x90.toByte(), 0x64, 0x55, 0x66)
+        mp3File.writeBytes(audioPayload)
+
+        Id3Tagger.tagMp3(
+            file = mp3File,
+            title = "Song",
+            artist = "Artist",
+            album = null,
+            coverBytes = null,
+            lyricsText = "Первая строка\nSecond line"
+        )
+
+        val bytes = mp3File.readBytes()
+        val asciiHeader = String(bytes, Charsets.ISO_8859_1)
+        assertTrue("Expected USLT frame in ID3 tag", asciiHeader.contains("USLT"))
+        assertTrue("Expected language 'und' in USLT frame", asciiHeader.contains("und"))
+
+        val tail = bytes.copyOfRange(bytes.size - audioPayload.size, bytes.size)
+        assertArrayEquals(audioPayload, tail)
+    }
 }

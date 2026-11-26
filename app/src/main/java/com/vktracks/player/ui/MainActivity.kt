@@ -488,6 +488,9 @@ fun MainAppScreen(viewModel: MainViewModel) {
             val isSoftFading by viewModel.isSoftFading.collectAsState()
             val isAutoResumeWifiOnly by viewModel.isAutoResumeWifiOnly.collectAsState()
             val pendingDownloadsCount by viewModel.pendingDownloadsCount.collectAsState()
+            val isEqEnabled by viewModel.isEqEnabled.collectAsState()
+            val eqPresetId by viewModel.eqPresetId.collectAsState()
+            val eqBandGains by viewModel.eqBandGains.collectAsState()
 
             SettingsScreen(
                 authManager = viewModel.authManager,
@@ -508,11 +511,18 @@ fun MainAppScreen(viewModel: MainViewModel) {
                 isSoftFading = isSoftFading,
                 isAutoResumeWifiOnly = isAutoResumeWifiOnly,
                 pendingDownloadsCount = pendingDownloadsCount,
+                isEqEnabled = isEqEnabled,
+                eqPresetId = eqPresetId,
+                eqBandGains = eqBandGains,
                 onToggleBtAutoResume = { viewModel.setBtAutoResume(it) },
                 onToggleBtAutoPause = { viewModel.setBtAutoPause(it) },
                 onToggleSoftFading = { viewModel.setSoftFading(it) },
                 onToggleAutoResumeWifiOnly = { viewModel.setAutoResumeWifiOnly(it) },
                 onClearPendingDownloads = { viewModel.clearPendingDownloads() },
+                onToggleEqEnabled = { viewModel.setEqEnabled(it) },
+                onSelectEqPreset = { viewModel.selectEqPreset(it) },
+                onEqBandGainChange = { band, gain -> viewModel.setEqBandGain(band, gain) },
+                onResetEq = { viewModel.resetEqualizer() },
                 onLoginClick = {
                     showSettings = false
                     showAuthDialog = true

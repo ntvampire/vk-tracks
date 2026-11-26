@@ -1,8 +1,8 @@
 {
-    "versionCode":  71,
-    "versionName":  "1.1.0",
-    "downloadUrl":  "https://github.com/ntvampire/vk-tracks/releases/download/v1.1.0/VK-Tracks-1.1.0.apk",
-    "mirrorUrl":  "https://ntvampire.github.io/vk-tracks/VK-Tracks-1.1.0.apk",
-    "sha256":  "35c28e988f97ec0910b91c3ff65c5d7e83a57d94a68c21651cb6f6474ba6de54",
-    "changelog":  "Релиз v1.1.0: анимированный Mesh-градиент в стиле Apple Music с адаптивным контрастом и KeepScreenOn, встроенный 10-полосный эквалайзер с 9 пресетами, вшивание текстов песен (USLT) в скачиваемые MP3."
+    "versionCode":  72,
+    "versionName":  "1.1.1",
+    "downloadUrl":  "https://github.com/ntvampire/vk-tracks/releases/download/v1.1.1/VK-Tracks-1.1.1.apk",
+    "mirrorUrl":  "https://ntvampire.github.io/vk-tracks/VK-Tracks-1.1.1.apk",
+    "sha256":  "43f96382cf200dc7d218e5aa3c1d976147d30df4075ff3dbb3d2bb582f741875",
+    "changelog":  "Улучшен Mesh-градиент плеера: прямой AGSL-сэмплинг размытой обложки (3 вращающихся warp-слоя) и диверсифицированная палитра цветов для выразительных переливов без однотонного усреднения."
 }

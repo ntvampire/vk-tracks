@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.room.*
 import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
+import com.vktracks.player.data.model.Track
 import kotlinx.coroutines.flow.Flow
 
 @Entity(
@@ -39,6 +40,82 @@ data class PlaylistCoverEntity(
     val localCoverPath: String,
     val updatedAt: Long = System.currentTimeMillis()
 )
+
+@Entity(tableName = "pending_downloads")
+data class PendingDownloadEntity(
+    @PrimaryKey val id: String, // ownerId_id
+    val trackId: Long,
+    val ownerId: Long,
+    val title: String,
+    val artist: String,
+    val duration: Int,
+    val streamUrl: String,
+    val coverUrl: String?,
+    val albumTitle: String?,
+    val isExplicit: Boolean,
+    val lyricsId: Long?,
+    val accessKey: String?,
+    val isLiked: Boolean,
+    val subfolder: String? = null,
+    val createdAt: Long = System.currentTimeMillis(),
+    val retryCount: Int = 0,
+    val lastError: String? = null
+)
+
+@Dao
+interface PendingDownloadDao {
+    @Query("SELECT * FROM pending_downloads ORDER BY createdAt ASC")
+    suspend fun getAllPending(): List<PendingDownloadEntity>
+
+    @Query("SELECT COUNT(*) FROM pending_downloads")
+    fun observePendingCount(): Flow<Int>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsert(item: PendingDownloadEntity)
+
+    @Query("DELETE FROM pending_downloads WHERE id = :id")
+    suspend fun deleteById(id: String)
+
+    @Query("UPDATE pending_downloads SET retryCount = retryCount + 1, lastError = :error WHERE id = :id")
+    suspend fun incrementRetry(id: String, error: String?)
+
+    @Query("DELETE FROM pending_downloads")
+    suspend fun clearAll()
+}
+
+fun PendingDownloadEntity.toTrack(): Track = Track(
+    id = trackId,
+    ownerId = ownerId,
+    title = title,
+    artist = artist,
+    duration = duration,
+    streamUrl = streamUrl,
+    coverUrl = coverUrl,
+    albumTitle = albumTitle,
+    isExplicit = isExplicit,
+    lyricsId = lyricsId,
+    accessKey = accessKey,
+    isLiked = isLiked
+)
+
+fun Track.toPendingDownload(subfolder: String? = null, lastError: String? = null): PendingDownloadEntity =
+    PendingDownloadEntity(
+        id = fullId,
+        trackId = id,
+        ownerId = ownerId,
+        title = title,
+        artist = artist,
+        duration = duration,
+        streamUrl = streamUrl,
+        coverUrl = coverUrl,
+        albumTitle = albumTitle,
+        isExplicit = isExplicit,
+        lyricsId = lyricsId,
+        accessKey = accessKey,
+        isLiked = isLiked,
+        subfolder = subfolder,
+        lastError = lastError
+    )
 
 @Dao
 interface PlaylistCoverDao {
@@ -187,11 +264,44 @@ private val MIGRATION_9_10 = object : Migration(9, 10) {
     }
 }
 
-@Database(entities = [TrackEntity::class, LyricsEntity::class, PlaylistCoverEntity::class], version = 10, exportSchema = false)
+private val MIGRATION_10_11 = object : Migration(10, 11) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL(
+            """
+            CREATE TABLE IF NOT EXISTS pending_downloads (
+                id TEXT NOT NULL PRIMARY KEY,
+                trackId INTEGER NOT NULL,
+                ownerId INTEGER NOT NULL,
+                title TEXT NOT NULL,
+                artist TEXT NOT NULL,
+                duration INTEGER NOT NULL,
+                streamUrl TEXT NOT NULL,
+                coverUrl TEXT,
+                albumTitle TEXT,
+                isExplicit INTEGER NOT NULL DEFAULT 0,
+                lyricsId INTEGER,
+                accessKey TEXT,
+                isLiked INTEGER NOT NULL DEFAULT 0,
+                subfolder TEXT,
+                createdAt INTEGER NOT NULL DEFAULT 0,
+                retryCount INTEGER NOT NULL DEFAULT 0,
+                lastError TEXT
+            )
+            """.trimIndent()
+        )
+    }
+}
+
+@Database(
+    entities = [TrackEntity::class, LyricsEntity::class, PlaylistCoverEntity::class, PendingDownloadEntity::class],
+    version = 11,
+    exportSchema = true
+)
 abstract class AppDatabase : RoomDatabase() {
     abstract fun trackDao(): TrackDao
     abstract fun lyricsDao(): LyricsDao
     abstract fun playlistCoverDao(): PlaylistCoverDao
+    abstract fun pendingDownloadDao(): PendingDownloadDao
 
     companion object {
         @Volatile
@@ -207,7 +317,7 @@ abstract class AppDatabase : RoomDatabase() {
                     .addMigrations(
                         MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5,
                         MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9,
-                        MIGRATION_9_10
+                        MIGRATION_9_10, MIGRATION_10_11
                     )
                     .build()
                 INSTANCE = instance

@@ -72,6 +72,8 @@ object FileSanitizer {
     }
 }
 
+class DownloadHttpException(val code: Int, message: String) : IOException(message)
+
 class TrackDownloader(
     private val context: Context,
     private val database: AppDatabase
@@ -82,6 +84,31 @@ class TrackDownloader(
 
     fun getProgressFlow(fullId: String): StateFlow<Int> {
         return _downloadProgress.getOrPut(fullId) { MutableStateFlow(-1) }.asStateFlow()
+    }
+
+    private fun getPartialFile(fullId: String): File {
+        val partialDir = File(context.cacheDir, "partial_dl").apply { mkdirs() }
+        return File(partialDir, "${FileSanitizer.sanitize(fullId)}.part")
+    }
+
+    fun deletePartialFile(fullId: String) {
+        try {
+            val file = getPartialFile(fullId)
+            if (file.exists()) file.delete()
+        } catch (_: Exception) {}
+    }
+
+    fun cleanupStalePartials(maxAgeMs: Long = 7L * 24 * 60 * 60 * 1000L) {
+        try {
+            val partialDir = File(context.cacheDir, "partial_dl")
+            if (!partialDir.exists()) return
+            val cutoff = System.currentTimeMillis() - maxAgeMs
+            partialDir.listFiles()?.forEach { file ->
+                if (file.isFile && file.lastModified() < cutoff) {
+                    file.delete()
+                }
+            }
+        } catch (_: Exception) {}
     }
 
     fun buildTargetPaths(track: Track, subfolder: String?): Pair<String?, String> {
@@ -95,20 +122,23 @@ class TrackDownloader(
         val flow = _downloadProgress.getOrPut(track.fullId) { MutableStateFlow(0) }
         flow.value = 0
 
+        val isHls = track.streamUrl.contains(".m3u8", ignoreCase = true)
         val tempFile = File(context.cacheDir, "temp_dl_${track.fullId}_${System.nanoTime()}.tmp")
+        val partFile = if (!isHls) getPartialFile(track.fullId) else null
 
         try {
             val (effectiveSubfolder, fileName) = buildTargetPaths(track, subfolder)
 
-            // 1. Проверяем тип потока: прямой MP3 или HLS m3u8
-            if (track.streamUrl.contains(".m3u8")) {
+            // 1. Проверяем тип потока: прямой MP3 (с докачкой по Range) или HLS m3u8
+            if (isHls) {
                 downloadHlsStream(track.streamUrl, tempFile) { progress ->
                     flow.value = progress
                 }
             } else {
-                downloadDirectStream(track.streamUrl, tempFile) { progress ->
+                downloadDirectStream(track.streamUrl, partFile!!) { progress ->
                     flow.value = progress
                 }
+                partFile.copyTo(tempFile, overwrite = true)
             }
 
             // 2. Скачиваем обложку для прошивки в ID3
@@ -124,8 +154,9 @@ class TrackDownloader(
 
             // 4. Перемещаем в целевое хранилище (MediaStore content:// на Android 10+ или файловую систему)
             val savedPath = saveToStorage(tempFile, fileName, effectiveSubfolder, track)
+            partFile?.delete()
 
-            // 5. Сохраняем в локальную базу данных Room
+            // 5. Сохраняем в локальную базу данных Room и убираем из очереди докачки
             val entity = TrackEntity(
                 id = track.fullId,
                 trackId = track.id,
@@ -144,6 +175,9 @@ class TrackDownloader(
                 isDownloaded = true
             )
             database.trackDao().insertOrUpdate(entity)
+            try {
+                database.pendingDownloadDao().deleteById(track.fullId)
+            } catch (_: Exception) {}
 
             flow.value = 100
             Result.success(savedPath)
@@ -254,15 +288,33 @@ class TrackDownloader(
         }
     }
 
-    private fun downloadDirectStream(url: String, target: File, onProgress: (Int) -> Unit) {
-        val request = Request.Builder().url(url).build()
-        client.newCall(request).execute().use { response ->
-            if (!response.isSuccessful) throw Exception("HTTP ${response.code}")
-            val body = response.body ?: throw Exception("Empty body")
-            val totalBytes = body.contentLength()
+    private fun downloadDirectStream(
+        url: String,
+        target: File,
+        allowRangeRetry: Boolean = true,
+        onProgress: (Int) -> Unit
+    ) {
+        val existingBytes = if (target.exists() && target.length() > 0L) target.length() else 0L
+        val reqBuilder = Request.Builder().url(url)
+        if (existingBytes > 0L) {
+            reqBuilder.header("Range", "bytes=$existingBytes-")
+        }
+        client.newCall(reqBuilder.build()).execute().use { response ->
+            if (response.code == 416 && existingBytes > 0L && allowRangeRetry) {
+                target.delete()
+                downloadDirectStream(url, target, allowRangeRetry = false, onProgress = onProgress)
+                return
+            }
+            if (!response.isSuccessful) throw DownloadHttpException(response.code, "HTTP ${response.code}")
+            val body = response.body ?: throw IOException("Empty body")
+
+            val append = response.code == 206 && existingBytes > 0L
+            val startOffset = if (append) existingBytes else 0L
+            val remainingBytes = body.contentLength()
+            val totalBytes = if (remainingBytes > 0L) startOffset + remainingBytes else -1L
 
             body.byteStream().use { input ->
-                FileOutputStream(target).use { output ->
+                FileOutputStream(target, append).use { output ->
                     val buffer = ByteArray(32 * 1024)
                     var bytesRead: Int
                     var totalRead = 0L
@@ -270,11 +322,12 @@ class TrackDownloader(
                     while (input.read(buffer).also { bytesRead = it } != -1) {
                         output.write(buffer, 0, bytesRead)
                         totalRead += bytesRead
-                        if (totalBytes > 0) {
-                            val percent = ((totalRead * 100) / totalBytes).toInt().coerceIn(0, 99)
+                        if (totalBytes > 0L) {
+                            val percent = (((startOffset + totalRead) * 100) / totalBytes).toInt().coerceIn(0, 99)
                             onProgress(percent)
                         }
                     }
+                    output.flush()
                 }
             }
         }
@@ -319,6 +372,10 @@ class TrackDownloader(
                     MediaScannerConnection.scanFile(context, arrayOf(path), arrayOf("audio/mpeg"), null)
                 }
             }
+            deletePartialFile(track.fullId)
+            try {
+                database.pendingDownloadDao().deleteById(track.fullId)
+            } catch (_: Exception) {}
             if (deletedOnStorage) {
                 database.trackDao().removeDownload(track.fullId)
                 _downloadProgress.remove(track.fullId)

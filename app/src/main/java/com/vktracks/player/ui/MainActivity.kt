@@ -486,6 +486,8 @@ fun MainAppScreen(viewModel: MainViewModel) {
             val isBtAutoResume by viewModel.isBtAutoResume.collectAsState()
             val isBtAutoPause by viewModel.isBtAutoPause.collectAsState()
             val isSoftFading by viewModel.isSoftFading.collectAsState()
+            val isAutoResumeWifiOnly by viewModel.isAutoResumeWifiOnly.collectAsState()
+            val pendingDownloadsCount by viewModel.pendingDownloadsCount.collectAsState()
 
             SettingsScreen(
                 authManager = viewModel.authManager,
@@ -504,9 +506,13 @@ fun MainAppScreen(viewModel: MainViewModel) {
                 isBtAutoResume = isBtAutoResume,
                 isBtAutoPause = isBtAutoPause,
                 isSoftFading = isSoftFading,
+                isAutoResumeWifiOnly = isAutoResumeWifiOnly,
+                pendingDownloadsCount = pendingDownloadsCount,
                 onToggleBtAutoResume = { viewModel.setBtAutoResume(it) },
                 onToggleBtAutoPause = { viewModel.setBtAutoPause(it) },
                 onToggleSoftFading = { viewModel.setSoftFading(it) },
+                onToggleAutoResumeWifiOnly = { viewModel.setAutoResumeWifiOnly(it) },
+                onClearPendingDownloads = { viewModel.clearPendingDownloads() },
                 onLoginClick = {
                     showSettings = false
                     showAuthDialog = true

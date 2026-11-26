@@ -105,7 +105,7 @@ class VkAuthManager(context: Context) {
 
         fun parseRedirectUrl(url: String, requireVkBlankHost: Boolean = false): Pair<String, Long>? {
             if (requireVkBlankHost) {
-                val parsed = try { Uri.parse(url) } catch (_: Exception) { null } ?: return null
+                val parsed = try { java.net.URI(url) } catch (_: Exception) { null } ?: return null
                 if (!parsed.scheme.equals("https", ignoreCase = true) ||
                     !parsed.host.equals("oauth.vk.com", ignoreCase = true) ||
                     parsed.path != "/blank.html"
@@ -127,8 +127,8 @@ class VkAuthManager(context: Context) {
             for (param in fragment.split("&")) {
                 val parts = param.split("=", limit = 2)
                 if (parts.size == 2) {
-                    val key = Uri.decode(parts[0])
-                    val value = Uri.decode(parts[1])
+                    val key = percentDecode(parts[0])
+                    val value = percentDecode(parts[1])
                     when (key) {
                         "access_token" -> token = value
                         "user_id" -> userId = value.toLongOrNull()
@@ -140,6 +140,14 @@ class VkAuthManager(context: Context) {
                 Pair(token, userId)
             } else {
                 null
+            }
+        }
+
+        private fun percentDecode(value: String): String {
+            return try {
+                java.net.URLDecoder.decode(value.replace("+", "%2B"), "UTF-8")
+            } catch (_: Exception) {
+                value
             }
         }
 

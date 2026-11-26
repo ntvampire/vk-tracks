@@ -1,8 +1,8 @@
 {
-    "versionCode":  69,
-    "versionName":  "1.0.68",
-    "downloadUrl":  "https://github.com/ntvampire/vk-tracks/releases/download/v1.0.68/VK-Tracks-1.0.68.apk",
-    "mirrorUrl":  "https://ntvampire.github.io/vk-tracks/VK-Tracks-1.0.68.apk",
-    "sha256":  "aa117eda6f9ce430a2dfb88721fa1219a4b8881afc4d86881e92a07995cccc12",
-    "changelog":  "Исправлена остановка плеера на недоступных в ВК треках: фильтрация очередей, автопропуск с обновлением ссылки потока, восстановление переключения треков из STATE_IDLE и юнит-тесты фильтрации очереди."
+    "versionCode":  70,
+    "versionName":  "1.0.69",
+    "downloadUrl":  "https://github.com/ntvampire/vk-tracks/releases/download/v1.0.69/VK-Tracks-1.0.69.apk",
+    "mirrorUrl":  "https://ntvampire.github.io/vk-tracks/VK-Tracks-1.0.69.apk",
+    "sha256":  "74a1618c107beb742641245ed54ff03158c40673e627f57febee0c3d9b28164c",
+    "changelog":  "Автодокачка прерванных загрузок (WorkManager, HTTP Range, Room v11 и фильтр Wi-Fi), exportSchema для Room, AudioPaginationHelper и новые юнит-тесты."
 }

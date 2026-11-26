@@ -199,3 +199,47 @@ data class AudiosPage(
     val totalCount: Int = 0,
     val rawCount: Int = 0
 )
+
+data class AudioPaginationResult(
+    val tracks: List<Track>,
+    val newlyAdded: List<Track>,
+    val nextOffset: Int,
+    val hasMore: Boolean
+)
+
+object AudioPaginationHelper {
+    fun mergePage(
+        existing: List<Track>,
+        currentOffset: Int,
+        page: AudiosPage,
+        pageSize: Int = 100
+    ): AudioPaginationResult {
+        if (page.rawCount <= 0) {
+            return AudioPaginationResult(
+                tracks = existing,
+                newlyAdded = emptyList(),
+                nextOffset = currentOffset,
+                hasMore = false
+            )
+        }
+        val nextOffset = currentOffset + page.rawCount
+        val existingIds = existing.map { it.fullId }.toHashSet()
+        val distinctNew = page.tracks.filter { existingIds.add(it.fullId) }
+        val merged = when {
+            existing.isEmpty() -> distinctNew
+            distinctNew.isEmpty() -> existing
+            else -> existing + distinctNew
+        }
+        val hasMore = when {
+            page.totalCount > 0 && nextOffset >= page.totalCount -> false
+            currentOffset > 0 && page.rawCount < pageSize -> false
+            else -> true
+        }
+        return AudioPaginationResult(
+            tracks = merged,
+            newlyAdded = distinctNew,
+            nextOffset = nextOffset,
+            hasMore = hasMore
+        )
+    }
+}

@@ -17,6 +17,7 @@ import com.vktracks.player.data.api.TrackMetadataMatcher
 import com.vktracks.player.data.api.VkApiClient
 import com.vktracks.player.data.api.VkAuthManager
 import com.vktracks.player.data.cache.MediaCacheManager
+import com.vktracks.player.data.downloader.PendingDownloadWorker
 import com.vktracks.player.data.downloader.TrackDownloader
 import com.vktracks.player.data.settings.PlayerSettingsManager
 import com.vktracks.player.data.local.AppDatabase
@@ -24,9 +25,11 @@ import com.vktracks.player.data.local.LyricsEntity
 import com.vktracks.player.data.local.PlaylistCoverEntity
 import com.vktracks.player.data.local.TrackEntity
 import com.vktracks.player.data.local.toLyrics
+import com.vktracks.player.data.local.toPendingDownload
 import com.vktracks.player.data.model.AppUpdateInfo
 import com.vktracks.player.data.model.Artist
 import com.vktracks.player.data.model.ArtistDetail
+import com.vktracks.player.data.model.AudioPaginationHelper
 import com.vktracks.player.data.model.CatalogBlock
 import com.vktracks.player.data.model.CatalogButtonItem
 import com.vktracks.player.data.model.Lyrics
@@ -214,6 +217,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         .distinctUntilChanged()
         .stateIn(viewModelScope, SharingStarted.Lazily, emptySet())
 
+    val pendingDownloadsCount: StateFlow<Int> = database.pendingDownloadDao().observePendingCount()
+        .distinctUntilChanged()
+        .stateIn(viewModelScope, SharingStarted.Lazily, 0)
+
     // Кэш-менеджер потоков (VKX & Murglar)
     val cacheManager = MediaCacheManager.getInstance(application)
     private val _cacheSizeDisplay = MutableStateFlow(cacheManager.getFormattedCacheSize())
@@ -250,6 +257,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val _isSoftFading = MutableStateFlow(playerSettings.isSoftFadingEnabled)
     val isSoftFading: StateFlow<Boolean> = _isSoftFading.asStateFlow()
 
+    private val _isAutoResumeWifiOnly = MutableStateFlow(playerSettings.isAutoResumeWifiOnly)
+    val isAutoResumeWifiOnly: StateFlow<Boolean> = _isAutoResumeWifiOnly.asStateFlow()
+
     fun setBtAutoResume(enabled: Boolean) {
         playerSettings.isBtAutoResumeEnabled = enabled
         _isBtAutoResume.value = enabled
@@ -263,6 +273,25 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun setSoftFading(enabled: Boolean) {
         playerSettings.isSoftFadingEnabled = enabled
         _isSoftFading.value = enabled
+    }
+
+    fun setAutoResumeWifiOnly(enabled: Boolean) {
+        playerSettings.isAutoResumeWifiOnly = enabled
+        _isAutoResumeWifiOnly.value = enabled
+        if (pendingDownloadsCount.value > 0) {
+            PendingDownloadWorker.enqueue(getApplication(), replace = true)
+        }
+    }
+
+    fun clearPendingDownloads() {
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                database.pendingDownloadDao().clearAll()
+                downloader.cleanupStalePartials(maxAgeMs = 0L)
+                PendingDownloadWorker.cancel(getApplication())
+                showToast("Очередь докачки очищена")
+            } catch (_: Exception) {}
+        }
     }
 
     // История прослушивания
@@ -279,6 +308,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 if (auth) {
                     loadLibrary()
                     loadPersonalRadio()
+                    launch(Dispatchers.IO) {
+                        try {
+                            if (database.pendingDownloadDao().getAllPending().isNotEmpty()) {
+                                PendingDownloadWorker.enqueue(getApplication())
+                            }
+                        } catch (_: Exception) {}
+                    }
                 } else {
                     clearSessionState()
                 }
@@ -426,6 +462,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         _playlistError.value = null
         playlistTracksCache.clear()
         VkApiClient.clearCaches()
+        PendingDownloadWorker.cancel(getApplication())
     }
 
     fun loadLibrary() {
@@ -437,9 +474,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             canLoadMoreTracks = true
             try {
                 val page = apiClient.getMyAudios(0, 100)
-                val audios = page.tracks
-                myAudiosOffset = page.rawCount
-                canLoadMoreTracks = page.rawCount > 0 && (page.totalCount <= 0 || myAudiosOffset < page.totalCount)
+                val firstPage = AudioPaginationHelper.mergePage(emptyList(), 0, page, pageSize = 100)
+                val audios = firstPage.tracks
+                myAudiosOffset = firstPage.nextOffset
+                canLoadMoreTracks = firstPage.hasMore
                 _myTracks.value = audios
                 preloadLibraryCovers(audios)
                 _likedTrackIds.value = audios.map { it.fullId }.toSet()
@@ -919,14 +957,23 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 }
                 return@launch
             }
+            if (track.isRestricted) {
+                showToast("Скачивание недоступно: ${track.displayRestriction}")
+                return@launch
+            }
 
             var targetTrack = track
-            if (targetTrack.streamUrl.isEmpty() && !targetTrack.isLocal) {
-                val resolvedUrl = apiClient.resolveTrackUrl(targetTrack)
-                if (!resolvedUrl.isNullOrEmpty()) {
-                    targetTrack = targetTrack.copy(streamUrl = resolvedUrl)
+            if (targetTrack.streamUrl.isEmpty()) {
+                val resolved = apiClient.resolveTrack(targetTrack)
+                if (resolved.isRestricted) {
+                    showToast("Скачивание недоступно: ${resolved.displayRestriction}")
+                    return@launch
+                }
+                if (resolved.streamUrl.isNotEmpty()) {
+                    targetTrack = resolved
                 } else {
-                    showToast("Не удалось получить аудиопоток трека")
+                    enqueuePendingDownload(targetTrack, subfolder, "Не получен аудиопоток")
+                    showToast("Сеть недоступна — трек добавлен в очередь автодокачки")
                     return@launch
                 }
             }
@@ -936,62 +983,101 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             if (result.isSuccess) {
                 showToast("Трек сохранён: ${targetTrack.title}")
             } else {
-                showToast("Ошибка скачивания: ${result.exceptionOrNull()?.message}")
+                val errMsg = result.exceptionOrNull()?.message
+                enqueuePendingDownload(targetTrack, subfolder, errMsg)
+                showToast("Сбой загрузки — трек будет докачан при появлении сети")
             }
         }
     }
 
     fun downloadAllInPlaylist(tracks: List<Track>, playlistTitle: String = "Playlist") {
-        if (tracks.isEmpty()) return
-        viewModelScope.launch {
-            showToast("Начата загрузка плейлиста «$playlistTitle» (${tracks.size} треков)")
-            var count = 0
-            for (track in tracks) {
-                if (downloadedTrackIds.value.contains(track.fullId) || track.isLocal) {
-                    count++
-                    continue
-                }
-                var targetTrack = track
-                if (targetTrack.streamUrl.isEmpty()) {
-                    val resolved = apiClient.resolveTrackUrl(targetTrack)
-                    if (!resolved.isNullOrEmpty()) {
-                        targetTrack = targetTrack.copy(streamUrl = resolved)
-                    } else {
-                        continue
-                    }
-                }
-                val res = downloader.downloadTrack(targetTrack, playlistTitle)
-                if (res.isSuccess) {
-                    count++
+        downloadBatch(
+            tracks = tracks,
+            subfolder = playlistTitle,
+            startMessage = "Начата загрузка плейлиста «$playlistTitle» (${tracks.size} треков)",
+            finishMessage = { saved, total, pending ->
+                if (pending > 0) {
+                    "Загружено $saved из $total, в очереди автодокачки: $pending"
+                } else {
+                    "Загрузка завершена: сохранено $saved из $total треков"
                 }
             }
-            showToast("Загрузка завершена: сохранено $count из ${tracks.size} треков")
-        }
+        )
     }
 
     fun downloadTracks(tracks: List<Track>, subfolder: String? = null) {
+        downloadBatch(
+            tracks = tracks,
+            subfolder = subfolder,
+            startMessage = "Начато скачивание ${tracks.size} треков...",
+            finishMessage = { saved, total, pending ->
+                if (pending > 0) {
+                    "Скачано $saved из $total, в очереди автодокачки: $pending"
+                } else {
+                    "Скачивание завершено: $saved из $total треков сохранено"
+                }
+            }
+        )
+    }
+
+    private fun downloadBatch(
+        tracks: List<Track>,
+        subfolder: String?,
+        startMessage: String,
+        finishMessage: (saved: Int, total: Int, pending: Int) -> String
+    ) {
         if (tracks.isEmpty()) return
         viewModelScope.launch {
-            showToast("Начато скачивание ${tracks.size} треков...")
-            var count = 0
+            showToast(startMessage)
+            var savedCount = 0
+            var queuedCount = 0
             for (track in tracks) {
                 if (downloadedTrackIds.value.contains(track.fullId) || track.isLocal) {
-                    count++
+                    savedCount++
                     continue
                 }
+                if (track.isRestricted) continue
+
                 var targetTrack = track
                 if (targetTrack.streamUrl.isEmpty()) {
-                    val resolved = apiClient.resolveTrackUrl(targetTrack)
-                    if (!resolved.isNullOrEmpty()) {
-                        targetTrack = targetTrack.copy(streamUrl = resolved)
+                    val resolved = apiClient.resolveTrack(targetTrack)
+                    if (resolved.isRestricted) continue
+                    if (resolved.streamUrl.isNotEmpty()) {
+                        targetTrack = resolved
                     } else {
+                        enqueuePendingDownload(targetTrack, subfolder, "Не получен аудиопоток", scheduleWorker = false)
+                        queuedCount++
                         continue
                     }
                 }
                 val res = downloader.downloadTrack(targetTrack, subfolder)
-                if (res.isSuccess) count++
+                if (res.isSuccess) {
+                    savedCount++
+                } else {
+                    enqueuePendingDownload(targetTrack, subfolder, res.exceptionOrNull()?.message, scheduleWorker = false)
+                    queuedCount++
+                }
             }
-            showToast("Скачивание завершено: $count из ${tracks.size} треков сохранено")
+            if (queuedCount > 0) {
+                PendingDownloadWorker.enqueue(getApplication())
+            }
+            showToast(finishMessage(savedCount, tracks.size, queuedCount))
+        }
+    }
+
+    private suspend fun enqueuePendingDownload(
+        track: Track,
+        subfolder: String?,
+        lastError: String?,
+        scheduleWorker: Boolean = true
+    ) {
+        withContext(Dispatchers.IO) {
+            try {
+                database.pendingDownloadDao().upsert(track.toPendingDownload(subfolder, lastError))
+                if (scheduleWorker) {
+                    PendingDownloadWorker.enqueue(getApplication())
+                }
+            } catch (_: Exception) {}
         }
     }
 
@@ -1252,25 +1338,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             try {
                 val offsetToFetch = myAudiosOffset
                 val page = apiClient.getMyAudios(offset = offsetToFetch, count = 100)
-                if (page.rawCount == 0) {
-                    canLoadMoreTracks = false
-                } else {
-                    myAudiosOffset += page.rawCount
-                    if (page.totalCount > 0 && myAudiosOffset >= page.totalCount) {
-                        canLoadMoreTracks = false
-                    }
-                    if (page.tracks.isNotEmpty()) {
-                        val currentIds = _myTracks.value.map { it.fullId }.toHashSet()
-                        val distinctNew = page.tracks.filter { !currentIds.contains(it.fullId) }
-                        if (distinctNew.isNotEmpty()) {
-                            _myTracks.value = _myTracks.value + distinctNew
-                            _likedTrackIds.value = _likedTrackIds.value + distinctNew.map { it.fullId }
-                            preloadLibraryCovers(distinctNew)
-                        }
-                    }
-                    if (page.rawCount < 100) {
-                        canLoadMoreTracks = false
-                    }
+                val merged = AudioPaginationHelper.mergePage(_myTracks.value, offsetToFetch, page, pageSize = 100)
+                myAudiosOffset = merged.nextOffset
+                canLoadMoreTracks = merged.hasMore
+                if (merged.newlyAdded.isNotEmpty()) {
+                    _myTracks.value = merged.tracks
+                    _likedTrackIds.value = _likedTrackIds.value + merged.newlyAdded.map { it.fullId }
+                    preloadLibraryCovers(merged.newlyAdded)
                 }
             } catch (e: Exception) {
                 android.util.Log.e("MainViewModel", "Failed to load more tracks", e)

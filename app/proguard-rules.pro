@@ -21,7 +21,10 @@
 -keep class com.google.crypto.tink.** { *; }
 -dontwarn com.google.crypto.tink.**
 
-# WebView JS / AndroidX Lifecycle
+# WebView JS / AndroidX Lifecycle / WorkManager
 -keepclassmembers class * extends androidx.lifecycle.ViewModel {
+    <init>(...);
+}
+-keep class com.vktracks.player.data.downloader.PendingDownloadWorker {
     <init>(...);
 }

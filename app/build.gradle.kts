@@ -7,6 +7,10 @@ plugins {
     id("com.google.devtools.ksp")
 }
 
+ksp {
+    arg("room.schemaLocation", "$projectDir/schemas")
+}
+
 val keystoreProps = Properties().apply {
     val propsFile = rootProject.file("keystore.properties")
     if (propsFile.exists()) {
@@ -22,8 +26,8 @@ android {
         applicationId = "com.vktracks.player"
         minSdk = 26
         targetSdk = 34
-        versionCode = 69
-        versionName = "1.0.68"
+        versionCode = 70
+        versionName = "1.0.69"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {

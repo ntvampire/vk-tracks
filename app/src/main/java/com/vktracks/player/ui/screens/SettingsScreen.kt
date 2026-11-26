@@ -52,9 +52,13 @@ fun SettingsScreen(
     isBtAutoResume: Boolean = true,
     isBtAutoPause: Boolean = true,
     isSoftFading: Boolean = true,
+    isAutoResumeWifiOnly: Boolean = false,
+    pendingDownloadsCount: Int = 0,
     onToggleBtAutoResume: (Boolean) -> Unit = {},
     onToggleBtAutoPause: (Boolean) -> Unit = {},
     onToggleSoftFading: (Boolean) -> Unit = {},
+    onToggleAutoResumeWifiOnly: (Boolean) -> Unit = {},
+    onClearPendingDownloads: () -> Unit = {},
     onLoginClick: () -> Unit,
     onLogoutClick: () -> Unit = {},
     onCheckUpdateClick: () -> Unit,
@@ -461,6 +465,23 @@ fun SettingsScreen(
                         subtitle = downloadPathDisplay,
                         onClick = { showFolderDialog = true }
                     )
+                    HorizontalDivider(color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
+                    SettingsSwitchItem(
+                        icon = Icons.Default.Wifi,
+                        title = "Автодокачка только по Wi-Fi",
+                        subtitle = "Возобновлять прерванные загрузки только при подключении к Wi-Fi",
+                        checked = isAutoResumeWifiOnly,
+                        onCheckedChange = onToggleAutoResumeWifiOnly
+                    )
+                    if (pendingDownloadsCount > 0) {
+                        HorizontalDivider(color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
+                        SettingsItem(
+                            icon = Icons.Default.Downloading,
+                            title = "В очереди автодокачки: $pendingDownloadsCount",
+                            subtitle = "Нажмите, чтобы очистить незавершённые загрузки",
+                            onClick = onClearPendingDownloads
+                        )
+                    }
                 }
             }
 

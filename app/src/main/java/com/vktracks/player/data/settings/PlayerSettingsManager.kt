@@ -13,6 +13,7 @@ class PlayerSettingsManager private constructor(context: Context) {
         private const val KEY_BT_AUTO_RESUME = "bt_auto_resume"
         private const val KEY_BT_AUTO_PAUSE = "bt_auto_pause"
         private const val KEY_SOFT_FADING = "soft_fading"
+        private const val KEY_AUTO_RESUME_WIFI_ONLY = "auto_resume_wifi_only"
 
         @Volatile
         private var INSTANCE: PlayerSettingsManager? = null
@@ -35,4 +36,8 @@ class PlayerSettingsManager private constructor(context: Context) {
     var isSoftFadingEnabled: Boolean
         get() = prefs.getBoolean(KEY_SOFT_FADING, true)
         set(value) = prefs.edit().putBoolean(KEY_SOFT_FADING, value).apply()
+
+    var isAutoResumeWifiOnly: Boolean
+        get() = prefs.getBoolean(KEY_AUTO_RESUME_WIFI_ONLY, false)
+        set(value) = prefs.edit().putBoolean(KEY_AUTO_RESUME_WIFI_ONLY, value).apply()
 }

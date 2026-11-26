@@ -476,14 +476,35 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun playNextInQueue(track: Track) {
-        ensurePlaybackService { service ->
-            service.playNextInQueue(track)
+        enqueueResolvedTrack(track) { service, resolved ->
+            service.playNextInQueue(resolved)
         }
     }
 
     fun addToQueueEnd(track: Track) {
-        ensurePlaybackService { service ->
-            service.addToQueueEnd(track)
+        enqueueResolvedTrack(track) { service, resolved ->
+            service.addToQueueEnd(resolved)
+        }
+    }
+
+    private fun enqueueResolvedTrack(track: Track, enqueue: (PlaybackService, Track) -> Unit) {
+        if (track.isRestricted && !track.isLocal) {
+            showToast("Воспроизведение недоступно: ${track.displayRestriction}")
+            return
+        }
+        viewModelScope.launch {
+            val resolved = if (track.streamUrl.isEmpty() && !track.isLocal) {
+                apiClient.resolveTrack(track)
+            } else {
+                track
+            }
+            if (!PlaybackService.isTrackPlayable(resolved)) {
+                showToast("Не удалось получить аудиопоток трека")
+                return@launch
+            }
+            ensurePlaybackService { service ->
+                enqueue(service, resolved)
+            }
         }
     }
 
@@ -1080,13 +1101,17 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         radioMetadataJob?.cancel()
         studio21WebSocket?.close(1000, "Normal track")
         studio21WebSocket = null
+        if (track.isRestricted && !track.isLocal) {
+            showToast("Воспроизведение недоступно: ${track.displayRestriction}")
+            return
+        }
         viewModelScope.launch {
             var currentTrackToPlay = track
             // Если нет ссылки на поток (например, трек из расширенного поиска), резолвим ссылку
             if (currentTrackToPlay.streamUrl.isEmpty() && !currentTrackToPlay.isLocal) {
                 currentTrackToPlay = apiClient.resolveTrack(currentTrackToPlay)
             }
-            if (currentTrackToPlay.streamUrl.isEmpty() && !currentTrackToPlay.isLocal) {
+            if (!PlaybackService.isTrackPlayable(currentTrackToPlay)) {
                 Log.w("MainViewModel", "Could not resolve streamUrl for ${currentTrackToPlay.fullId}")
                 showToast("Не удалось получить аудиопоток трека")
                 return@launch

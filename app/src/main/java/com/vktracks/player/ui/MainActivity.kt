@@ -362,11 +362,21 @@ fun MainAppScreen(viewModel: MainViewModel) {
                             onRetryClick = { viewModel.openPlaylist(playlist) },
                             onCreateNewPlaylistClick = { showCreatePlaylistDialog = true },
                             onTrackClick = { track, list -> viewModel.playTrack(track, list) },
-                            onPlayAllClick = { list -> if (list.isNotEmpty()) viewModel.playTrack(list.first(), list) },
+                            onPlayAllClick = { list ->
+                                val playable = PlaybackService.filterPlayableTracks(list)
+                                if (playable.isNotEmpty()) {
+                                    viewModel.playTrack(playable.first(), playable)
+                                } else if (list.isNotEmpty()) {
+                                    Toast.makeText(context, "Нет доступных треков", Toast.LENGTH_SHORT).show()
+                                }
+                            },
                             onShuffleClick = { list ->
-                                if (list.isNotEmpty()) {
-                                    val shuffled = list.shuffled()
+                                val playable = PlaybackService.filterPlayableTracks(list)
+                                if (playable.isNotEmpty()) {
+                                    val shuffled = playable.shuffled()
                                     viewModel.playTrack(shuffled.first(), shuffled)
+                                } else if (list.isNotEmpty()) {
+                                    Toast.makeText(context, "Нет доступных треков", Toast.LENGTH_SHORT).show()
                                 }
                             },
                             onDownloadAllClick = { list -> viewModel.downloadAllInPlaylist(list, playlist.title) },

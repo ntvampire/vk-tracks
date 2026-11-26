@@ -19,6 +19,7 @@ import android.os.Handler
 import android.os.Looper
 import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
+import androidx.media3.common.ForwardingPlayer
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
 import androidx.media3.common.Player
@@ -86,6 +87,9 @@ class PlaybackService : MediaLibraryService() {
     private var audioDeviceCallback: AudioDeviceCallback? = null
     private var bluetoothResumeJob: Job? = null
     private var fadeJob: Job? = null
+    private var errorRecoveryJob: Job? = null
+    private var consecutiveErrorCount: Int = 0
+    private var lastRefreshedErrorTrackId: String? = null
 
     private fun isTrustedController(controller: MediaSession.ControllerInfo): Boolean {
         if (controller.packageName == applicationContext.packageName) return true
@@ -736,7 +740,57 @@ class PlaybackService : MediaLibraryService() {
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
         )
 
-        mediaSession = MediaLibrarySession.Builder(this, player, sessionCallback)
+        val sessionPlayer = object : ForwardingPlayer(player) {
+            override fun play() {
+                errorRecoveryJob?.cancel()
+                if (wrappedPlayer.playbackState == Player.STATE_IDLE || wrappedPlayer.playerError != null) {
+                    wrappedPlayer.prepare()
+                }
+                super.play()
+            }
+
+            override fun seekToNext() {
+                errorRecoveryJob?.cancel()
+                val hadErrorOrIdle = wrappedPlayer.playbackState == Player.STATE_IDLE || wrappedPlayer.playerError != null
+                super.seekToNext()
+                if (hadErrorOrIdle && wrappedPlayer.mediaItemCount > 0) {
+                    wrappedPlayer.prepare()
+                    wrappedPlayer.play()
+                }
+            }
+
+            override fun seekToNextMediaItem() {
+                errorRecoveryJob?.cancel()
+                val hadErrorOrIdle = wrappedPlayer.playbackState == Player.STATE_IDLE || wrappedPlayer.playerError != null
+                super.seekToNextMediaItem()
+                if (hadErrorOrIdle && wrappedPlayer.mediaItemCount > 0) {
+                    wrappedPlayer.prepare()
+                    wrappedPlayer.play()
+                }
+            }
+
+            override fun seekToPrevious() {
+                errorRecoveryJob?.cancel()
+                val hadErrorOrIdle = wrappedPlayer.playbackState == Player.STATE_IDLE || wrappedPlayer.playerError != null
+                super.seekToPrevious()
+                if (hadErrorOrIdle && wrappedPlayer.mediaItemCount > 0) {
+                    wrappedPlayer.prepare()
+                    wrappedPlayer.play()
+                }
+            }
+
+            override fun seekToPreviousMediaItem() {
+                errorRecoveryJob?.cancel()
+                val hadErrorOrIdle = wrappedPlayer.playbackState == Player.STATE_IDLE || wrappedPlayer.playerError != null
+                super.seekToPreviousMediaItem()
+                if (hadErrorOrIdle && wrappedPlayer.mediaItemCount > 0) {
+                    wrappedPlayer.prepare()
+                    wrappedPlayer.play()
+                }
+            }
+        }
+
+        mediaSession = MediaLibrarySession.Builder(this, sessionPlayer, sessionCallback)
             .setSessionActivity(sessionActivityIntent)
             .build()
 
@@ -808,6 +862,8 @@ class PlaybackService : MediaLibraryService() {
 
             override fun onPlaybackStateChanged(playbackState: Int) {
                 if (playbackState == Player.STATE_READY) {
+                    consecutiveErrorCount = 0
+                    lastRefreshedErrorTrackId = null
                     _durationMs.value = player.duration.coerceAtLeast(0)
                 }
             }
@@ -842,6 +898,7 @@ class PlaybackService : MediaLibraryService() {
 
             override fun onPlayerError(error: androidx.media3.common.PlaybackException) {
                 android.util.Log.e("PlaybackService", "ExoPlayer error: ${error.errorCodeName} (${error.errorCode}) - ${error.message}", error)
+                recoverFromPlaybackError()
             }
         })
 
@@ -895,6 +952,7 @@ class PlaybackService : MediaLibraryService() {
         }
         bluetoothResumeJob?.cancel()
         fadeJob?.cancel()
+        errorRecoveryJob?.cancel()
         progressJob?.cancel()
         artworkJob?.cancel()
         historyJob?.cancel()
@@ -909,25 +967,97 @@ class PlaybackService : MediaLibraryService() {
         super.onDestroy()
     }
 
+    private fun recoverFromPlaybackError() {
+        val queueSnapshot = currentQueue
+        if (queueSnapshot.isEmpty() || player.mediaItemCount == 0) return
+
+        val curIdx = player.currentMediaItemIndex
+        val failedTrack = queueSnapshot.getOrNull(curIdx)
+
+        errorRecoveryJob?.cancel()
+        errorRecoveryJob = serviceScope.launch(Dispatchers.Main) {
+            // 1. Попытка обновить streamUrl трека VK (на случай истечения подписи или временной ошибки)
+            if (failedTrack != null && !failedTrack.isLocal && failedTrack.duration > 0 && lastRefreshedErrorTrackId != failedTrack.fullId) {
+                lastRefreshedErrorTrackId = failedTrack.fullId
+                val refreshed = withContext(Dispatchers.IO) {
+                    try {
+                        NetworkModule.getVkApiClient(applicationContext).resolveTrack(failedTrack)
+                    } catch (_: Exception) {
+                        null
+                    }
+                }
+                if (refreshed != null && !refreshed.isRestricted && refreshed.streamUrl.isNotEmpty() &&
+                    refreshed.streamUrl != failedTrack.streamUrl &&
+                    player.currentMediaItemIndex == curIdx
+                ) {
+                    val updatedList = currentQueue.toMutableList()
+                    if (curIdx in updatedList.indices && updatedList[curIdx].fullId == failedTrack.fullId) {
+                        updatedList[curIdx] = refreshed
+                        currentQueue = updatedList
+                        _currentQueueFlow.value = updatedList
+                    }
+                    player.replaceMediaItem(curIdx, buildMediaItem(refreshed))
+                    player.prepare()
+                    player.play()
+                    return@launch
+                }
+            }
+
+            // 2. Автоматический переход к следующему доступному треку в очереди (с ограничением подряд идущих сбоев)
+            consecutiveErrorCount++
+            val maxRetries = minOf(currentQueue.size, 5).coerceAtLeast(1)
+            if (consecutiveErrorCount <= maxRetries && currentQueue.size > 1 && player.hasNextMediaItem()) {
+                player.seekToNextMediaItem()
+                val nextIdx = player.currentMediaItemIndex
+                if (nextIdx in currentQueue.indices) {
+                    val nextTrack = currentQueue[nextIdx]
+                    _currentTrack.value = nextTrack
+                    _durationMs.value = (nextTrack.duration.toLong() * 1000L).coerceAtLeast(0)
+                    loadArtworkAsync(nextTrack)
+                    updateNotificationLikeButton()
+                }
+                player.prepare()
+                player.play()
+            } else {
+                android.util.Log.w("PlaybackService", "Stopped auto-skip after $consecutiveErrorCount consecutive playback errors")
+            }
+        }
+    }
+
     fun playQueue(tracks: List<Track>, startIndex: Int = 0) {
         if (tracks.isEmpty()) return
-        val validStartIndex = startIndex.coerceIn(0, tracks.lastIndex)
-        val validTrack = tracks[validStartIndex]
-        if (validTrack.streamUrl.isEmpty() && !validTrack.isLocal) {
-            android.util.Log.e("PlaybackService", "Cannot play track without stream URL: ${validTrack.fullId}")
+        errorRecoveryJob?.cancel()
+        consecutiveErrorCount = 0
+        lastRefreshedErrorTrackId = null
+
+        val rawStartIndex = startIndex.coerceIn(0, tracks.lastIndex)
+        val requestedTrack = tracks[rawStartIndex]
+
+        // Отфильтровываем недоступные/пустые треки, чтобы они не ломали очередь ExoPlayer
+        val playableTracks = tracks.filter { isTrackPlayable(it) }
+        if (playableTracks.isEmpty()) {
+            android.util.Log.e("PlaybackService", "No playable tracks in queue (requested: ${requestedTrack.fullId})")
             return
         }
 
-        // Если очередь та же самая — не пересоздаем все MediaItems и не сбрасываем ExoPlayer
-        val isSameQueue = currentQueue.size == tracks.size &&
-                currentQueue.isNotEmpty() &&
-                currentQueue.first().fullId == tracks.first().fullId &&
-                currentQueue.last().fullId == tracks.last().fullId
+        val validStartIndex = playableTracks.indexOfFirst { it.fullId == requestedTrack.fullId }.let { idx ->
+            if (idx >= 0) idx else 0
+        }
+        val validTrack = playableTracks[validStartIndex]
 
-        if (isSameQueue && player.mediaItemCount == tracks.size) {
-            currentQueue = tracks
-            _currentQueueFlow.value = tracks
+        // Если очередь та же самая — не пересоздаем все MediaItems и не сбрасываем ExoPlayer
+        val isSameQueue = currentQueue.size == playableTracks.size &&
+                currentQueue.isNotEmpty() &&
+                currentQueue.first().fullId == playableTracks.first().fullId &&
+                currentQueue.last().fullId == playableTracks.last().fullId
+
+        if (isSameQueue && player.mediaItemCount == playableTracks.size) {
+            currentQueue = playableTracks
+            _currentQueueFlow.value = playableTracks
             player.seekToDefaultPosition(validStartIndex)
+            if (player.playbackState == Player.STATE_IDLE || player.playerError != null) {
+                player.prepare()
+            }
             player.play()
             _currentTrack.value = validTrack
             _durationMs.value = (validTrack.duration.toLong() * 1000L).coerceAtLeast(0)
@@ -938,10 +1068,10 @@ class PlaybackService : MediaLibraryService() {
             return
         }
 
-        currentQueue = tracks
-        _currentQueueFlow.value = tracks
+        currentQueue = playableTracks
+        _currentQueueFlow.value = playableTracks
 
-        val mediaItems = tracks.map { track ->
+        val mediaItems = playableTracks.map { track ->
             buildMediaItem(track)
         }
 
@@ -1159,6 +1289,10 @@ class PlaybackService : MediaLibraryService() {
     }
 
     fun softPlay(durationMs: Long = 150L) {
+        errorRecoveryJob?.cancel()
+        if (player.playbackState == Player.STATE_IDLE || player.playerError != null) {
+            player.prepare()
+        }
         val settings = PlayerSettingsManager.getInstance(this)
         if (!settings.isSoftFadingEnabled) {
             player.volume = 1.0f
@@ -1200,16 +1334,32 @@ class PlaybackService : MediaLibraryService() {
     }
 
     fun playNext() {
+        errorRecoveryJob?.cancel()
+        val hadErrorOrIdle = player.playbackState == Player.STATE_IDLE || player.playerError != null
         if (player.hasNextMediaItem()) {
             player.seekToNextMediaItem()
+            if (hadErrorOrIdle) {
+                player.prepare()
+                player.play()
+            }
         }
     }
 
     fun playPrevious() {
+        errorRecoveryJob?.cancel()
+        val hadErrorOrIdle = player.playbackState == Player.STATE_IDLE || player.playerError != null
         if (player.currentPosition > 3000) {
             player.seekTo(0)
+            if (hadErrorOrIdle) {
+                player.prepare()
+                player.play()
+            }
         } else if (player.hasPreviousMediaItem()) {
             player.seekToPreviousMediaItem()
+            if (hadErrorOrIdle) {
+                player.prepare()
+                player.play()
+            }
         }
     }
 
@@ -1217,6 +1367,9 @@ class PlaybackService : MediaLibraryService() {
         lastSeekTimestamp = System.currentTimeMillis()
         lastSeekPositionMs = positionMs
         _currentPositionMs.value = positionMs
+        if (player.playbackState == Player.STATE_IDLE || player.playerError != null) {
+            player.prepare()
+        }
         player.seekTo(positionMs)
     }
 
@@ -1574,22 +1727,29 @@ class PlaybackService : MediaLibraryService() {
                     }
                 }
 
+                val playableRestored = restored.filter { isTrackPlayable(it) }
+                if (playableRestored.isEmpty()) return@launch
+                val validSavedIndex = playableRestored.indexOfFirst { it.fullId == current.fullId }.let { idx ->
+                    if (idx >= 0) idx else 0
+                }
+                val finalCurrent = playableRestored[validSavedIndex]
+
                 withContext(Dispatchers.Main) {
                     // Если пользователь уже запустил новую очередь за время фонового чтения — не перезаписываем
                     if (currentQueue.isNotEmpty()) return@withContext
 
-                    currentQueue = restored
-                    _currentQueueFlow.value = restored
+                    currentQueue = playableRestored
+                    _currentQueueFlow.value = playableRestored
 
-                    val mediaItems = restored.map { track -> buildMediaItem(track) }
-                    player.setMediaItems(mediaItems, savedIndex, savedPos)
+                    val mediaItems = playableRestored.map { track -> buildMediaItem(track) }
+                    player.setMediaItems(mediaItems, validSavedIndex, savedPos)
                     player.prepare()
                     player.playWhenReady = false
 
-                    _currentTrack.value = current
+                    _currentTrack.value = finalCurrent
                     _currentPositionMs.value = savedPos
-                    _durationMs.value = (current.duration.toLong() * 1000L).coerceAtLeast(0)
-                    loadArtworkAsync(current)
+                    _durationMs.value = (finalCurrent.duration.toLong() * 1000L).coerceAtLeast(0)
+                    loadArtworkAsync(finalCurrent)
                     updateNotificationLikeButton()
                 }
             } catch (e: Exception) {
@@ -1633,6 +1793,12 @@ class PlaybackService : MediaLibraryService() {
                 likedTrackIds = if (liked) likedTrackIds + fullId else likedTrackIds - fullId
             }
         }
+
+        fun isTrackPlayable(track: Track): Boolean {
+            return !track.isRestricted && (track.streamUrl.isNotEmpty() || track.isLocal)
+        }
+
+        fun filterPlayableTracks(tracks: List<Track>): List<Track> = tracks.filter { isTrackPlayable(it) }
 
         fun isCurrentTrackLiked(track: Track): Boolean {
             return likedTrackIds.contains(track.fullId) || track.isLiked

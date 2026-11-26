@@ -1,8 +1,8 @@
 {
-    "versionCode":  68,
-    "versionName":  "1.0.67",
-    "downloadUrl":  "https://github.com/ntvampire/vk-tracks/releases/download/v1.0.67/VK-Tracks-1.0.67.apk",
-    "mirrorUrl":  "https://ntvampire.github.io/vk-tracks/VK-Tracks-1.0.67.apk",
-    "sha256":  "b5123323ae3b00f18813cef73ac093650ea4652c381fda41ba503191ebbdec35",
-    "changelog":  "Безопасность: защита PlaybackService, SHA-256 и подпись OTA APK, network_security_config, R8-обфускация. Стабильность: единый NetworkModule, фиксы очереди и MediaStore/HLS, совместимый ID3v2.3. Архитектура и UX: Room v10 с постоянными обложками плейлистов, оптимизация рекомпозиций плеера и новые unit-тесты."
+    "versionCode":  69,
+    "versionName":  "1.0.68",
+    "downloadUrl":  "https://github.com/ntvampire/vk-tracks/releases/download/v1.0.68/VK-Tracks-1.0.68.apk",
+    "mirrorUrl":  "https://ntvampire.github.io/vk-tracks/VK-Tracks-1.0.68.apk",
+    "sha256":  "aa117eda6f9ce430a2dfb88721fa1219a4b8881afc4d86881e92a07995cccc12",
+    "changelog":  "Исправлена остановка плеера на недоступных в ВК треках: фильтрация очередей, автопропуск с обновлением ссылки потока, восстановление переключения треков из STATE_IDLE и юнит-тесты фильтрации очереди."
 }
